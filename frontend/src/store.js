@@ -56,8 +56,10 @@ const store = createStore({
     async saveSettings({ commit, state }, settingsPayload) {
       // Optimistically update local state
       commit('SET_SETTINGS', settingsPayload);
+      let responseText = ''; // Define responseText here to be accessible in catch
       try {
-        const port = state.backendPort;
+        const port = state.backendPort; // Ensure port is defined before fetch
+        console.log('[store.js] saveSettings: Attempting to POST /api/settings with payload:', JSON.stringify(settingsPayload));
         const response = await fetch(`http://127.0.0.1:${port}/api/settings`, {
           method: 'POST',
           headers: {
@@ -65,35 +67,60 @@ const store = createStore({
           },
           body: JSON.stringify(settingsPayload), // Send only the payload
         });
+
+        console.log('[store.js] saveSettings: Received response for /api/settings. Status:', response.status, 'Ok:', response.ok);
+        try {
+            responseText = await response.clone().text(); // Clone to read text
+            console.log('[store.js] saveSettings: Response text (first 200 chars):', responseText.substring(0, 200));
+        } catch (textError) {
+            console.error('[store.js] saveSettings: Error cloning or reading response text:', textError);
+        }
+
         if (!response.ok) {
-          const errorData = await response.text();
-          console.error('Failed to save settings to backend:', response.status, errorData);
+          console.error('Failed to save settings to backend:', response.status, response.statusText, 'Response Body:', responseText.substring(0, 200));
           // Optionally revert optimistic update here or notify user
         } else {
           console.log('Settings saved to backend successfully.');
         }
       } catch (e) {
-        console.error('Error during saveSettings API call:', e);
+        console.error('[store.js] saveSettings: CATCH block. Error during fetch or processing for /api/settings:', e);
+        if (responseText) {
+            console.error('[store.js] saveSettings: CATCH block. Response text that might be relevant (first 200 chars):', responseText.substring(0, 200));
+        }
         // Handle network error, potentially revert or notify
       }
     },
     async loadSettings({ commit, state }) {
+      let responseText = ''; // Variable to hold response text for logging in catch
       try {
         const port = state.backendPort;
-        const response = await fetch(`http://127.0.0.1:${port}/api/settings`);
+        const url = `http://127.0.0.1:${port}/api/settings`;
+        console.log('[store.js] loadSettings: Attempting to fetch /api/settings');
+        const response = await fetch(url);
+
+        console.log('[store.js] loadSettings: Received response for /api/settings. Status:', response.status, 'Ok:', response.ok);
+        responseText = await response.clone().text(); // Clone to read text without consuming body for json()
+        console.log('[store.js] loadSettings: Response text (first 200 chars):', responseText.substring(0, 200));
+
         if (!response.ok) {
-          const errorData = await response.text();
-          console.error('Failed to load settings from backend:', response.status, errorData);
+          // const errorData = await response.text(); // Already captured in responseText
+          console.error('Failed to load settings from backend:', response.status, responseText);
           // Keep default settings if backend fetch fails
           return;
         }
-        const loadedSettings = await response.json();
+        const loadedSettings = await response.json(); // This can fail if responseText is not valid JSON
         commit('SET_SETTINGS', loadedSettings);
         console.log('Settings loaded from backend successfully.');
       } catch (e) {
-        console.error('Error during loadSettings API call:', e);
+        console.error('[store.js] loadSettings: CATCH block. Error during fetch or JSON parsing for /api/settings:', e);
+        if (responseText) { // If responseText was captured before a JSON.parse error
+            console.error('[store.js] loadSettings: CATCH block. Response text that may have caused JSON parse error (first 200 chars):', responseText.substring(0, 200));
+        }
         // Keep default settings on network error
       }
+    },
+    updateOllamaStatus({ commit }, status) {
+      commit('SET_OLLAMA_STATUS', status);
     },
   },
   getters: {

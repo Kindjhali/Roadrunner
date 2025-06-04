@@ -566,6 +566,8 @@ export default {
         toolEvents: []
       });
 
+      console.log('[App.vue] sendBrainstormingMessage: this.selectedBrainstormingModelId =', JSON.stringify(this.selectedBrainstormingModelId));
+      console.log('[App.vue] sendBrainstormingMessage: this.selectedBrainstormingModelLabel =', this.selectedBrainstormingModelLabel);
       if (window.electronAPI && window.electronAPI.sendBrainstormingChat) {
         window.electronAPI.sendBrainstormingChat({
           modelId: this.selectedBrainstormingModelId, // Ensure this holds the correct model ID like "ollama/mistral"
