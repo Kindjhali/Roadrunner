@@ -34,6 +34,24 @@ body {
   font-size: 14px; /* Added this line */
 }
 
+/* Orange themed scrollbars for any overflow */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-orange) var(--theme-orange-dark);
+}
+*::-webkit-scrollbar {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+*::-webkit-scrollbar-track {
+  background: var(--theme-orange-dark);
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--theme-orange);
+  border-radius: 0.25rem;
+  border: 2px solid var(--theme-orange-dark);
+}
+
 input[type="text"],
 textarea {
   background-color: #000000;
