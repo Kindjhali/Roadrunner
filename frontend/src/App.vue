@@ -346,14 +346,26 @@ export default {
     categorizedCoderModels: {
       // Watch for changes in available models to set sensible defaults
       handler(newModels) {
+        console.log('[Watcher categorizedCoderModels] newModels:', JSON.stringify(newModels));
+        const firstCategory = Object.keys(newModels)[0];
+        const firstModel = newModels[firstCategory]?.[0];
+        console.log('[Watcher categorizedCoderModels] firstCategory:', firstCategory);
+        console.log('[Watcher categorizedCoderModels] firstModel:', JSON.stringify(firstModel));
+        if (firstModel) {
+          console.log('[Watcher categorizedCoderModels] firstModel.id:', JSON.stringify(firstModel.id));
+        } else {
+          console.log('[Watcher categorizedCoderModels] firstModel is undefined or null.');
+        }
         if (newModels && Object.keys(newModels).length > 0) {
-          const firstCategory = Object.keys(newModels)[0];
-          const firstModel = newModels[firstCategory]?.[0];
-          if (!this.selectedModelId && firstModel) {
+          // const firstCategory = Object.keys(newModels)[0]; // Already defined above
+          // const firstModel = newModels[firstCategory]?.[0]; // Already defined above
+          if (!this.selectedModelId && firstModel && firstModel.id) {
             this.selectedModelId = firstModel.id;
+            console.log('[Watcher categorizedCoderModels] Default selectedModelId set to:', firstModel.id);
           }
-          if (!this.selectedBrainstormingModelId && firstModel) {
+          if (!this.selectedBrainstormingModelId && firstModel && firstModel.id) {
             this.selectedBrainstormingModelId = firstModel.id;
+            console.log('[Watcher categorizedCoderModels] Default selectedBrainstormingModelId set to:', firstModel.id);
           }
         }
       },
@@ -543,6 +555,12 @@ export default {
     // Sends the user's message from the Brainstorming tab to the main Electron process via IPC for LLM interaction.
     // Manages streaming state and adds placeholders for model responses.
     sendBrainstormingMessage() {
+      if (!this.selectedBrainstormingModelId) {
+        this.brainstormingModelError = 'Error: Brainstorming model not selected. Please choose a model from the dropdown.';
+        console.warn('[App.vue] sendBrainstormingMessage: Prevented sending message because selectedBrainstormingModelId is not set. Value:', JSON.stringify(this.selectedBrainstormingModelId));
+        this.scrollToBottom('brainstorming'); // Scroll to make error visible
+        return;
+      }
       if (!this.brainstormingInput.trim() || this.isStreamingResponse) return;
 
       const messageText = this.brainstormingInput.trim();
