@@ -106,13 +106,15 @@ function loadBackendConfig() {
 // Load backend settings on server startup
 loadBackendConfig();
 
-// Path configuration for workspace, logs etc. (existing logic)
-const CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json'); // This might be confusing now.
-                                                                                // The above BACKEND_CONFIG_FILE_PATH is more specific.
-                                                                                // For now, let existing path logic use its own CONFIG_FILE_PATH
-                                                                                // if it's for different settings.
-                                                                                // If they are meant to be the same file, this needs consolidation.
-                                                                                // Assuming for now backend_config.json can store both types of settings.
+// --- Path Configuration for Workspace, Logs, etc. ---
+// NOTE: Both BACKEND_CONFIG_FILE_PATH (used for LLM provider settings, API keys, default models)
+// and CONFIG_FILE_PATH (used by getConfiguredPath for logDir, workspaceDir, etc.)
+// point to the *same* 'backend_config.json' file.
+// This means 'backend_config.json' stores a mix of settings:
+// 1. LLM provider configurations (provider, apiKey, defaultOllamaModel) - managed by loadBackendConfig().
+// 2. Path configurations (logDir, workspaceDir, componentDir [though componentDir seems unused]) - managed by getConfiguredPath().
+// While they use the same file, they are loaded and utilized by different parts of the configuration logic.
+const CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json');
 
 // Helper function to resolve path, ensuring it's absolute
 // If a path is relative, it's resolved from __dirname (i.e., roadrunner/backend)
@@ -256,7 +258,6 @@ function categorizeOllamaModels(ollamaModels, config) {
 }
 
 const simpleGit = require('simple-git');
-// const logcore = require('../../TokomakCore/logcore'); // Removed TokomakCore/logcore dependency
 
 const app = express();
 
@@ -270,11 +271,13 @@ app.use(requestLogger); // Register the logger middleware
 const PORT = process.env.PORT || 3030;
 
 // In-memory store for pending confirmations
+// Tasks awaiting user confirmation (e.g., for file operations in safety mode, or batch operations) are stored here.
 const pendingConfirmations = {};
 const pendingPlanApprovals = {}; // For Autonomous Mode plan approvals
 const pendingFailures = {};
 
 // Configuration for "Confirm After X Operations"
+// Defines how many modifying operations can occur before a batch confirmation is requested in safety mode.
 const CONFIRM_AFTER_N_OPERATIONS = 3;
 
 // --- Configuration ---
@@ -288,8 +291,6 @@ try {
   console.error(`[Config] Fatal Error: Could not establish LOG_DIR. Server cannot start. ${error.message}`);
   process.exit(1); // Exit if critical LOG_DIR cannot be set up.
 }
-
-// const COMPONENT_DIR = getConfiguredPath('RR_COMPONENT_DIR', 'componentDir', '../tokomakAI/src/components', true, false); // Removed COMPONENT_DIR
 
 // Workspace Directory Configuration
 // Standardized to RR_WORKSPACE_DIR (env) and workspaceDir (JSON)
@@ -589,6 +590,8 @@ function parseTaskPayload(req) {
 // Refactored main execution logic to be callable for initial and resumed tasks
 
 // Helper function to execute steps within a loop
+// This function is responsible for executing the sequence of steps defined within a 'loop_iterations' step.
+// It manages its own context for the current iteration number and resolves templates using that context.
 async function executeLoopBody(
   expressHttpRes,
   task_description,
@@ -604,6 +607,7 @@ async function executeLoopBody(
   let operationCount = initialOperationCount;
   sendSseMessage('log_entry', { message: `[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}) - Starting execution of ${loopSteps.length} steps.` });
 
+  // Iterate through each step defined within the loop body.
   for (let i = 0; i < loopSteps.length; i++) {
     let currentLoopStep = JSON.parse(JSON.stringify(loopSteps[i])); // Deep clone
     const loopStepNumber = i + 1;
@@ -729,12 +733,19 @@ async function executeStepsInternal(
   safetyMode, // Global safety mode for this task execution
   initialOperationCount = 0 // For resuming operation count
 ) {
+  // Main function for processing a task's steps. It handles:
+  // - Sequential execution of steps.
+  // - Resumption from a specific step (startingStepIndex).
+  // - Safety mode confirmations (batch and per-step).
+  // - Retries and LLM-based refinements for failed steps.
+  // - LLM-based evaluation of step outputs.
   console.log(`[executeStepsInternal] Starting/Resuming task: "${task_description}" from step ${startingStepIndex + 1}. Safety Mode: ${safetyMode}, Initial Op Count: ${initialOperationCount}`);
   sendSseMessage('log_entry', { message: `[SSE] Task execution started/resumed for "${task_description}" from step ${startingStepIndex + 1}. Safety Mode: ${safetyMode}` }, expressHttpRes);
 
   let operationCountSinceLastConfirmation = initialOperationCount;
 
   // Helper function to trigger step failure
+  // Standardizes error reporting, stores failure details for potential user resolution, and sends failure options to the client.
   const triggerStepFailure = (errorMessage, errorDetails, stepType, stepNumber, currentStepContext) => {
     const fullErrorMessage = `Step ${stepNumber} (${stepType}): ${errorMessage}`;
     overallExecutionLog.push(`  -> ❌ ${fullErrorMessage}`);
@@ -790,6 +801,7 @@ async function executeStepsInternal(
     console.log(`[executeStepsInternal] Step ${stepNumber} (${stepType}) failed. Pausing task. Failure ID: ${failureId}`);
   };
 
+  // Main loop for iterating through each step in the task.
   for (let i = startingStepIndex; i < steps.length; i++) {
     let currentStep = JSON.parse(JSON.stringify(steps[i])); // Deep clone current step
 
@@ -819,7 +831,8 @@ async function executeStepsInternal(
     let stepProcessedSuccessfully = false;
     let lastErrorForStep = null;
 
-    // Internal loop for retries and refinements for the CURRENT step
+    // This loop handles retries (simple or after refinement) for the current step.
+    // It continues as long as the step hasn't succeeded and retry/refinement attempts are within limits.
     while (!stepProcessedSuccessfully &&
            (currentStep._internalRetryCount < (currentStep.details?.maxRetries || 0)) ||
            (currentStep.details?.onError === 'refine_and_retry' && currentStep._internalRefineCount < (currentStep.details?.maxRefinementRetries || 1))) { // Default 1 refinement attempt if not specified
@@ -843,11 +856,15 @@ async function executeStepsInternal(
         console.log(`[executeStepsInternal] ${attemptMessage.replace('[SSE] ', '')}`);
       }
 
+      // Try to execute the current step's logic.
       try {
         const isConfirmedAction = currentStep.details?.isConfirmedAction || false;
         lastErrorForStep = null; // Clear last error before new attempt
 
         // --- Actual Step Execution Logic (moved inside the while loop) ---
+        // Handles 'loop_iterations' steps, executing a sub-sequence of steps multiple times.
+        // Handles 'loop_iterations' steps, executing a sub-sequence of steps multiple times.
+        // Handles 'loop_iterations' steps, executing a sub-sequence of steps multiple times.
         if (currentStep.type === 'loop_iterations') {
         const { count, loop_steps, iterator_var } = currentStep.details || {};
         const loopStepNumberForLog = stepNumber; // To refer to the loop_iterations step itself
@@ -952,7 +969,7 @@ async function executeStepsInternal(
         }
         sendSseMessage('log_entry', { message: `[SSE] Step ${loopStepNumberForLog} (loop_iterations): Finished all ${count} iterations.` });
         overallExecutionLog.push(`  -> Finished loop_iterations step. Final operation count: ${operationCountSinceLastConfirmation}`);
-
+      // Handles 'generic_step' or 'execute_generic_task_with_llm' for general LLM interactions.
       } else if (
         currentStep.type === 'generic_step' ||
         currentStep.type === 'execute_generic_task_with_llm'
@@ -991,6 +1008,7 @@ async function executeStepsInternal(
           return;
         }
         operationCountSinceLastConfirmation++; // LLM call is an operation
+      // Handles 'create_file_with_llm_content' steps, generating file content via LLM and saving it.
       } else if (currentStep.type === 'create_file_with_llm_content') {
         overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
         const {
@@ -1090,6 +1108,7 @@ async function executeStepsInternal(
           triggerStepFailure(`fsAgent.createFile failed: ${createFileResult.message}`, createFileResult, currentStep.type, stepNumber, {i});
           return;
         }
+      // Handles 'git_operation' steps for executing Git commands.
       } else if (currentStep.type === 'git_operation') {
         overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
         const { command, output_id, ...details } = currentStep.details;
@@ -1251,6 +1270,7 @@ async function executeStepsInternal(
         }
         // Note: Not all git operations reset operationCountSinceLastConfirmation, only modifying ones IF they were individually confirmed.
         // Batch confirmation resets are handled by the batch confirmation logic itself.
+      // Handles 'show_workspace_tree' steps to display directory structures.
       } else if (currentStep.type === 'show_workspace_tree') {
         // This step is considered non-operational in terms of modification count
         let targetPath = WORKSPACE_DIR;
@@ -1267,6 +1287,7 @@ async function executeStepsInternal(
         }
         const treeString = fsAgent.generateDirectoryTree(targetPath, '', rootName);
         sendSseMessage('log_entry', { message: `Workspace tree (${rootName}):\n\`\`\`\n${treeString}\n\`\`\`` }, expressHttpRes);
+      // Handles 'conference_task' steps for multi-model debates and synthesis.
       } else if (currentStep.type === 'conference_task') {
         overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
         const { prompt: userPrompt, model_name: conferenceModelName, model_a_role: modelARole, model_b_role: modelBRole, arbiter_model_role: arbiterModelRole, output_id, num_rounds: requested_num_rounds } = currentStep.details || {};
@@ -1714,6 +1735,8 @@ Do not output the entire step, only the 'details' object.
 
 
     // --- LLM-based Result Evaluation ---
+      // If a step defines an 'evaluationPrompt', this block uses an LLM to evaluate the step's output.
+      // Based on the evaluation result, it may trigger retries, refinements, or mark the step as failed.
     if (stepProcessedSuccessfully && currentStep.details?.evaluationPrompt) {
       sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): Output produced. Evaluating with LLM...` }, expressHttpRes);
       overallExecutionLog.push(`  -> Step ${stepNumber} (${currentStep.type}): Output produced. Evaluating with LLM.`);
@@ -1915,11 +1938,14 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
   const overallExecutionLog = [`Task: "${task_description}"`];
   const taskContext = { outputs: {} };
 
+  // --- Autonomous Mode: Plan Generation ---
+  // If in autonomous mode, the system uses an LLM to generate a sequence of steps based on the overall task goal.
   if (isAutonomousMode) {
     sendSseMessage('log_entry', { message: `[SSE] Autonomous Mode enabled. Attempting to generate steps for goal: "${task_description}"` });
     overallExecutionLog.push(`[Autonomous Mode] Generating steps for goal: "${task_description}"`);
     console.log(`[handleExecuteAutonomousTask] Autonomous Mode: Generating steps for goal "${task_description}"`);
 
+    // Prompt for the LLM to generate a plan (sequence of steps) based on the user's task description.
     const autonomousPrompt = `
 You are an AI assistant that helps break down a complex user goal into a series of actionable steps for an automated execution system.
 The user's goal is: "${task_description}"
@@ -2076,6 +2102,8 @@ app.post('/execute-autonomous-task', handleExecuteAutonomousTask);
 app.get('/execute-autonomous-task', handleExecuteAutonomousTask);
 
 // --- Plan Approval Endpoints ---
+// --- Plan Approval Endpoints ---
+// Endpoint for the user to approve a plan generated by the LLM in autonomous mode.
 app.post('/api/approve-plan/:planId', async (req, res) => {
   const { planId } = req.params;
   console.log(`[API /api/approve-plan/${planId}] Received approval request.`);
@@ -2135,6 +2163,7 @@ app.post('/api/approve-plan/:planId', async (req, res) => {
   }
 });
 
+// Endpoint for the user to decline an LLM-generated plan.
 app.post('/api/decline-plan/:planId', async (req, res) => {
   const { planId } = req.params;
   console.log(`[API /api/decline-plan/${planId}] Received decline request.`);
@@ -2163,6 +2192,7 @@ app.post('/api/decline-plan/:planId', async (req, res) => {
 });
 
 // --- Resume Task Endpoint ---
+// Handles user responses (confirm/deny) to actions requiring confirmation (e.g., file operations, batch operations).
 app.post('/api/confirm-action/:confirmationId', async (req, res) => {
   const { confirmationId } = req.params;
   const { confirmed } = req.body;
@@ -2262,6 +2292,7 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
 // --- Step Failure Resolution Endpoints ---
 
 // Helper function to handle common failure retrieval and validation logic
+// Retrieves details of a failed task step that is awaiting user intervention.
 function getPendingFailureDetails(failureId, res) {
   const failureDetails = pendingFailures[failureId];
   if (!failureDetails) {
@@ -2282,6 +2313,7 @@ function getPendingFailureDetails(failureId, res) {
 }
 
 // 1. Retry Step Endpoint
+// Allows the user to retry a failed step.
 app.post('/api/retry-step/:failureId', async (req, res) => {
   const { failureId } = req.params;
   console.log(`[API /api/retry-step/${failureId}] Received retry request.`);
@@ -2334,6 +2366,7 @@ app.post('/api/retry-step/:failureId', async (req, res) => {
 });
 
 // 2. Skip Step Endpoint
+// Allows the user to skip a failed step and continue with the next one.
 app.post('/api/skip-step/:failureId', async (req, res) => {
   const { failureId } = req.params;
   console.log(`[API /api/skip-step/${failureId}] Received skip request.`);
@@ -2385,6 +2418,7 @@ app.post('/api/skip-step/:failureId', async (req, res) => {
 });
 
 // 3. Convert to Manual Endpoint
+// Allows the user to halt autonomous execution and receive the remaining steps to handle manually.
 app.post('/api/convert-to-manual/:failureId', async (req, res) => {
   const { failureId } = req.params;
   console.log(`[API /api/convert-to-manual/${failureId}] Received convert-to-manual request.`);
@@ -2487,34 +2521,41 @@ app.get('/api/ollama-models/categorized', async (req, res) => {
 // Search logs via LogCore
 app.get('/api/logs/search', async (req, res) => {
   try {
-    const { modules, levels, limit, ...rest } = req.query;
-    const options = { ...rest };
-    if (modules) options.modules = Array.isArray(modules) ? modules : String(modules).split(',');
-    if (levels) options.levels = Array.isArray(levels) ? levels : String(levels).split(',');
-    if (limit) options.limit = parseInt(limit, 10);
-    // const results = await logcore.searchLogs(options); // Removed TokomakCore/logcore dependency
-    // res.json(results); // Removed TokomakCore/logcore dependency
-    res.json({ message: "Log search functionality is pending a new logging implementation.", results: [] });
-  } catch (err) {
-    // console.error('[API /api/logs/search]', err.message); // Original error logging
-    console.error('[API /api/logs/search] Error (logcore removed):', err.message); // Modified error logging
-    res.status(500).json({ error: 'Log search failed (logcore removed)', details: err.message });
+    // const { modules, levels, limit, ...rest } = req.query; // logcore options not needed
+    // const options = { ...rest }; // logcore options not needed
+    // if (modules) options.modules = Array.isArray(modules) ? modules : String(modules).split(',');
+    // if (levels) options.levels = Array.isArray(levels) ? levels : String(levels).split(',');
+    // if (limit) options.limit = parseInt(limit, 10);
+
+    // Replace logcore call with 501 response
+    console.error('[API /api/logs/search] Endpoint hit, but feature is unavailable (logcore removed).');
+    res.status(501).json({
+        message: "Log search functionality is currently unavailable. Advanced logging features are pending reimplementation.",
+        note: "Basic task execution logs are saved as .md files in the configured Log Directory."
+    });
+  } catch (err) { // This catch might still be relevant if other parts of the setup fail
+    console.error('[API /api/logs/search] Unexpected error (logcore removed):', err.message);
+    if (!res.headersSent) { // Ensure headers aren't already sent by the 501 response
+        res.status(500).json({ error: 'Log search failed due to an unexpected issue.', details: err.message });
+    }
   }
 });
 
 // Export logs based on query
 app.get('/api/logs/export', async (req, res) => {
   try {
-    const { format = 'jsonl', ...rest } = req.query;
-    // const filePath = await logcore.exportLogs({ format, ...rest }); // Removed TokomakCore/logcore dependency
-    // res.download(filePath, err => { // Removed TokomakCore/logcore dependency
-    //   if (err) console.error('[API /api/logs/export] download error', err.message);
-    // }); // Removed TokomakCore/logcore dependency
-    res.status(501).json({ message: "Log export functionality is pending a new logging implementation." });
-  } catch (err) {
-    // console.error('[API /api/logs/export]', err.message); // Original error logging
-    console.error('[API /api/logs/export] Error (logcore removed):', err.message); // Modified error logging
-    res.status(500).json({ error: 'Log export failed (logcore removed)', details: err.message });
+    // const { format = 'jsonl', ...rest } = req.query; // logcore options not needed
+
+    // Replace logcore call with 501 response
+    console.error('[API /api/logs/export] Endpoint hit, but feature is unavailable (logcore removed).');
+    res.status(501).json({
+        message: "Log export functionality is currently unavailable. Advanced logging features are pending reimplementation."
+    });
+  } catch (err) { // This catch might still be relevant if other parts of the setup fail
+    console.error('[API /api/logs/export] Unexpected error (logcore removed):', err.message);
+    if (!res.headersSent) { // Ensure headers aren't already sent by the 501 response
+        res.status(500).json({ error: 'Log export failed due to an unexpected issue.', details: err.message });
+    }
   }
 });
 

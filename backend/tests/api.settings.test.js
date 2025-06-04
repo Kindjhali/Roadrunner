@@ -5,6 +5,13 @@ const path = require('path');
 // Mock the fs module
 jest.mock('fs');
 
+// Mock node-fetch
+const mockFetch = jest.fn();
+jest.mock('node-fetch', () => ({
+  __esModule: true,
+  default: mockFetch,
+}));
+
 // Import app and settings utilities AFTER mocking fs
 // Ensure server.js exports these. The app export is crucial for supertest.
 // backendSettings is imported as a getter function to access the live variable from server.js
@@ -230,5 +237,176 @@ describe('API Settings Endpoints', () => {
       expect(response.body.error).toBe('Failed to save settings.');
       expect(response.body.details).toBe('Disk full');
     });
+  });
+});
+
+describe('GET /api/ollama-models/categorized', () => {
+  const MODEL_CATEGORIES_PATH = path.join(__dirname, '..', 'config', 'model_categories.json');
+
+  beforeEach(() => {
+    // Reset mocks for each test
+    mockFetch.mockReset();
+    fs.readFileSync.mockReset(); // Reset fs.readFileSync specifically
+    fs.existsSync.mockReset(); // Reset fs.existsSync specifically
+
+    // Default mock for model_categories.json (can be overridden in tests)
+    fs.existsSync.mockImplementation(filePath => filePath === MODEL_CATEGORIES_PATH);
+    fs.readFileSync.mockImplementation(filePath => {
+      if (filePath === MODEL_CATEGORIES_PATH) {
+        return JSON.stringify({
+          categories: {
+            coder: ["codellama", "code"],
+            language: ["mistral", "llama", "phi3"]
+          },
+          default_category: "language"
+        });
+      }
+      // Fallback for other readFileSync calls if any (e.g., backend_config.json by loadBackendConfig)
+      // For this suite, we primarily care about model_categories.json
+      return JSON.stringify({});
+    });
+  });
+
+  test('Test 1: Successful categorization with keyword matching', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: "codellama:7b", details: {} },
+          { name: "mistral:latest", details: {} },
+          { name: "special-code-model:v1", details: {} },
+          { name: "phi3:mini", details: {} }
+        ]
+      }),
+      text: async () => JSON.stringify({
+        models: [
+          { name: "codellama:7b", details: {} },
+          { name: "mistral:latest", details: {} },
+          { name: "special-code-model:v1", details: {} },
+          { name: "phi3:mini", details: {} }
+        ]
+      })
+    });
+
+    // Specific mock for model_categories.json for this test
+    fs.readFileSync.mockImplementation(filePath => {
+      if (filePath === MODEL_CATEGORIES_PATH) {
+        return JSON.stringify({
+          categories: {
+            coder: ["codellama", "code"],
+            language: ["mistral", "phi"] // phi for phi3
+          },
+          default_category: "language"
+        });
+      }
+      return JSON.stringify({});
+    });
+
+    const response = await request(app).get('/api/ollama-models/categorized');
+    expect(response.statusCode).toBe(200);
+    expect(response.body.coder).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "codellama:7b" }),
+      expect.objectContaining({ name: "special-code-model:v1" })
+    ]));
+    expect(response.body.coder.length).toBe(2);
+    expect(response.body.language).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "mistral:latest" }),
+      expect.objectContaining({ name: "phi3:mini" })
+    ]));
+    expect(response.body.language.length).toBe(2);
+  });
+
+  test('Test 2: Models falling into default_category', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: "some-random-model:latest", details: {} },
+          { name: "another-llm:7b", details: {} }
+        ]
+      }),
+      text: async () => JSON.stringify({
+         models: [
+          { name: "some-random-model:latest", details: {} },
+          { name: "another-llm:7b", details: {} }
+        ]
+      })
+    });
+     // model_categories.json mock from beforeEach is fine (coder, language, default: language)
+
+    const response = await request(app).get('/api/ollama-models/categorized');
+    expect(response.statusCode).toBe(200);
+    expect(response.body.language).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "some-random-model:latest" }),
+      expect.objectContaining({ name: "another-llm:7b" })
+    ]));
+    expect(response.body.language.length).toBe(2);
+    expect(response.body.coder).toEqual([]);
+  });
+
+  test('Test 3: Models falling into uncategorized', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [{ name: "very-unique-model:1.0", details: {} }]
+      }),
+       text: async () => JSON.stringify({
+        models: [{ name: "very-unique-model:1.0", details: {} }]
+      })
+    });
+
+    // Mock model_categories.json without a default_category or non-matching categories
+    fs.readFileSync.mockImplementation(filePath => {
+      if (filePath === MODEL_CATEGORIES_PATH) {
+        return JSON.stringify({
+          categories: {
+            coder: ["codellama"],
+            specific: ["specific-keyword"]
+          }
+          // No default_category
+        });
+      }
+      return JSON.stringify({});
+    });
+
+    const response = await request(app).get('/api/ollama-models/categorized');
+    expect(response.statusCode).toBe(200);
+    expect(response.body.uncategorized).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "very-unique-model:1.0" })
+    ]));
+    expect(response.body.uncategorized.length).toBe(1);
+    expect(response.body.coder).toEqual([]);
+    expect(response.body.specific).toEqual([]);
+  });
+
+  test('Test 4: Handling Ollama API failure', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: 'Server Error',
+      text: async () => 'Ollama service is down'
+    });
+
+    const response = await request(app).get('/api/ollama-models/categorized');
+    expect(response.statusCode).toBe(500);
+    expect(response.body.error).toBe('Failed to fetch models from Ollama API');
+    expect(response.body.details).toContain('Ollama API request to /api/tags failed: 500 Server Error');
+    expect(response.body.ollama_body).toBe('Ollama service is down');
+  });
+
+  test('Test 5: Handling empty model list from Ollama', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ models: [] }),
+      text: async () => JSON.stringify({ models: [] })
+    });
+    // Using default model_categories.json mock from beforeEach
+
+    const response = await request(app).get('/api/ollama-models/categorized');
+    expect(response.statusCode).toBe(200);
+    expect(response.body.coder).toEqual([]);
+    expect(response.body.language).toEqual([]);
+    // Check for other categories defined in the default mock if any
+    expect(Object.keys(response.body).sort()).toEqual(['coder', 'language'].sort()); // Ensure only these categories (empty) are present
   });
 });
