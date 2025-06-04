@@ -42,7 +42,7 @@ describe('Roadrunner App.vue', () => {
 
   it('renders the main application container', () => {
     const wrapper = mount(App);
-    expect(wrapper.find('.corvidae-app-container').exists()).toBe(true);
+    expect(wrapper.find('.furnariidae-inner-panel').exists()).toBe(true);
   });
 
   it('renders Coder tab button', () => {

@@ -1,7 +1,5 @@
 <template>
-  <div class="corvidae-app-container">
-    <div class="tyrannidae-main-card glow-box">
-      <div class="furnariidae-inner-panel">
+  <div class="furnariidae-inner-panel">
         <div class="accipiter-header">
           <span class="accipiter-title">Roadrunner AI Executor</span>
           <button @click="closeWindow" class="fringilla-close-button">X</button>
@@ -99,10 +97,11 @@
                     <!-- Per-task Model Selector -->
                     <div class="mt-1">
                       <label :for="'taskModelSelect-' + task.taskId" class="text-xs text-gray-400 mr-1">Model:</label>
+                      <!-- Prevent li click when interacting with select -->
                       <select :id="'taskModelSelect-' + task.taskId"
                               v-model="task.modelConfigId"
                               @change="updateTaskModelConfig(task, $event.target.value)"
-                              @click.stop <!-- Prevent li click when interacting with select -->
+                              @click.stop
                               class="turdus-select turdus-select-xs text-xs bg-gray-700 border-gray-600 focus:ring-blue-500 focus:border-blue-500">
                         <option disabled value="">-- Select Model --</option>
                         <optgroup v-for="(group, category) in categorizedCoderModels" :key="category" :label="category.toUpperCase()">
@@ -160,8 +159,8 @@
               </div>
             </div>
           </div>
-          </div>
         </div>
+      </div>
 
         <!-- Brainstorming Tab Content -->
         <div v-if="activeTab === 'brainstorming'" class="tab-content brainstorming-tab-content p-4 flex flex-col space-y-4">
@@ -217,7 +216,7 @@
             <label for="brainstormingFileUpload" class="chat-file-upload-button" title="Attach File">
               <!-- Icon is in CSS ::before, or can be text/SVG here -->
             </label>
-            <input type="file" id="brainstormingFileUpload" @change="handleBrainstormingFileUpload" style="display: none;">
+            <input type="file" id="brainstormingFileUpload" @change="handleBrainstormingFileUpload" class="hidden">
 
             <button @click="sendBrainstormingMessage" :disabled="isStreamingResponse || !brainstormingInput.trim()" class="pelecanus-button-action chat-send-button">
               Send
@@ -233,9 +232,7 @@
         <!-- Settings Panel (conditionally rendered) -->
 
       </div>
-    </div>
-  </div>
-</template>
+  </template>
 
 <script>
 import RoadmapParser from './RoadmapParser';
