@@ -167,7 +167,9 @@ export default {
         return;
       }
       this.setConfigStatusMessage('Saving OpenAI API Key...', false, true); // Persistent message while saving
+      let responseText = ''; // Variable to hold response text for logging in catch
       try {
+        console.log('[ConfigurationTab.vue] saveOpenAIKey: Attempting to POST /api/config/openai-key with key:', this.openaiApiKey ? '******' : 'EMPTY_KEY');
         const response = await fetch('http://localhost:3030/api/config/openai-key', { // Corrected URL
           method: 'POST',
           headers: {
@@ -175,6 +177,10 @@ export default {
           },
           body: JSON.stringify({ apiKey: this.openaiApiKey }),
         });
+
+        console.log('[ConfigurationTab.vue] saveOpenAIKey: Received response for /api/config/openai-key. Status:', response.status, 'Ok:', response.ok);
+        responseText = await response.clone().text(); // Clone to read text without consuming body for json()
+        console.log('[ConfigurationTab.vue] saveOpenAIKey: Response text (first 200 chars):', responseText.substring(0, 200));
 
         const result = await response.json(); // Always try to parse JSON
 
@@ -185,7 +191,10 @@ export default {
           this.setConfigStatusMessage(result.message || `Failed to save OpenAI API Key: ${response.status}`, false);
         }
       } catch (error) {
-        console.error('Error saving OpenAI API Key:', error);
+        console.error('[ConfigurationTab.vue] saveOpenAIKey: CATCH block. Error during fetch or JSON parsing for /api/config/openai-key:', error);
+        if (responseText) { // If responseText was captured before a JSON.parse error
+            console.error('[ConfigurationTab.vue] saveOpenAIKey: CATCH block. Response text that may have caused JSON parse error (first 200 chars):', responseText.substring(0, 200));
+        }
         this.setConfigStatusMessage(`Error saving OpenAI API Key: ${error.message}`, false);
       }
     },

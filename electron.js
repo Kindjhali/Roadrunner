@@ -205,6 +205,16 @@ ipcMain.handle('select-directory', async () => {
 // The duplicated handlers below have been removed.
 
 ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt }) => {
+  // At the beginning of the handler
+  if (!modelId || typeof modelId !== 'string' || modelId.trim() === '') {
+    console.warn(`[Main] Brainstorming chat request rejected: modelId is invalid or empty. Received: '${modelId}'`);
+    event.sender.send('brainstorming-chat-stream-error', {
+      error: "Model ID is missing or invalid. Please select a valid model for brainstorming.",
+      details: `Received modelId: ${modelId}`
+    });
+    return;
+  }
+  // Original console.log can remain or be adjusted
   console.log(`[Main] Received brainstorming chat (streaming): Model ID - ${modelId}, Prompt - "${prompt ? prompt.substring(0,100) : 'EMPTY' }..."`);
   if (!prompt || prompt.trim() === '') {
     event.sender.send('brainstorming-chat-stream-error', { error: "Prompt cannot be empty." });

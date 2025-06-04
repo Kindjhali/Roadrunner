@@ -403,6 +403,36 @@ app.post('/api/settings', (req, res) => {
   }
 });
 
+app.post('/api/config/openai-key', (req, res) => {
+  const { apiKey } = req.body;
+  const logPrefix = '[API /api/config/openai-key]';
+
+  if (typeof apiKey !== 'string') {
+    console.warn(`${logPrefix} Received invalid API key format.`);
+    return res.status(400).json({ success: false, message: 'Invalid API key format. String expected.' });
+  }
+
+  console.log(`${logPrefix} Received request to save OpenAI API Key.`);
+
+  // Create a new settings object to avoid direct mutation issues if backendSettings is complex
+  const newSettings = {
+    ...backendSettings, // Spread existing settings
+    openaiApiKey: apiKey, // Add or update the OpenAI API key
+  };
+
+  try {
+    // Persist to BACKEND_CONFIG_FILE_PATH
+    fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(newSettings, null, 2), 'utf-8');
+    backendSettings = newSettings; // Update the in-memory settings object
+
+    console.log(`${logPrefix} OpenAI API Key saved successfully.`);
+    res.json({ success: true, message: 'OpenAI API Key saved successfully.' });
+  } catch (error) {
+    console.error(`${logPrefix} Error saving OpenAI API Key to config file:`, error);
+    res.status(500).json({ success: false, message: 'Failed to save OpenAI API Key due to a server error.' });
+  }
+});
+
 
 // --- LLM Interaction Functions ---
 

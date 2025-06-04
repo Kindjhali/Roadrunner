@@ -6,6 +6,11 @@
           <button @click="closeWindow" class="fringilla-close-button">X</button>
         </div>
 
+        <div v-if="$store.getters.getOllamaStatus && $store.getters.getOllamaStatus.message"
+             :class="['ollama-status-banner', $store.getters.getOllamaStatus.isConnected ? 'status-connected' : 'status-disconnected']">
+          {{ $store.getters.getOllamaStatus.message }}
+        </div>
+
         <!-- Tab Navigation -->
         <div class="tab-navigation">
           <button @click="activeTab = 'coder'" :class="{ 'active': activeTab === 'coder' }">Coder</button>
@@ -46,6 +51,9 @@
                   </option>
                 </optgroup>
               </select>
+              <p v-if="!$store.getters.getOllamaStatus.isConnected && Object.keys(categorizedCoderModels).length === 0" class="text-xs text-red-400">
+                Models unavailable: Ollama connection issue.
+              </p>
             </div>
             <button @click="loadAvailableModels" title="Refresh Models" class="pelecanus-button-action">
               🔄
@@ -142,7 +150,8 @@
           </div>
           <!-- End Task Display Area -->
 
-          <button @click="runExecutor" class="cardinalis-button-primary" :disabled="!activeSessionTaskId && sessionTasks.length === 0">
+          <button @click="runExecutor" class="cardinalis-button-primary"
+                  :disabled="(!activeSessionTaskId && sessionTasks.length === 0) || !$store.getters.getOllamaStatus.isConnected">
             Run Active Task
           </button>
 
@@ -178,6 +187,9 @@
                   </option>
                 </optgroup>
               </select>
+              <p v-if="!$store.getters.getOllamaStatus.isConnected && Object.keys(categorizedCoderModels).length === 0" class="text-xs text-red-400">
+                Models unavailable: Ollama connection issue.
+              </p>
             </div>
             <!-- Optional: Refresh button for brainstorming models if applicable
             <button @click="loadBrainstormingModels" title="Refresh Models" class="pelecanus-button-action">
@@ -219,7 +231,7 @@
             </label>
             <input type="file" id="brainstormingFileUpload" @change="handleBrainstormingFileUpload" class="hidden">
 
-            <button @click="sendBrainstormingMessage" :disabled="isStreamingResponse || !brainstormingInput.trim()" class="pelecanus-button-action chat-send-button">
+            <button @click="sendBrainstormingMessage" :disabled="isStreamingResponse || !brainstormingInput.trim() || !$store.getters.getOllamaStatus.isConnected" class="pelecanus-button-action chat-send-button">
               Send
             </button>
           </div>
@@ -471,6 +483,7 @@ export default {
     },
 
     async loadAvailableModels() {
+      this.$store.dispatch('updateOllamaStatus', { isConnected: false, message: 'Attempting to connect to Ollama and fetch models...' });
       this.executorOutput.unshift({ message: 'ℹ️ Fetching available LLM models...', type: 'info', timestamp: new Date() });
       try {
         const backendPort = this.$store.state.backendPort;
@@ -497,14 +510,32 @@ export default {
             this.selectedModelId = defaultModel.id;
         }
         this.executorOutput.unshift({ message: `✅ Models loaded: ${this.allAvailableModelsForTasks.length} total. Default task model: ${this.defaultModelConfig.name}`, type: 'success', timestamp: new Date() });
+        this.$store.dispatch('updateOllamaStatus', { isConnected: true, message: 'Ollama Connected & Models Loaded.' });
+        // Ensure the success message to executorOutput is also clear
+        const successMsg = `✅ Models loaded: ${this.allAvailableModelsForTasks.length} total. Default task model: ${this.defaultModelConfig.name}. Ollama connection successful.`;
+        // Remove previous info/error messages about model loading to prevent clutter
+        this.executorOutput = this.executorOutput.filter(item => !item.message.includes('Fetching available LLM models') && !item.message.includes('Error fetching models'));
+        this.executorOutput.unshift({ message: successMsg, type: 'success', timestamp: new Date() });
 
       } catch (error) {
         console.error('Error in loadAvailableModels:', error);
-        // The error message is already added to executorOutput if it's a fetch response issue
-        // If it's another type of error, add it here.
-        if (!error.message.includes('Backend model fetch failed')) { // Avoid duplicate generic messages
-             this.executorOutput.unshift({ message: `❌ Exception during model load: ${error.message}`, type: 'error', timestamp: new Date() });
+        // Construct a more informative message
+        let userFriendlyMessage = `❌ Critical Error: Could not fetch LLM models. This usually means Ollama is not running or not reachable by the backend. Please ensure Ollama is operational. Details: ${error.message.includes('Backend model fetch failed') ? error.message.substring('Backend model fetch failed:'.length).trim() : error.message}`;
+        if (error.message.includes('response.status')) { // Likely a fetch error with status
+             userFriendlyMessage = `❌ Critical Error: Could not fetch LLM models from backend. Server responded with an error. This may be due to Ollama being unavailable to the backend. Please check backend logs and ensure Ollama is running. Details: ${error.message}`;
         }
+
+        // Update executorOutput (ensure this doesn't duplicate if already handled by specific error throws)
+        const existingErrorOutput = this.executorOutput.find(item => item.message.includes('Error fetching models') || item.message.includes('Exception during model load'));
+        if (!existingErrorOutput) {
+            this.executorOutput.unshift({ message: userFriendlyMessage, type: 'error', timestamp: new Date() });
+        } else {
+            // Update existing message if it's too generic
+            if (!existingErrorOutput.message.includes('Ollama')) {
+                existingErrorOutput.message = userFriendlyMessage;
+            }
+        }
+        this.$store.dispatch('updateOllamaStatus', { isConnected: false, message: 'Ollama Connection Failed. Many features will be disabled.' });
       }
     },
     // ... (rest of methods: copyLog, exportLog, IPC handlers, etc.)
@@ -535,6 +566,8 @@ export default {
         toolEvents: []
       });
 
+      console.log('[App.vue] sendBrainstormingMessage: this.selectedBrainstormingModelId =', JSON.stringify(this.selectedBrainstormingModelId));
+      console.log('[App.vue] sendBrainstormingMessage: this.selectedBrainstormingModelLabel =', this.selectedBrainstormingModelLabel);
       if (window.electronAPI && window.electronAPI.sendBrainstormingChat) {
         window.electronAPI.sendBrainstormingChat({
           modelId: this.selectedBrainstormingModelId, // Ensure this holds the correct model ID like "ollama/mistral"
@@ -671,3 +704,20 @@ export default {
   }
 };
 </script>
+
+<style>
+.ollama-status-banner {
+  padding: 10px;
+  text-align: center;
+  font-weight: bold;
+  border-bottom: 1px solid #4a5568; /* Example border, adjust as needed */
+}
+.status-connected {
+  background-color: #2f855a; /* Green */
+  color: white;
+}
+.status-disconnected {
+  background-color: #c53030; /* Red */
+  color: white;
+}
+</style>
