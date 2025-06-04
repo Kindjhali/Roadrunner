@@ -622,9 +622,36 @@ export default {
 
       console.log('[App.vue] sendBrainstormingMessage: this.selectedBrainstormingModelId =', JSON.stringify(this.selectedBrainstormingModelId));
       console.log('[App.vue] sendBrainstormingMessage: this.selectedBrainstormingModelLabel =', this.selectedBrainstormingModelLabel);
+
+      let modelIdToSend = this.selectedBrainstormingModelId; // Default
+      let selectedModelObject = null;
+
+      // Find the selected model object to check its type
+      if (this.selectedBrainstormingModelId) {
+        for (const category in this.categorizedCoderModels) {
+          const model = this.categorizedCoderModels[category].find(m => m.id === this.selectedBrainstormingModelId);
+          if (model) {
+            selectedModelObject = model;
+            break;
+          }
+        }
+      }
+
+      if (selectedModelObject && selectedModelObject.type === 'ollama') {
+        // Check if it already has the prefix, to prevent "ollama:ollama/mistral"
+        if (!this.selectedBrainstormingModelId.startsWith('ollama:')) {
+             modelIdToSend = `ollama:${this.selectedBrainstormingModelId}`;
+        } else {
+             modelIdToSend = this.selectedBrainstormingModelId; // Already correctly prefixed
+        }
+      }
+      // Add other conditions if there are other types that need special prefixes.
+
+      console.log('[App.vue] sendBrainstormingMessage: Determined modelIdToSend:', modelIdToSend);
+
       if (window.electronAPI && window.electronAPI.sendBrainstormingChat) {
         window.electronAPI.sendBrainstormingChat({
-          modelId: this.selectedBrainstormingModelId, // Ensure this holds the correct model ID like "ollama/mistral"
+          modelId: modelIdToSend, // Use the adjusted modelId
           prompt: messageText
         });
       } else {
