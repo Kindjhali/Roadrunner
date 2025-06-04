@@ -366,161 +366,223 @@ app.post('/api/settings', (req, res) => {
 
 // --- LLM Interaction Functions ---
 
-async function generateFromLocal(prompt, modelName = backendSettings.defaultOllamaModel || 'codellama', expressRes) {
-  // Use modelName if provided, otherwise fallback to backendSettings.defaultOllamaModel, then 'codellama'
-  const effectiveModelName = modelName || backendSettings.defaultOllamaModel || 'codellama';
-  console.log(
-    `[LLM Local Streaming] Initiating for prompt to ${effectiveModelName}: "${prompt.substring(0, 100)}..."`
-  );
+async function generateFromLocal(prompt, modelName, expressRes) {
+  const provider = backendSettings.llmProvider;
   let accumulatedResponse = '';
-  try {
-    const ollamaRes = await fetch(`${OLLAMA_BASE_URL}/api/generate`, { // MODIFIED to use OLLAMA_BASE_URL
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: effectiveModelName, prompt: prompt, stream: true }),
-    });
-    if (!ollamaRes.ok) {
-      const errorBody = await ollamaRes.text();
-      console.error(
-        `[LLM Local Streaming] Error from Ollama API: ${ollamaRes.status} ${ollamaRes.statusText}`,
-        errorBody
-      );
-      const errorMessage = `Ollama API request failed: ${ollamaRes.status} ${ollamaRes.statusText} - ${errorBody.substring(0, 100)}`;
 
-      if (expressRes && expressRes.writable) {
-        expressRes.write(
-          `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
-        );
-      }
-      // Removed the duplicate expressRes.write and throw new Error here to ensure consistent return
-      return `// LLM_ERROR: ${errorMessage} //`;
-    }
+  console.log(`[LLM Generation] Provider: ${provider || 'ollama (default)'}, Model: ${modelName}`);
 
-    const contentType = ollamaRes.headers.get('content-type');
-    if (!contentType || (!contentType.includes('application/json') && !contentType.includes('application/x-ndjson'))) {
-      const errorBody = await ollamaRes.text();
-      console.error(
-        `[LLM Local Streaming] Unexpected Content-Type from Ollama API: ${contentType}`,
-        errorBody
-      );
-      const errorMessage = `Ollama API returned unexpected Content-Type: ${contentType} - ${errorBody.substring(0, 100)}`;
+  if (provider === 'openai') {
+    console.log(`[LLM OpenAI] Initiating for prompt to model ${modelName || 'gpt-3.5-turbo'}: "${prompt.substring(0, 100)}..."`);
+    if (!backendSettings.apiKey) {
+      const errorMessage = 'OpenAI API key is missing in backend settings.';
+      console.error(`[LLM OpenAI] ${errorMessage}`);
       if (expressRes && expressRes.writable) {
-        expressRes.write(
-          `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
-        );
+        expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
       }
       return `// LLM_ERROR: ${errorMessage} //`;
     }
 
-    console.log('[LLM Local Streaming] Stream started.');
-    let anyResponseProcessed = false; // Track if we get any valid 'response' data
-    let ollamaErrorDetected = null; // Store any top-level error from Ollama
+    const openAIModel = modelName || backendSettings.defaultOpenAIModel || 'gpt-3.5-turbo';
 
-    for await (const chunk of ollamaRes.body) {
-      const lines = chunk.toString().split('\n');
-      for (const line of lines) {
-        if (line.trim() === '') continue;
-        try {
-          const parsedLine = JSON.parse(line);
+    try {
+      const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${backendSettings.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: openAIModel,
+          messages: [{ role: 'user', content: prompt }],
+          stream: true,
+        }),
+      });
 
-          // Check for Ollama's own error reporting within a valid JSON line
-          if (parsedLine.error) {
-            ollamaErrorDetected = `Ollama reported an error: ${parsedLine.error}`;
-            console.error(`[LLM Local Streaming] ${ollamaErrorDetected}`);
+      if (!openAIResponse.ok) {
+        const errorBody = await openAIResponse.json().catch(() => openAIResponse.text()); // Try to parse JSON, fallback to text
+        const errorDetails = typeof errorBody === 'object' ? errorBody.error?.message || JSON.stringify(errorBody) : errorBody;
+        console.error(
+          `[LLM OpenAI] Error from OpenAI API: ${openAIResponse.status} ${openAIResponse.statusText}`,
+          errorDetails
+        );
+        const errorMessage = `OpenAI API request failed: ${openAIResponse.status} ${openAIResponse.statusText} - ${errorDetails.substring(0, 100)}`;
+        if (expressRes && expressRes.writable) {
+          expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
+        }
+        return `// LLM_ERROR: ${errorMessage} //`;
+      }
+
+      console.log('[LLM OpenAI] Stream started.');
+      for await (const chunk of openAIResponse.body) {
+        const lines = chunk.toString().split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataJson = line.substring(6);
+            if (dataJson.trim() === '[DONE]') {
+              console.log('[LLM OpenAI] Stream finished by OpenAI.');
+              if (expressRes && expressRes.writable) {
+                // Optional: Send a specific 'done' message if your frontend expects it
+                // expressRes.write(`data: ${JSON.stringify({ type: 'llm_done' })}\n\n`);
+              }
+              return accumulatedResponse;
+            }
+            try {
+              const parsed = JSON.parse(dataJson);
+              if (parsed.choices && parsed.choices[0].delta && parsed.choices[0].delta.content) {
+                const contentChunk = parsed.choices[0].delta.content;
+                accumulatedResponse += contentChunk;
+                if (expressRes && expressRes.writable) {
+                  expressRes.write(`data: ${JSON.stringify({ type: 'llm_chunk', content: contentChunk })}\n\n`);
+                }
+              }
+            } catch (e) {
+              console.warn(`[LLM OpenAI] Error parsing stream chunk: "${dataJson.substring(0,100)}..."`, e.message);
+               if (expressRes && expressRes.writable) {
+                expressRes.write(
+                  `data: ${JSON.stringify({ type: 'log_entry', content: `[LLM Stream Warning] Could not parse OpenAI line: ${dataJson.substring(0,50)}...` })}\n\n`
+                );
+              }
+            }
+          }
+        }
+      }
+      console.log('[LLM OpenAI] Stream processing complete from our side.');
+      // This might be reached if stream ends without [DONE] under some circumstances
+      return accumulatedResponse;
+
+    } catch (error) {
+      console.error('[LLM OpenAI] Failed to fetch or process stream from OpenAI:', error);
+      const errorMessage = `Error communicating with OpenAI: ${error.message}`;
+      if (expressRes && expressRes.writable) {
+        expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
+      }
+      return `// LLM_ERROR: ${errorMessage} //`;
+    }
+
+  } else { // Default to Ollama if provider is 'ollama' or null/undefined
+    const effectiveOllamaModel = modelName || backendSettings.defaultOllamaModel || 'codellama';
+    console.log(
+      `[LLM Ollama] Initiating for prompt to ${effectiveOllamaModel}: "${prompt.substring(0, 100)}..."`
+    );
+    try {
+      const ollamaRes = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: effectiveOllamaModel, prompt: prompt, stream: true }),
+      });
+      if (!ollamaRes.ok) {
+        const errorBody = await ollamaRes.text();
+        console.error(
+          `[LLM Ollama] Error from Ollama API: ${ollamaRes.status} ${ollamaRes.statusText}`,
+          errorBody
+        );
+        const errorMessage = `Ollama API request failed: ${ollamaRes.status} ${ollamaRes.statusText} - ${errorBody.substring(0, 100)}`;
+
+        if (expressRes && expressRes.writable) {
+          expressRes.write(
+            `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
+          );
+        }
+        return `// LLM_ERROR: ${errorMessage} //`;
+      }
+
+      const contentType = ollamaRes.headers.get('content-type');
+      if (!contentType || (!contentType.includes('application/json') && !contentType.includes('application/x-ndjson'))) {
+        const errorBody = await ollamaRes.text();
+        console.error(
+          `[LLM Ollama] Unexpected Content-Type from Ollama API: ${contentType}`,
+          errorBody
+        );
+        const errorMessage = `Ollama API returned unexpected Content-Type: ${contentType} - ${errorBody.substring(0, 100)}`;
+        if (expressRes && expressRes.writable) {
+          expressRes.write(
+            `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
+          );
+        }
+        return `// LLM_ERROR: ${errorMessage} //`;
+      }
+
+      console.log('[LLM Ollama] Stream started.');
+      let anyResponseProcessed = false;
+      let ollamaErrorDetected = null;
+
+      for await (const chunk of ollamaRes.body) {
+        const lines = chunk.toString().split('\n');
+        for (const line of lines) {
+          if (line.trim() === '') continue;
+          try {
+            const parsedLine = JSON.parse(line);
+
+            if (parsedLine.error) {
+              ollamaErrorDetected = `Ollama reported an error: ${parsedLine.error}`;
+              console.error(`[LLM Ollama] ${ollamaErrorDetected}`);
+              if (expressRes && expressRes.writable) {
+                expressRes.write(
+                  `data: ${JSON.stringify({ type: 'error', content: ollamaErrorDetected })}\n\n`
+                );
+              }
+              return `// LLM_ERROR: ${ollamaErrorDetected} //`;
+            }
+
+            if (parsedLine.response) {
+              accumulatedResponse += parsedLine.response;
+              anyResponseProcessed = true;
+
+              if (expressRes && expressRes.writable)
+                expressRes.write(
+                  `data: ${JSON.stringify({ type: 'llm_chunk', content: parsedLine.response })}\n\n`
+                );
+            }
+
+            if (parsedLine.done) {
+              console.log('[LLM Ollama] Stream finished by Ollama.');
+              if (!anyResponseProcessed && !ollamaErrorDetected) {
+                console.warn('[LLM Ollama] Ollama stream ended (done=true) but no response content was processed.');
+              }
+              return accumulatedResponse;
+            }
+          } catch (parseError) {
+            console.warn(
+              `[LLM Ollama] Failed to parse JSON line from Ollama stream. Line: "${line}". Error: ${parseError.message}`
+            );
             if (expressRes && expressRes.writable) {
               expressRes.write(
-                `data: ${JSON.stringify({ type: 'error', content: ollamaErrorDetected })}\n\n`
+                `data: ${JSON.stringify({ type: 'log_entry', content: `[LLM Stream Warning] Could not parse Ollama line: ${line.substring(0,50)}...` })}\n\n`
               );
             }
-            // Depending on severity, we might want to 'return `// LLM_ERROR: ${ollamaErrorDetected} //`;' here
-            // For now, let it continue to see if 'done' also arrives, but log the error.
-            // No, if Ollama sends an error, it's usually terminal for that request.
-            return `// LLM_ERROR: ${ollamaErrorDetected} //`;
           }
-
-          if (parsedLine.response) {
-            accumulatedResponse += parsedLine.response;
-            anyResponseProcessed = true; // Mark that we've received actual content
-
-            if (expressRes && expressRes.writable)
-              expressRes.write(
-                `data: ${JSON.stringify({ type: 'llm_chunk', content: parsedLine.response })}\n\n`
-              );
-
-            // Removed duplicate expressRes.write call that was here previously
-          }
-
-          if (parsedLine.done) {
-            console.log('[LLM Local Streaming] Stream finished by Ollama.');
-            if (!anyResponseProcessed && !ollamaErrorDetected) {
-              // This case means Ollama said "done" but sent no response content and no explicit error.
-              console.warn('[LLM Local Streaming] Ollama stream ended (done=true) but no response content was processed.');
-              // It could be a valid empty response, or an issue.
-            }
-            return accumulatedResponse;
-          }
-        } catch (parseError) {
-          // Log the problematic line and the error
-          console.warn(
-            `[LLM Local Streaming] Failed to parse JSON line from Ollama stream. Line: "${line}". Error: ${parseError.message}`
-          );
-          // Optionally, send this specific parsing error to the client if helpful
-          if (expressRes && expressRes.writable) {
-            expressRes.write(
-              `data: ${JSON.stringify({ type: 'log_entry', content: `[LLM Stream Warning] Could not parse line: ${line.substring(0,50)}...` })}\n\n`
-            );
-          }
-          // Continue to next line rather than failing the whole stream for one bad line
         }
       }
-    }
-    console.log(
-      '[LLM Local Streaming] Stream processing complete from our side.'
-    );
-    // This part is reached if the stream loop finishes without 'parsedLine.done: true'
-    // and without 'parsedLine.error' having been detected and returned from within the loop.
-    if (!anyResponseProcessed) { // ollamaErrorDetected would have already returned if it was from parsedLine.error
-        const warningMessage = "[LLM Local Streaming] Stream ended without a 'done' signal from Ollama and no response content was processed (or an error was already handled).";
-        console.warn(warningMessage);
-        if (expressRes && expressRes.writable) {
-            expressRes.write(
-                `data: ${JSON.stringify({ type: 'log_entry', content: warningMessage })}\n\n`
-            );
-        }
-        // If no content and no 'done' signal, it's an incomplete or empty stream.
-        // accumulatedResponse would be empty here. We might return a specific error string.
-        if (accumulatedResponse === '') {
-           return `// LLM_WARNING: Stream ended abruptly or was empty. No content. //`;
-        }
-    }
-    return accumulatedResponse;
-  } catch (error) {
-    console.error(
-      '[LLM Local Streaming] Failed to fetch or process stream from Ollama:',
-      error
-    );
-    const errorMessage = `Error communicating with local LLM: ${error.message}`;
-
-    if (expressRes && expressRes.writable) {
-      expressRes.write(
-        `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
+      console.log(
+        '[LLM Ollama] Stream processing complete from our side.'
       );
-    }
-
-    if (expressRes) {
-      if (expressRes.writable && !expressRes.headersSent) {
-        // Check if writable and headers not sent
-        expressRes.write(
-          `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
-        );
-      } else if (expressRes.writable) {
-        // if headers sent but still writable
+      if (!anyResponseProcessed && !ollamaErrorDetected) {
+          const warningMessage = "[LLM Ollama] Stream ended without a 'done' signal from Ollama and no response content was processed.";
+          console.warn(warningMessage);
+          if (expressRes && expressRes.writable) {
+              expressRes.write(
+                  `data: ${JSON.stringify({ type: 'log_entry', content: warningMessage })}\n\n`
+              );
+          }
+          if (accumulatedResponse === '') {
+             return `// LLM_WARNING: Stream ended abruptly or was empty. No content. //`;
+          }
+      }
+      return accumulatedResponse;
+    } catch (error) {
+      console.error(
+        '[LLM Ollama] Failed to fetch or process stream from Ollama:',
+        error
+      );
+      const errorMessage = `Error communicating with Ollama LLM: ${error.message}`;
+      if (expressRes && expressRes.writable) {
         expressRes.write(
           `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
         );
       }
+      return `// LLM_ERROR: ${errorMessage} //`;
     }
-    return `// LLM_ERROR: ${errorMessage} //`;
   }
 }
 
@@ -2891,5 +2953,6 @@ module.exports = {
   backendSettings, // The loaded backend settings
   loadBackendConfig, // The function to load/reload settings
   handleExecuteAutonomousTask, // Existing export
+  generateFromLocal, // Export for testing
   // Add any other functions or variables you might need to test or use externally
 };
