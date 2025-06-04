@@ -378,19 +378,19 @@ export default {
     // Ensures essential properties (like modelConfig, annotations, lastStatus) exist on a task object.
     initializeTaskProperties(task) {
       if (!task.modelConfig || !task.modelConfig.id) {
-        this.$set(task, 'modelConfig', { ...this.defaultModelConfig });
+        task.modelConfig = { ...this.defaultModelConfig };
       }
       if (!task.modelConfigId) { // Used for v-model on select
-          this.$set(task, 'modelConfigId', task.modelConfig.id);
+          task.modelConfigId = task.modelConfig.id;
       }
       // ... (existing initializeAnnotations logic)
        if (task.steps && Array.isArray(task.steps)) {
           task.steps.forEach(step => {
             if (!step.hasOwnProperty('annotations') || !Array.isArray(step.annotations)) {
-              this.$set(step, 'annotations', []);
+              step.annotations = [];
             }
             if (!step.hasOwnProperty('lastStatus')) {
-              this.$set(step, 'lastStatus', 'not_run');
+              step.lastStatus = 'not_run';
             }
           });
         }
