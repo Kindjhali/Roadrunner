@@ -1,0 +1,2765 @@
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const os = require('os'); // Added
+const cors = require('cors');
+
+// ... other requires ...
+const { v4: uuidv4 } = require('uuid'); // Ensure uuid is required
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+
+// --- OwlCore, Ollama, Config, Helpers (Assume these are defined as in previous complete versions) ---
+let owlcore; try { /* ... */ } catch (e) { owlcore = null; }
+async function checkOllamaStatus() {
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`); // MODIFIED to use OLLAMA_BASE_URL
+    if (response.ok) {
+      console.log('[Ollama Status] Ollama is responsive.');
+      return true;
+    } else {
+      console.warn(`[Ollama Status] Ollama check failed. Status: ${response.status}`);
+      return false;
+    }
+  } catch (error) {
+    console.error(`[Ollama Status] Error checking Ollama status: ${error.message}`);
+    return false;
+  }
+}
+async function startOllama() {
+  // In Docker mode, Ollama is managed by Docker Compose.
+  // This function (startOllama) should not attempt to execute "ollama serve".
+  console.log(`[Ollama Startup] startOllama called. OLLAMA_BASE_URL is '${OLLAMA_BASE_URL}'. Docker Compose handles Ollama service.`);
+  if (OLLAMA_BASE_URL && OLLAMA_BASE_URL.includes('ollama:')) { // Heuristic for Docker env
+    console.log('[Ollama Startup] Assuming Docker environment, not running exec command.');
+    return Promise.resolve(); // Indicate success without exec
+  }
+  // Fallback to original behavior if not clearly in Docker or OLLAMA_BASE_URL is localhost
+  console.log('[Ollama Startup] Attempting to start Ollama server locally (original behavior)...');
+
+  const { exec } = require('child_process'); // Ensure exec is available
+  return new Promise((resolve, reject) => {
+    const ollamaProcess = exec('ollama serve', (error, stdout, stderr) => {
+      if (error) {
+        console.error(`[Ollama Startup] Original exec error: ${error.message}`);
+        reject(error);
+        return;
+      }
+      console.log(`[Ollama Startup] Original exec stdout: ${stdout}`);
+      if (stderr) {
+        console.error(`[Ollama Startup] Original exec stderr: ${stderr}`);
+      }
+    });
+    setTimeout(() => {
+      console.log('[Ollama Startup] Assuming ollama serve process started. Resolving after timeout.');
+      resolve();
+    }, 5000);
+  });
+}
+
+
+const fetch = (...args) =>
+  import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const { exec } = require('child_process');
+
+// --- End Ollama Check and Startup ---
+const fsAgent = require('./fsAgent');
+const gitAgent = require('./gitAgent');
+const { resolvePathInWorkspace, generateDirectoryTree } = fsAgent;
+
+// --- Path Configuration ---
+const CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json');
+
+// Helper function to resolve path, ensuring it's absolute
+// If a path is relative, it's resolved from __dirname (i.e., roadrunner/backend)
+const resolveConfigPath = (configPath) => {
+  if (!path.isAbsolute(configPath)) {
+    return path.resolve(__dirname, configPath);
+  }
+  return configPath;
+};
+
+// Load configuration from JSON file
+let jsonConfig = {};
+if (fs.existsSync(CONFIG_FILE_PATH)) {
+  try {
+    const configFileContent = fs.readFileSync(CONFIG_FILE_PATH, 'utf-8');
+    jsonConfig = JSON.parse(configFileContent);
+    console.log(`[Config] Loaded path configuration from ${CONFIG_FILE_PATH}`);
+  } catch (error) {
+    console.error(`[Config] Error reading or parsing ${CONFIG_FILE_PATH}:`, error);
+  }
+} else {
+  console.log(`[Config] Path configuration file not found at ${CONFIG_FILE_PATH}. Using environment variables or defaults.`);
+}
+
+// Get path from environment variable, then JSON config, then default
+// isCritical: if true, failure to create the directory will throw an error.
+const getConfiguredPath = (envVarName, jsonKey, defaultValue, isDir = true, isCritical = false) => {
+  let value;
+  let source = ''; // Will be set to 'environment variable', 'JSON config', or 'default'
+
+  if (process.env[envVarName]) {
+    value = process.env[envVarName];
+    source = `environment variable (${envVarName})`;
+  } else if (jsonConfig[jsonKey]) {
+    value = jsonConfig[jsonKey];
+    source = `JSON config (${CONFIG_FILE_PATH} -> ${jsonKey})`;
+    // Paths from JSON config, if relative, are relative to __dirname (backend directory)
+    value = resolveConfigPath(value);
+  } else {
+    value = defaultValue;
+    source = `default ('${defaultValue}')`;
+    // Default paths, if relative, are also relative to __dirname
+    value = resolveConfigPath(value);
+  }
+
+  console.log(`[Config] Resolved ${jsonKey}: Final path is '${value}' (Source: ${source}).`);
+
+  if (isDir && !fs.existsSync(value)) {
+    try {
+      fs.mkdirSync(value, { recursive: true });
+      console.log(`[Config] Created directory for ${jsonKey} at: '${value}' (Source: ${source})`);
+    } catch (err) {
+      const errorMessage = `[Config] CRITICAL ERROR: Failed to create directory for ${jsonKey} at '${value}' (Source: ${source}). Error: ${err.message}`;
+      console.error(errorMessage);
+      if (isCritical) {
+        throw new Error(errorMessage); // Propagate error for critical paths
+      }
+      // If not critical, attempt to fallback to default (if not already using default)
+      if (source !== `default ('${defaultValue}')`) {
+        console.warn(`[Config] Falling back to default for ${jsonKey} due to creation error: '${resolveConfigPath(defaultValue)}'`);
+        value = resolveConfigPath(defaultValue);
+        source = `default (fallback after error)`;
+        if (!fs.existsSync(value)) {
+          try {
+            fs.mkdirSync(value, { recursive: true });
+            console.log(`[Config] Created fallback directory for ${jsonKey} at: '${value}'`);
+          } catch (fallbackErr) {
+            const fallbackErrorMessage = `[Config] CRITICAL ERROR: Failed to create even the fallback default directory for ${jsonKey} at '${value}'. Error: ${fallbackErr.message}`;
+            console.error(fallbackErrorMessage);
+            // For critical paths, even fallback failure is fatal.
+            if (isCritical) {
+                throw new Error(fallbackErrorMessage);
+            }
+            // For non-critical, we log the error and the application might run in a degraded state.
+          }
+        }
+      }
+    }
+  } else if (isDir) {
+    console.log(`[Config] Directory for ${jsonKey} already exists at '${value}' (Source: ${source})`);
+  }
+  return value;
+};
+
+
+// Load model categories configuration
+let modelCategories = { categories: {}, default_category: 'language' }; // Default fallback
+const categoriesPath = path.join(__dirname, 'config', 'model_categories.json');
+try {
+  if (fs.existsSync(categoriesPath)) {
+    const categoriesFileContent = fs.readFileSync(categoriesPath, 'utf-8');
+    modelCategories = JSON.parse(categoriesFileContent);
+    console.log('[Config] Loaded model categories from model_categories.json');
+  } else {
+    console.warn('[Config] model_categories.json not found. Using default empty categories.');
+    // fs.writeFileSync(categoriesPath, JSON.stringify(modelCategories, null, 2)); // Optionally create default
+  }
+} catch (error) {
+  console.error('[Config] Error loading model_categories.json:', error);
+}
+
+// Helper function to categorize Ollama models
+function categorizeOllamaModels(ollamaModels, config) {
+  const categorized = {};
+  const knownCategories = Object.keys(config.categories || {});
+  knownCategories.forEach(cat => categorized[cat] = []);
+  if (config.default_category && !categorized[config.default_category]) {
+    categorized[config.default_category] = [];
+  }
+
+  ollamaModels.forEach(model => {
+    let assignedCategory = null;
+    const modelNameLower = model.name.toLowerCase();
+
+    for (const category of knownCategories) {
+      const keywords = config.categories[category] || [];
+      if (keywords.some(keyword => modelNameLower.includes(keyword.toLowerCase()))) {
+        assignedCategory = category;
+        break;
+      }
+    }
+
+    if (assignedCategory) {
+      categorized[assignedCategory].push(model);
+      console.info(`[Model Categorization] Model '${model.name}' assigned to category '${assignedCategory}'.`);
+    } else if (config.default_category) {
+      // Ensure the default category list exists
+      if (!categorized[config.default_category]) {
+        categorized[config.default_category] = [];
+      }
+      categorized[config.default_category].push(model);
+      console.info(`[Model Categorization] Model '${model.name}' assigned to default category '${config.default_category}'.`);
+    } else {
+      // If no default, maybe have an 'uncategorized' list or log it
+      if (!categorized.uncategorized) categorized.uncategorized = [];
+      categorized.uncategorized.push(model);
+      console.warn(`[Model Categorization] Warning: Model '${model.name}' could not be categorized and 'default_category' is not configured or applicable. Placed in 'uncategorized'.`);
+    }
+  });
+  return categorized;
+}
+
+const simpleGit = require('simple-git');
+// const logcore = require('../../TokomakCore/logcore'); // Removed TokomakCore/logcore dependency
+
+const app = express();
+
+// Request Logger Middleware
+const requestLogger = (req, res, next) => {
+  console.log(`[Request Logger] Received: ${req.method} ${req.url}`);
+  next();
+};
+app.use(requestLogger); // Register the logger middleware
+
+const PORT = process.env.PORT || 3030;
+
+// In-memory store for pending confirmations
+const pendingConfirmations = {};
+const pendingPlanApprovals = {}; // For Autonomous Mode plan approvals
+const pendingFailures = {};
+
+// Configuration for "Confirm After X Operations"
+const CONFIRM_AFTER_N_OPERATIONS = 3;
+
+// --- Configuration ---
+
+// Configure paths using the new system
+// For LOG_DIR, isCritical is true. Failure to establish this directory will prevent server startup.
+let LOG_DIR;
+try {
+  LOG_DIR = getConfiguredPath('RR_LOG_DIR', 'logDir', '../logs', true, true);
+} catch (error) {
+  console.error(`[Config] Fatal Error: Could not establish LOG_DIR. Server cannot start. ${error.message}`);
+  process.exit(1); // Exit if critical LOG_DIR cannot be set up.
+}
+
+// const COMPONENT_DIR = getConfiguredPath('RR_COMPONENT_DIR', 'componentDir', '../tokomakAI/src/components', true, false); // Removed COMPONENT_DIR
+
+// Workspace Directory Configuration
+// Standardized to RR_WORKSPACE_DIR (env) and workspaceDir (JSON)
+// This is a critical path. Failure will prevent server startup.
+let WORKSPACE_DIR;
+const DEFAULT_WORKSPACE_DIR_RAW = '../output'; // Default relative to backend
+
+try {
+  WORKSPACE_DIR = getConfiguredPath('RR_WORKSPACE_DIR', 'workspaceDir', DEFAULT_WORKSPACE_DIR_RAW, true, true);
+} catch (error) {
+  console.error(`[Config] Fatal Error: Could not establish WORKSPACE_DIR. Server cannot start. ${error.message}`);
+  process.exit(1); // Exit if critical WORKSPACE_DIR cannot be set up.
+}
+
+// CONFERENCES_LOG_DIR is derived from WORKSPACE_DIR.
+// It's critical in the sense that if WORKSPACE_DIR was established, this should be too.
+// getConfiguredPath handles its creation.
+let CONFERENCES_LOG_DIR;
+try {
+    CONFERENCES_LOG_DIR = getConfiguredPath(
+        null, // No dedicated env var for this sub-path
+        'conferencesLogDir', // Optional: could be in backend_config.json for this specific sub-directory
+        path.join(WORKSPACE_DIR, 'roadrunner_workspace'), // Default: relative to WORKSPACE_DIR
+        true, // It's a directory
+        true  // Critical: if WORKSPACE_DIR is set, this sub-directory must also be settable/creatable.
+    );
+} catch (error) {
+    console.error(`[Config] Fatal Error: Could not establish CONFERENCES_LOG_DIR. Server cannot start. ${error.message}`);
+    process.exit(1);
+}
+const CONFERENCES_LOG_FILE = path.join(CONFERENCES_LOG_DIR, 'conferences.json');
+
+// Register other middleware after the request logger
+app.use(cors());
+app.use(express.json());
+
+// Simple health check endpoint for frontend readiness probes
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// --- LLM Interaction Functions ---
+
+async function generateFromLocal(prompt, modelName = 'codellama', expressRes) {
+  console.log(
+    `[LLM Local Streaming] Initiating for prompt to ${modelName}: "${prompt.substring(0, 100)}..."`
+  );
+  let accumulatedResponse = '';
+  try {
+    const ollamaRes = await fetch(`${OLLAMA_BASE_URL}/api/generate`, { // MODIFIED to use OLLAMA_BASE_URL
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelName, prompt: prompt, stream: true }),
+    });
+    if (!ollamaRes.ok) {
+      const errorBody = await ollamaRes.text();
+      console.error(
+        `[LLM Local Streaming] Error from Ollama API: ${ollamaRes.status} ${ollamaRes.statusText}`,
+        errorBody
+      );
+      const errorMessage = `Ollama API request failed: ${ollamaRes.status} ${ollamaRes.statusText} - ${errorBody.substring(0, 100)}`;
+
+      if (expressRes && expressRes.writable) {
+        expressRes.write(
+          `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
+        );
+      }
+      // Removed the duplicate expressRes.write and throw new Error here to ensure consistent return
+      return `// LLM_ERROR: ${errorMessage} //`;
+    }
+
+    const contentType = ollamaRes.headers.get('content-type');
+    if (!contentType || (!contentType.includes('application/json') && !contentType.includes('application/x-ndjson'))) {
+      const errorBody = await ollamaRes.text();
+      console.error(
+        `[LLM Local Streaming] Unexpected Content-Type from Ollama API: ${contentType}`,
+        errorBody
+      );
+      const errorMessage = `Ollama API returned unexpected Content-Type: ${contentType} - ${errorBody.substring(0, 100)}`;
+      if (expressRes && expressRes.writable) {
+        expressRes.write(
+          `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
+        );
+      }
+      return `// LLM_ERROR: ${errorMessage} //`;
+    }
+
+    console.log('[LLM Local Streaming] Stream started.');
+    let anyResponseProcessed = false; // Track if we get any valid 'response' data
+    let ollamaErrorDetected = null; // Store any top-level error from Ollama
+
+    for await (const chunk of ollamaRes.body) {
+      const lines = chunk.toString().split('\n');
+      for (const line of lines) {
+        if (line.trim() === '') continue;
+        try {
+          const parsedLine = JSON.parse(line);
+
+          // Check for Ollama's own error reporting within a valid JSON line
+          if (parsedLine.error) {
+            ollamaErrorDetected = `Ollama reported an error: ${parsedLine.error}`;
+            console.error(`[LLM Local Streaming] ${ollamaErrorDetected}`);
+            if (expressRes && expressRes.writable) {
+              expressRes.write(
+                `data: ${JSON.stringify({ type: 'error', content: ollamaErrorDetected })}\n\n`
+              );
+            }
+            // Depending on severity, we might want to 'return `// LLM_ERROR: ${ollamaErrorDetected} //`;' here
+            // For now, let it continue to see if 'done' also arrives, but log the error.
+            // No, if Ollama sends an error, it's usually terminal for that request.
+            return `// LLM_ERROR: ${ollamaErrorDetected} //`;
+          }
+
+          if (parsedLine.response) {
+            accumulatedResponse += parsedLine.response;
+            anyResponseProcessed = true; // Mark that we've received actual content
+
+            if (expressRes && expressRes.writable)
+              expressRes.write(
+                `data: ${JSON.stringify({ type: 'llm_chunk', content: parsedLine.response })}\n\n`
+              );
+
+            // Removed duplicate expressRes.write call that was here previously
+          }
+
+          if (parsedLine.done) {
+            console.log('[LLM Local Streaming] Stream finished by Ollama.');
+            if (!anyResponseProcessed && !ollamaErrorDetected) {
+              // This case means Ollama said "done" but sent no response content and no explicit error.
+              console.warn('[LLM Local Streaming] Ollama stream ended (done=true) but no response content was processed.');
+              // It could be a valid empty response, or an issue.
+            }
+            return accumulatedResponse;
+          }
+        } catch (parseError) {
+          // Log the problematic line and the error
+          console.warn(
+            `[LLM Local Streaming] Failed to parse JSON line from Ollama stream. Line: "${line}". Error: ${parseError.message}`
+          );
+          // Optionally, send this specific parsing error to the client if helpful
+          if (expressRes && expressRes.writable) {
+            expressRes.write(
+              `data: ${JSON.stringify({ type: 'log_entry', content: `[LLM Stream Warning] Could not parse line: ${line.substring(0,50)}...` })}\n\n`
+            );
+          }
+          // Continue to next line rather than failing the whole stream for one bad line
+        }
+      }
+    }
+    console.log(
+      '[LLM Local Streaming] Stream processing complete from our side.'
+    );
+    // This part is reached if the stream loop finishes without 'parsedLine.done: true'
+    // and without 'parsedLine.error' having been detected and returned from within the loop.
+    if (!anyResponseProcessed) { // ollamaErrorDetected would have already returned if it was from parsedLine.error
+        const warningMessage = "[LLM Local Streaming] Stream ended without a 'done' signal from Ollama and no response content was processed (or an error was already handled).";
+        console.warn(warningMessage);
+        if (expressRes && expressRes.writable) {
+            expressRes.write(
+                `data: ${JSON.stringify({ type: 'log_entry', content: warningMessage })}\n\n`
+            );
+        }
+        // If no content and no 'done' signal, it's an incomplete or empty stream.
+        // accumulatedResponse would be empty here. We might return a specific error string.
+        if (accumulatedResponse === '') {
+           return `// LLM_WARNING: Stream ended abruptly or was empty. No content. //`;
+        }
+    }
+    return accumulatedResponse;
+  } catch (error) {
+    console.error(
+      '[LLM Local Streaming] Failed to fetch or process stream from Ollama:',
+      error
+    );
+    const errorMessage = `Error communicating with local LLM: ${error.message}`;
+
+    if (expressRes && expressRes.writable) {
+      expressRes.write(
+        `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
+      );
+    }
+
+    if (expressRes) {
+      if (expressRes.writable && !expressRes.headersSent) {
+        // Check if writable and headers not sent
+        expressRes.write(
+          `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
+        );
+      } else if (expressRes.writable) {
+        // if headers sent but still writable
+        expressRes.write(
+          `data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`
+        );
+      }
+    }
+    return `// LLM_ERROR: ${errorMessage} //`;
+  }
+}
+
+// --- Helper Functions ---
+
+function resolveTemplates(text, contextOutputs, sendSseMessage) {
+  if (typeof text !== 'string') return text;
+  return text.replace(
+    /\{\{outputs\.([a-zA-Z0-9_]+)\}\}/g,
+    (match, variableName) => {
+      if (contextOutputs.hasOwnProperty(variableName)) {
+        return contextOutputs[variableName];
+      }
+      const warningMsg = `[Templating] Warning: Output variable '${variableName}' not found in context. Leaving template as is.`;
+      console.warn(warningMsg);
+      if (sendSseMessage) sendSseMessage('log_entry', { message: warningMsg });
+      return match;
+    }
+  );
+}
+
+function parseTaskPayload(req) {
+  let task_description, stepsString, safetyModeString, isAutonomousModeString;
+  if (req.method === 'POST') {
+    // For POST, data is in req.body
+    ({ task_description, steps: stepsString, safetyMode: safetyModeString, isAutonomousMode: isAutonomousModeString } = req.body);
+  } else if (req.method === 'GET') {
+    // For GET, data is in req.query
+    ({ task_description, steps: stepsString, safetyMode: safetyModeString, isAutonomousMode: isAutonomousModeString } = req.query);
+  } else {
+    return { error: 'Unsupported request method.' };
+  }
+
+  // isAutonomousMode defaults to false if not 'true'
+  const isAutonomousMode = isAutonomousModeString === 'true';
+  console.log(`[parseTaskPayload] Autonomous Mode: ${isAutonomousMode} (raw string: '${isAutonomousModeString}')`);
+
+  // Steps are not strictly required if in autonomous mode, as they will be generated.
+  // However, if not in autonomous mode, stepsString is required.
+  if (!task_description) {
+    return { error: 'Missing task_description in parameters.' };
+  }
+  if (!isAutonomousMode && !stepsString) {
+    return { error: 'Missing steps in parameters (and not in Autonomous Mode).' };
+  }
+
+  let steps = []; // Default to empty array, especially for autonomous mode
+  if (stepsString) { // Try to parse steps if provided (for non-autonomous or if frontend sends empty array string)
+    try {
+      steps = JSON.parse(stepsString);
+    } catch (e) {
+      console.error('[parseTaskPayload] Error parsing steps:', e);
+      return { error: 'Invalid steps format. Must be JSON stringified array.' };
+    }
+  }
+
+  // safetyMode defaults to true if not provided or if it's not 'false'.
+  // Only 'false' (string) explicitly turns it off.
+  const safetyMode = safetyModeString !== 'false';
+  console.log(`[parseTaskPayload] Safety Mode: ${safetyMode} (raw string: '${safetyModeString}')`);
+
+  return { task_description, steps, safetyMode, isAutonomousMode };
+}
+
+// --- Main Task Execution Handler ---
+
+// Refactored main execution logic to be callable for initial and resumed tasks
+
+// Helper function to execute steps within a loop
+async function executeLoopBody(
+  expressHttpRes,
+  task_description,
+  loopSteps, // Array of step objects for the loop body
+  taskContext,
+  overallExecutionLog,
+  sendSseMessage,
+  safetyMode,
+  parentStepNumber, // For logging context (e.g., "Loop in Step 5, Iteration 1")
+  loopIterationNumber, // For logging context
+  initialOperationCount // Current operation count from parent
+) {
+  let operationCount = initialOperationCount;
+  sendSseMessage('log_entry', { message: `[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}) - Starting execution of ${loopSteps.length} steps.` });
+
+  for (let i = 0; i < loopSteps.length; i++) {
+    let currentLoopStep = JSON.parse(JSON.stringify(loopSteps[i])); // Deep clone
+    const loopStepNumber = i + 1;
+
+    // Resolve templates in loop step details
+    if (currentLoopStep.details) {
+      for (const key in currentLoopStep.details) {
+        if (typeof currentLoopStep.details[key] === 'string') {
+          currentLoopStep.details[key] = resolveTemplates(
+            currentLoopStep.details[key],
+            taskContext.outputs,
+            sendSseMessage // Pass the SSE function for template warnings
+          );
+        }
+      }
+    }
+
+    const processingMessage = `\n[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}, Inner Step ${loopStepNumber}): Type: ${currentLoopStep.type}, Resolved Details: ${JSON.stringify(currentLoopStep.details)}`;
+    sendSseMessage('log_entry', { message: processingMessage });
+    overallExecutionLog.push(processingMessage.replace('[SSE] ', ''));
+    console.log(`[executeLoopBody] ${processingMessage.replace('\n[SSE] ', '')}`);
+
+    // Simplified execution logic for loop body steps.
+    // This part needs to mirror the relevant parts of executeStepsInternal's main switch/if-else block.
+    // For brevity in this example, I'll include a few key types.
+    // A more robust solution would refactor the step execution logic into a shared function.
+    try {
+      const isConfirmedAction = currentLoopStep.details?.isConfirmedAction || false; // Assuming steps can be pre-confirmed
+
+      if (currentLoopStep.type === 'generic_step' || currentLoopStep.type === 'execute_generic_task_with_llm') {
+        const promptText = currentLoopStep.details?.prompt || currentLoopStep.details?.description;
+        if (!promptText) {
+            throw new Error("Missing prompt/description for generic_step in loop.");
+        }
+        sendSseMessage('log_entry', { message: `[SSE] Loop Step ${loopStepNumber}: LLM prompt: "${promptText.substring(0,50)}..."`});
+        const llmFullResponse = await generateFromLocal(promptText, 'codellama', expressHttpRes);
+        if (llmFullResponse.startsWith('// LLM_ERROR:') || llmFullResponse.startsWith('// LLM_WARNING:')) {
+            throw new Error(`LLM generation failed in loop: ${llmFullResponse}`);
+        }
+        if (currentLoopStep.details.output_id) {
+          taskContext.outputs[currentLoopStep.details.output_id] = llmFullResponse;
+          sendSseMessage('log_entry', { message: `[SSE] Loop Step ${loopStepNumber}: Stored LLM output to ${currentLoopStep.details.output_id}`});
+        }
+        operationCount++;
+      } else if (currentLoopStep.type === 'createFile') {
+        const { filePath, content } = currentLoopStep.details || {};
+        if (!filePath || content === undefined) {
+            throw new Error("Missing filePath or content for createFile in loop.");
+        }
+        operationCount++;
+        const fsOptions = { requireConfirmation: false, isConfirmedAction: true }; // Loop operations assume pre-confirmation or batch
+        const createFileResult = fsAgent.createFile(filePath, content, fsOptions);
+        if (createFileResult.success) {
+          sendSseMessage('file_written', { path: createFileResult.fullPath, message: `  -> ✅ [Loop] File created: ${createFileResult.fullPath}` });
+        } else {
+          // This error will be caught by the outer try-catch in executeLoopBody
+          throw new Error(`[Loop] Failed to create file: ${createFileResult.message}`);
+        }
+      } else if (currentLoopStep.type === 'create_file_with_llm_content') {
+        const { filePath, prompt, output_id } = currentLoopStep.details || {};
+        if (!filePath || !prompt) {
+            throw new Error("Missing filePath or prompt for create_file_with_llm_content in loop.");
+        }
+        sendSseMessage('log_entry', { message: `[SSE] Loop Step ${loopStepNumber}: LLM for file ${filePath} prompt: "${prompt.substring(0,50)}..."`});
+        const fileContent = await generateFromLocal(prompt, 'codellama', expressHttpRes);
+        if (fileContent.startsWith('// LLM_ERROR:') || fileContent.startsWith('// LLM_WARNING:')) {
+            throw new Error(`LLM generation for file content failed in loop: ${fileContent}`);
+        }
+        if (output_id) {
+          taskContext.outputs[output_id] = fileContent;
+        }
+        operationCount++;
+        const fsOptions = { requireConfirmation: false, isConfirmedAction: true }; // Loop operations assume pre-confirmation or batch
+        const createFileResult = fsAgent.createFile(filePath, fileContent, fsOptions);
+        if (createFileResult.success) {
+          sendSseMessage('file_written', { path: createFileResult.fullPath, message: `  -> ✅ [Loop] File created with LLM: ${createFileResult.fullPath}` });
+        } else {
+          throw new Error(`[Loop] Failed to create file with LLM: ${createFileResult.message}`);
+        }
+      }
+      // TODO: Add more step types as needed, mirroring executeStepsInternal logic, ensuring errors are thrown.
+      else {
+        sendSseMessage('log_entry', { message: `[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}, Inner Step ${loopStepNumber}): Unknown step type '${currentLoopStep.type}' in loop. Skipping.` });
+      }
+
+      // Check for batch confirmation WITHIN the loop (simplified)
+      // This is a placeholder for more complex confirmation logic.
+      // For now, if a step inside the loop *itself* requires confirmation, it would need to be handled
+      // by making executeLoopBody capable of returning a "paused" state.
+      // The current simplified approach assumes operations inside the loop just increment the count.
+      if (safetyMode && operationCount >= CONFIRM_AFTER_N_OPERATIONS && !isConfirmedAction) {
+        // This is where the loop would need to pause and signal back to executeStepsInternal
+        // For this first pass, we'll let it continue but log it.
+        // A full implementation would return a status object like:
+        // return { status: 'paused_for_confirmation', operationCount, pendingConfirmationDetails: { ... } };
+        sendSseMessage('log_entry', { message: `[SSE] Loop Info: Batch confirmation point reached within loop (Ops: ${operationCount}). True pause not yet implemented here.` });
+        // For now, we'll assume it's auto-confirmed or the responsibility of the outer loop's next check.
+        // operationCount = 0; // Or reset by the caller if paused
+      }
+
+    } catch (loopStepError) {
+      const errorMsg = `[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}, Inner Step ${loopStepNumber}): Error - ${loopStepError.message}`;
+      sendSseMessage('error', { content: errorMsg });
+      overallExecutionLog.push(errorMsg.replace('[SSE] ', ''));
+      console.error(`[executeLoopBody] ${errorMsg.replace('[SSE] ', '')}`, loopStepError);
+      // Propagate the error to the main loop execution
+      return { status: 'failed', error: loopStepError, operationCount };
+    }
+  }
+
+  sendSseMessage('log_entry', { message: `[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}) - Finished execution of ${loopSteps.length} steps.` });
+  return { status: 'completed', operationCount };
+}
+
+async function executeStepsInternal(
+  expressHttpRes, // The response object for SSE
+  task_description,
+  steps, // Array of step objects
+  taskContext, // { outputs: {} }
+  overallExecutionLog, // Array of log strings
+  startingStepIndex = 0, // To allow resumption
+  sendSseMessage, // SSE sending function
+  safetyMode, // Global safety mode for this task execution
+  initialOperationCount = 0 // For resuming operation count
+) {
+  console.log(`[executeStepsInternal] Starting/Resuming task: "${task_description}" from step ${startingStepIndex + 1}. Safety Mode: ${safetyMode}, Initial Op Count: ${initialOperationCount}`);
+  sendSseMessage('log_entry', { message: `[SSE] Task execution started/resumed for "${task_description}" from step ${startingStepIndex + 1}. Safety Mode: ${safetyMode}` }, expressHttpRes);
+
+  let operationCountSinceLastConfirmation = initialOperationCount;
+
+  // Helper function to trigger step failure
+  const triggerStepFailure = (errorMessage, errorDetails, stepType, stepNumber, currentStepContext) => {
+    const fullErrorMessage = `Step ${stepNumber} (${stepType}): ${errorMessage}`;
+    overallExecutionLog.push(`  -> ❌ ${fullErrorMessage}`);
+    console.error(`[executeStepsInternal] ${fullErrorMessage}`, errorDetails || '');
+
+    const failureId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+
+    let standardizedError = {
+      code: 'SERVER_STEP_EXECUTION_FAILED', // Default code
+      message: errorMessage,
+      details: {
+        originalError: errorDetails instanceof Error ? errorDetails.toString() : (typeof errorDetails === 'string' ? errorDetails : JSON.stringify(errorDetails)),
+        stack: errorDetails instanceof Error ? errorDetails.stack : undefined,
+      },
+      stepType: stepType,
+      stepNumber: stepNumber,
+    };
+
+    // If errorDetails is an object from our agents (fsAgent, gitAgent)
+    // which contains a structured .error property, use that.
+    if (errorDetails && typeof errorDetails === 'object' && errorDetails.error && typeof errorDetails.error.code === 'string') {
+      standardizedError.code = errorDetails.error.code; // Use specific code from agent
+      standardizedError.message = errorDetails.error.message || errorMessage; // Prefer agent's message
+      standardizedError.details = { ...standardizedError.details, ...errorDetails.error.details, agentReported: true };
+      // Keep the original full errorDetails in details if it's more than just the .error part
+      if (Object.keys(errorDetails).filter(k => k !== 'error' && k !== 'success' && k !== 'message').length > 0) {
+        standardizedError.details.fullAgentResponse = errorDetails;
+      }
+    } else if (errorDetails instanceof Error) {
+        // For generic Error objects, try to make a more specific code if possible based on message or type
+        if (errorDetails.message && errorDetails.message.includes("LLM generation failed")) {
+            standardizedError.code = 'LLM_GENERATION_FAILED_IN_STEP';
+        } else if (errorDetails.message && errorDetails.message.includes("Loop body execution failed")) {
+            standardizedError.code = 'LOOP_BODY_EXECUTION_FAILED';
+        }
+        // message is already errorMessage, which is errorDetails.message
+        // details.originalError and details.stack are already set
+    }
+
+
+    pendingFailures[failureId] = {
+      originalExpressHttpRes: expressHttpRes,
+      sendSseMessage,
+      task_description,
+      steps,
+      currentStepIndex: currentStepContext.i, // currentStepIndex from the loop
+      taskContext,
+      overallExecutionLog,
+      safetyMode,
+      errorDetails: standardizedError, // Store the standardized error
+    };
+    sendSseMessage('step_failed_options', { failureId, errorDetails: standardizedError, failedStep: { ...steps[currentStepContext.i] } }, expressHttpRes);
+    console.log(`[executeStepsInternal] Step ${stepNumber} (${stepType}) failed. Pausing task. Failure ID: ${failureId}`);
+  };
+
+  for (let i = startingStepIndex; i < steps.length; i++) {
+    let currentStep = JSON.parse(JSON.stringify(steps[i])); // Deep clone current step
+
+    const stepNumber = i + 1;
+
+    // Resolve templates in step details (outside the loop_iterations block this is fine)
+    if (currentStep.details) {
+      for (const key in currentStep.details) {
+        if (typeof currentStep.details[key] === 'string') {
+          currentStep.details[key] = resolveTemplates(
+            currentStep.details[key],
+            taskContext.outputs,
+            (type, data) => sendSseMessage(type, data, expressHttpRes)
+          );
+        }
+      }
+    }
+    const processingMessage = `\n[SSE] Processing Step ${stepNumber}: Type: ${currentStep.type}, Initial Details: ${JSON.stringify(currentStep.details)}`;
+    sendSseMessage('log_entry', { message: processingMessage }, expressHttpRes);
+    overallExecutionLog.push(processingMessage.replace('[SSE] ', ''));
+    console.log(`[executeStepsInternal] Processing Step ${stepNumber}: Type: ${currentStep.type}, Initial Details: ${JSON.stringify(currentStep.details)}`);
+
+    // Initialize retry and refinement counts for the current step
+    currentStep._internalRetryCount = currentStep._internalRetryCount || 0;
+    currentStep._internalRefineCount = currentStep._internalRefineCount || 0; // For later use
+
+    let stepProcessedSuccessfully = false;
+    let lastErrorForStep = null;
+
+    // Internal loop for retries and refinements for the CURRENT step
+    while (!stepProcessedSuccessfully &&
+           (currentStep._internalRetryCount < (currentStep.details?.maxRetries || 0)) ||
+           (currentStep.details?.onError === 'refine_and_retry' && currentStep._internalRefineCount < (currentStep.details?.maxRefinementRetries || 1))) { // Default 1 refinement attempt if not specified
+
+      // Resolve templates just before each attempt, in case context changed due to refinement
+      if (currentStep.details) {
+        for (const key in currentStep.details) {
+          if (typeof currentStep.details[key] === 'string') {
+            currentStep.details[key] = resolveTemplates(
+              currentStep.details[key],
+              taskContext.outputs,
+              (type, data) => sendSseMessage(type, data, expressHttpRes)
+            );
+          }
+        }
+      }
+      if (currentStep._internalRetryCount > 0 || currentStep._internalRefineCount > 0) {
+        const attemptMessage = `[SSE] Attempt ${currentStep._internalRetryCount + currentStep._internalRefineCount + 1} for Step ${stepNumber}. Type: ${currentStep.type}, Details: ${JSON.stringify(currentStep.details)}`;
+        sendSseMessage('log_entry', { message: attemptMessage }, expressHttpRes);
+        overallExecutionLog.push(attemptMessage.replace('[SSE] ', ''));
+        console.log(`[executeStepsInternal] ${attemptMessage.replace('[SSE] ', '')}`);
+      }
+
+      try {
+        const isConfirmedAction = currentStep.details?.isConfirmedAction || false;
+        lastErrorForStep = null; // Clear last error before new attempt
+
+        // --- Actual Step Execution Logic (moved inside the while loop) ---
+        if (currentStep.type === 'loop_iterations') {
+        const { count, loop_steps, iterator_var } = currentStep.details || {};
+        const loopStepNumberForLog = stepNumber; // To refer to the loop_iterations step itself
+
+        if (typeof count !== 'number' || count <= 0) {
+          const errorMsg = `'count' must be a positive number. Found: ${count}`;
+          triggerStepFailure(errorMsg, null, currentStep.type, loopStepNumberForLog, {i});
+          return; // Pause execution
+        }
+
+        if (!Array.isArray(loop_steps) || loop_steps.length === 0) {
+          const errorMsg = `'loop_steps' must be a non-empty array.`;
+          triggerStepFailure(errorMsg, null, currentStep.type, loopStepNumberForLog, {i});
+          return; // Pause execution
+        }
+
+        sendSseMessage('log_entry', { message: `[SSE] Step ${loopStepNumberForLog} (loop_iterations): Starting loop for ${count} iterations.` });
+        overallExecutionLog.push(`  -> Step Type: ${currentStep.type}. Iterations: ${count}. Iterator Var: ${iterator_var || 'N/A'}`);
+
+        const originalIteratorValue = iterator_var ? taskContext.outputs[iterator_var] : undefined;
+
+        for (let iter = 0; iter < count; iter++) {
+          sendSseMessage('log_entry', { message: `[SSE] Step ${loopStepNumberForLog} (loop_iterations): Starting iteration ${iter + 1}/${count}.` });
+          overallExecutionLog.push(`    Iteration ${iter + 1}/${count}:`);
+
+          if (iterator_var) {
+            taskContext.outputs[iterator_var] = iter;
+            sendSseMessage('log_entry', { message: `[SSE] Set '${iterator_var}' to ${iter} for this iteration.` });
+          }
+
+          // Execute the body of the loop
+          const loopBodyResult = await executeLoopBody(
+            expressHttpRes,
+            task_description,
+            loop_steps,
+            taskContext, // Pass the main taskContext, potentially modified with iterator_var
+            overallExecutionLog,
+            sendSseMessage,
+            safetyMode,
+            loopStepNumberForLog, // Parent step number for logging
+            iter, // Current iteration number
+            operationCountSinceLastConfirmation // Pass current operation count
+          );
+
+          operationCountSinceLastConfirmation = loopBodyResult.operationCount; // Update operation count from loop body
+
+          if (loopBodyResult.status === 'failed') {
+            const errorMsg = `  -> ❌ Error: Step ${loopStepNumberForLog} (loop_iterations), Iteration ${iter + 1}: Loop body execution failed. Error: ${loopBodyResult.error?.message}`;
+            overallExecutionLog.push(errorMsg);
+            // The error message should have already been sent by executeLoopBody
+            // sendSseMessage('error', { content: errorMsg }, expressHttpRes); // Error message already sent by executeLoopBody
+            // console.error(`[executeStepsInternal] ${errorMsg}`); // Already logged by executeLoopBody
+
+            // Trigger failure mechanism for the main loop_iterations step
+            const failureMessage = `Loop body execution failed at Iteration ${iter + 1}. Error: ${loopBodyResult.error?.message}`;
+            const errorDetailsForFailure = {
+              message: failureMessage,
+              originalError: loopBodyResult.error, // Preserve original error from loop body
+              type: currentStep.type,
+              stepNumber: loopStepNumberForLog,
+              iteration: iter + 1
+            };
+            triggerStepFailure(failureMessage, errorDetailsForFailure, currentStep.type, loopStepNumberForLog, {i});
+            return; // Pause execution
+          }
+
+          // If loopBodyResult.status === 'paused_for_confirmation_in_loop'
+          // then executeStepsInternal would need to store pendingConfirmations for the loop_iterations step
+          // and return, similar to other confirmation pauses.
+          // For now, this is not hit due to simplified executeLoopBody.
+
+          sendSseMessage('log_entry', { message: `[SSE] Step ${loopStepNumberForLog} (loop_iterations): Finished iteration ${iter + 1}/${count}.` });
+          overallExecutionLog.push(`    Finished Iteration ${iter + 1}/${count}. Current operation count: ${operationCountSinceLastConfirmation}`);
+
+          // Batch confirmation check AFTER each iteration of the loop body completes
+          // This is distinct from confirmations *within* the loop body.
+          if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && iter < count -1 /* No confirmation after last iteration */) {
+            const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+            sendSseMessage('confirmation_required', {
+                confirmationId,
+                message: `After ${operationCountSinceLastConfirmation} operations (last in loop iteration ${iter + 1}), proceed with next iteration or step?`,
+                details: { type: 'batch_confirmation', nextOperationWillBe: `loop iteration ${iter + 2} or next main step`, operationCount: operationCountSinceLastConfirmation }
+            }, expressHttpRes);
+            pendingConfirmations[confirmationId] = {
+                expressHttpRes, task_description, steps, currentStepIndex: i, // Point to the loop_iterations step
+                taskContext, overallExecutionLog, currentStep, // currentStep here is the loop_iterations step
+                actionType: 'batch_confirmation_resume_step', confirmationType: 'batch', safetyMode,
+                operationCountSinceLastConfirmation: 0 // Reset for next batch if confirmed
+            };
+            console.log(`[executeStepsInternal] Batch confirmation required after loop iteration. Pausing task. ID: ${confirmationId}`);
+            return; // Pause for batch confirmation
+          }
+        }
+
+        if (iterator_var) {
+          if (originalIteratorValue === undefined) {
+            delete taskContext.outputs[iterator_var]; // Clean up if it didn't exist
+          } else {
+            taskContext.outputs[iterator_var] = originalIteratorValue; // Restore original
+          }
+          sendSseMessage('log_entry', { message: `[SSE] Restored/cleared '${iterator_var}' in context after loop.` });
+        }
+        sendSseMessage('log_entry', { message: `[SSE] Step ${loopStepNumberForLog} (loop_iterations): Finished all ${count} iterations.` });
+        overallExecutionLog.push(`  -> Finished loop_iterations step. Final operation count: ${operationCountSinceLastConfirmation}`);
+
+      } else if (
+        currentStep.type === 'generic_step' ||
+        currentStep.type === 'execute_generic_task_with_llm'
+      ) {
+        overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
+        const promptText =
+          currentStep.details?.prompt || currentStep.details?.description;
+        if (promptText) {
+          overallExecutionLog.push(`  -> Prompt for LLM: "${promptText}"`);
+          sendSseMessage('log_entry', {
+            message: `[SSE] Step ${stepNumber} (${currentStep.type}): Sending prompt to LLM: "${promptText.substring(0, 100)}..."`,
+          }, expressHttpRes);
+          let llmFullResponse = await generateFromLocal(promptText, 'codellama', expressHttpRes);
+
+          if (llmFullResponse.startsWith('// LLM_ERROR:') || llmFullResponse.startsWith('// LLM_WARNING:')) {
+            triggerStepFailure(`LLM generation failed.`, llmFullResponse, currentStep.type, stepNumber, {i});
+            return;
+          }
+
+          overallExecutionLog.push(`  -> LLM Response (summary): ${llmFullResponse.substring(0, 200)}...`);
+          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): LLM stream completed.` }, expressHttpRes);
+
+          if (currentStep.details.output_id) {
+            taskContext.outputs[currentStep.details.output_id] =
+              llmFullResponse;
+            sendSseMessage('log_entry', {
+              message: `[SSE] Stored LLM response in context as output_id: '${currentStep.details.output_id}'`,
+            }, expressHttpRes);
+            overallExecutionLog.push(
+              `  -> Stored LLM response in context as output_id: '${currentStep.details.output_id}'`
+            );
+          }
+        } else {
+          const errorMsg = `Missing 'details.prompt' or 'details.description'.`;
+          triggerStepFailure(errorMsg, null, currentStep.type, stepNumber, {i});
+          return;
+        }
+        operationCountSinceLastConfirmation++; // LLM call is an operation
+      } else if (currentStep.type === 'create_file_with_llm_content') {
+        overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
+        const {
+          filePath,
+          prompt,
+          content_from_llm,
+          output_id,
+        } = currentStep.details || {};
+
+        const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
+        const stepDisablesConfirmation = currentStep.details?.requireConfirmation === false;
+        let effectiveRequireConfirmationForStep = false;
+        if (safetyMode) {
+            effectiveRequireConfirmationForStep = !stepDisablesConfirmation;
+        } else {
+            effectiveRequireConfirmationForStep = stepRequiresConfirmation;
+        }
+
+        const fsOptions = {
+          requireConfirmation: effectiveRequireConfirmationForStep, // This is for file-specific confirmation
+          isConfirmedAction: isConfirmedAction
+        };
+        let fileContent = '';
+        let contentSource = '';
+
+        if (!filePath) {
+          triggerStepFailure(`Missing 'details.filePath'.`, null, currentStep.type, stepNumber, {i});
+          return;
+        }
+
+        if (content_from_llm !== undefined) {
+          fileContent = content_from_llm;
+          contentSource = 'content_from_llm';
+        } else if (prompt) {
+          contentSource = 'llm_prompt';
+          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): Sending prompt to LLM for file content: "${prompt.substring(0, 100)}..."` }, expressHttpRes);
+          fileContent = await generateFromLocal(prompt, 'codellama', expressHttpRes);
+          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): LLM stream completed.` }, expressHttpRes);
+
+          if (fileContent.startsWith('// LLM_ERROR:') || fileContent.startsWith('// LLM_WARNING:')) {
+            triggerStepFailure(`LLM generation for file content failed.`, fileContent, currentStep.type, stepNumber, {i});
+            return;
+          }
+        } else {
+          triggerStepFailure(`Requires 'details.prompt' or 'details.content_from_llm'.`, null, currentStep.type, stepNumber, {i});
+          return;
+        }
+        if (output_id) {
+          taskContext.outputs[output_id] = fileContent;
+          sendSseMessage('log_entry', {
+            message: `[SSE] Stored content (from ${contentSource}) in context as output_id: '${output_id}'`,
+          }, expressHttpRes);
+        }
+        sendSseMessage('log_entry', {
+          message: `[SSE] Creating file: '${filePath}' with content from ${contentSource}`,
+        }, expressHttpRes);
+
+        operationCountSinceLastConfirmation++;
+        if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && !fsOptions.requireConfirmation && !isConfirmedAction) {
+            const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+            sendSseMessage('confirmation_required', {
+                confirmationId,
+                message: `You've performed ${operationCountSinceLastConfirmation} operations. Proceed with the next batch (up to ${CONFIRM_AFTER_N_OPERATIONS} operations)?`,
+                details: { type: 'batch_confirmation', nextOperationWillBe: currentStep.type, operationCount: operationCountSinceLastConfirmation }
+            }, expressHttpRes);
+            pendingConfirmations[confirmationId] = {
+                expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep,
+                actionType: 'batch_confirmation_resume_step', confirmationType: 'batch', safetyMode,
+                operationCountSinceLastConfirmation: 0 // Reset for next batch if confirmed
+            };
+            console.log(`[executeStepsInternal] Batch confirmation required. Pausing task. ID: ${confirmationId}`);
+            return; // Pause for batch confirmation
+        }
+
+        const createFileResult = fsAgent.createFile(filePath, fileContent, fsOptions); // This line was already here
+        if (createFileResult.confirmationNeeded && !fsOptions.isConfirmedAction) {
+          const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+          pendingConfirmations[confirmationId] = {
+            expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep,
+            actionType: 'create_file_with_llm_content', confirmationType: 'file', safetyMode,
+            operationCountSinceLastConfirmation // Preserve current count for when file op is confirmed
+          };
+          sendSseMessage('confirmation_required', { confirmationId, message: createFileResult.message, details: createFileResult }, expressHttpRes);
+          console.log(`[executeStepsInternal] File-specific confirmation required for ${filePath}. Pausing task. ID: ${confirmationId}`);
+          return; // Pause execution
+        }
+        if (createFileResult.success && isConfirmedAction) { // This block was already here
+            operationCountSinceLastConfirmation = 0; // Reset op count if this specific action was confirmed
+        }
+        if (createFileResult.warnings) // This line was already here
+          createFileResult.warnings.forEach((w) =>
+            sendSseMessage('log_entry', { message: `[fsAgent Warning] ${w}` }, expressHttpRes)
+          );
+        if (createFileResult.success) {
+          sendSseMessage('file_written', { path: createFileResult.fullPath, message: `  -> ✅ File created successfully at: ${createFileResult.fullPath}` }, expressHttpRes);
+        } else if (!createFileResult.confirmationNeeded) { // Genuine failure, not a confirmation pause
+          triggerStepFailure(`fsAgent.createFile failed: ${createFileResult.message}`, createFileResult, currentStep.type, stepNumber, {i});
+          return;
+        }
+      } else if (currentStep.type === 'git_operation') {
+        overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
+        const { command, output_id, ...details } = currentStep.details;
+        let gitAgentFunction;
+        let gitArgs = [];
+        // The default ModularGitAgent instance uses workDir: path.resolve(__dirname, '../../') (project root)
+        // File paths for git operations should be relative to this project root.
+        // WORKSPACE_DIR is path.resolve(__dirname, '../output') by default.
+        // If details.filePath is relative to WORKSPACE_DIR, we need to make it relative to project root.
+        const projectRoot = path.resolve(__dirname, '../../');
+
+        switch (command) {
+          case 'add':
+            gitAgentFunction = gitAgent.gitAdd;
+            if (details.filePath) {
+              // Assuming details.filePath is relative to WORKSPACE_DIR
+              // We need to make it relative to projectRoot for gitAgent
+              const absoluteFilePath = fsAgent.resolvePathInWorkspace(details.filePath).fullPath;
+              if (absoluteFilePath) {
+                  gitArgs = [path.relative(projectRoot, absoluteFilePath)];
+              } else {
+                  // Handle error: path resolution failed.
+                  const errorMsg = `Error resolving path for git add: ${details.filePath}`;
+                  triggerStepFailure(errorMsg, { filePath: details.filePath }, currentStep.type, stepNumber, {i});
+                  return;
+              }
+            } else {
+              gitArgs = ['.']; // Stage all in project root context
+            }
+            break;
+          case 'commit':
+            gitAgentFunction = gitAgent.gitCommit;
+            gitArgs = [details.message]; // Commit message
+            break;
+          case 'pull':
+            gitAgentFunction = gitAgent.gitPull;
+            // remote, branch. These don't involve local paths directly.
+            gitArgs = [details.remote, details.branch];
+            break;
+          case 'push':
+            gitAgentFunction = gitAgent.gitPush;
+            gitArgs = [details.remote, details.branch];
+            break;
+          case 'revert_last_commit': // Corrected to use gitRevertLastCommit
+            gitAgentFunction = gitAgent.gitRevertLastCommit;
+            gitArgs = []; // No specific path args needed, operates on repo state
+            break;
+          default:
+            const errorMsgDefault = `  -> ❌ Error: Step ${stepNumber} (git_operation): Command '${command}' is not directly supported by gitAgent or is invalid.`;
+            overallExecutionLog.push(errorMsgDefault);
+            const errorMsg = `Command '${command}' is not directly supported by gitAgent or is invalid.`;
+            triggerStepFailure(errorMsg, { command }, currentStep.type, stepNumber, {i});
+            return;
+        }
+
+        if (!gitAgentFunction) {
+          // This case should ideally not be reached if the switch default handles unknown commands.
+          const errorMsg = `No gitAgent function found for command '${command}'. This indicates an internal logic error.`;
+          triggerStepFailure(errorMsg, { command }, currentStep.type, stepNumber, {i});
+          return;
+        }
+
+        sendSseMessage('log_entry', {
+          message: `[SSE] Executing Git operation: ${command} with details ${JSON.stringify(details)}`,
+        }, expressHttpRes);
+
+        const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
+        const stepDisablesConfirmation = currentStep.details?.requireConfirmation === false;
+        let effectiveRequireConfirmationForStep = false;
+        if (safetyMode) {
+            effectiveRequireConfirmationForStep = !stepDisablesConfirmation;
+        } else {
+            effectiveRequireConfirmationForStep = stepRequiresConfirmation;
+        }
+
+        const gitOptions = {
+            requireConfirmation: effectiveRequireConfirmationForStep,
+            isConfirmedAction: isConfirmedAction
+        };
+
+        const modifyingGitCommands = ['commit', 'push', 'revert_last_commit']; // Ensure 'revert_last_commit' is here
+        if (modifyingGitCommands.includes(command) || command === 'add') {
+            operationCountSinceLastConfirmation++;
+            // Batch confirmation check for modifying operations
+            if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && !gitOptions.requireConfirmation && !isConfirmedAction) {
+                const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+                sendSseMessage('confirmation_required', {
+                    confirmationId,
+                    message: `You've performed ${operationCountSinceLastConfirmation} operations. Proceed with the next batch (up to ${CONFIRM_AFTER_N_OPERATIONS} operations, next is git ${command})?`,
+                    details: { type: 'batch_confirmation', nextOperationWillBe: currentStep.type, subType: command, operationCount: operationCountSinceLastConfirmation }
+                }, expressHttpRes);
+                pendingConfirmations[confirmationId] = {
+                    expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep,
+                    actionType: 'batch_confirmation_resume_step', confirmationType: 'batch', safetyMode,
+                    operationCountSinceLastConfirmation: 0
+                };
+                console.log(`[executeStepsInternal] Batch confirmation required before git op. Pausing. ID: ${confirmationId}`);
+                return;
+            }
+        }
+
+        overallExecutionLog.push(
+          `  -> Executing Git: ${command} ${gitArgs.join(' ')} with options: ${JSON.stringify(gitOptions)}`
+        );
+        // Call gitAgent method: arguments are specific to command, then options object
+        // For revertLastCommit, gitArgs is empty, so it's just gitAgent.revertLastCommit(gitOptions)
+        const result = await gitAgentFunction(...gitArgs, gitOptions);
+
+        // Standard Safety Mode confirmation handling for the operation
+        if (result.confirmationNeeded && !isConfirmedAction) {
+            const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+            pendingConfirmations[confirmationId] = {
+                expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep,
+                actionType: `git_${command}`, // e.g., git_revert_last_commit
+                confirmationType: 'git', // General type for git operations
+                safetyMode,
+                operationCountSinceLastConfirmation // Preserve current op count
+            };
+            sendSseMessage('confirmation_required', {
+                confirmationId,
+                message: result.message, // Message from gitAgent (e.g., "Are you sure you want to revert the last commit?")
+                details: {
+                    type: 'git_confirmation',
+                    command: command,
+                    stepDetails: currentStep.details,
+                    gitAgentDetails: result.details // Additional details from gitAgent if any
+                }
+            }, expressHttpRes);
+            console.log(`[executeStepsInternal] Git operation '${command}' requires confirmation. Pausing. ID: ${confirmationId}`);
+            return; // Pause execution, wait for user confirmation
+        }
+
+        // If the action was pre-confirmed (e.g. user clicked "confirm" in UI, or Safety Mode OFF)
+        // and it was a modifying command, reset the batch operation counter.
+        if (result.success && isConfirmedAction && modifyingGitCommands.includes(command)) {
+             operationCountSinceLastConfirmation = 0; // Reset counter because this action was confirmed
+        }
+
+        const logMessage = `  -> Git operation '${command}' ${result.success ? 'succeeded' : 'failed'}. Message: ${result.message}`;
+        overallExecutionLog.push(logMessage);
+        sendSseMessage('log_entry', { message: logMessage }, expressHttpRes);
+
+        if (!result.success && !result.confirmationNeeded) { // Genuine failure, not a confirmation pause
+            const failureMessage = result.message || `Git operation '${command}' failed.`;
+            // result.error might contain more details from gitAgent
+            triggerStepFailure(failureMessage, result.error || result, currentStep.type, stepNumber, {i});
+            return; // Pause execution due to failure
+        }
+
+        if (output_id && result.success && result.data) { // Store output if specified and available
+            taskContext.outputs[output_id] = result.data;
+            const storeMsg = `  -> Stored Git operation '${command}' output in context as output_id: '${output_id}'.`;
+            overallExecutionLog.push(storeMsg);
+            sendSseMessage('log_entry', { message: storeMsg }, expressHttpRes);
+        } else if (output_id && !result.success) {
+            overallExecutionLog.push(
+                `  -> Git operation '${command}' failed or produced no data, not storing output for '${output_id}'.`
+            );
+        }
+        // Note: Not all git operations reset operationCountSinceLastConfirmation, only modifying ones IF they were individually confirmed.
+        // Batch confirmation resets are handled by the batch confirmation logic itself.
+      } else if (currentStep.type === 'show_workspace_tree') {
+        // This step is considered non-operational in terms of modification count
+        let targetPath = WORKSPACE_DIR;
+        let rootName = 'workspace_root';
+        if (currentStep.details && currentStep.details.path) {
+            const resolvedPathResult = fsAgent.resolvePathInWorkspace(currentStep.details.path);
+            if (resolvedPathResult.success) {
+                targetPath = resolvedPathResult.fullPath;
+                rootName = path.basename(targetPath);
+            } else {
+                triggerStepFailure(`Error resolving path for show_workspace_tree: ${resolvedPathResult.message}`, resolvedPathResult, currentStep.type, stepNumber, {i});
+                return;
+            }
+        }
+        const treeString = fsAgent.generateDirectoryTree(targetPath, '', rootName);
+        sendSseMessage('log_entry', { message: `Workspace tree (${rootName}):\n\`\`\`\n${treeString}\n\`\`\`` }, expressHttpRes);
+      } else if (currentStep.type === 'conference_task') {
+        overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
+        const { prompt: userPrompt, model_a_role: modelARole, model_b_role: modelBRole, arbiter_model_role: arbiterModelRole, output_id, num_rounds: requested_num_rounds } = currentStep.details || {};
+
+        const num_rounds = (typeof requested_num_rounds === 'number' && requested_num_rounds > 0) ? requested_num_rounds : 1;
+        overallExecutionLog.push(`  -> Conference Rounds: ${num_rounds}`);
+        sendSseMessage('log_entry', { message: `[SSE] Conference Rounds set to: ${num_rounds}`}, expressHttpRes);
+
+        if (!userPrompt) {
+          triggerStepFailure("Missing 'details.prompt'.", null, currentStep.type, stepNumber, {i});
+          return;
+        }
+
+        const conferenceId = uuidv4();
+        sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Starting conference task for prompt: "${userPrompt.substring(0,100)}..."`}, expressHttpRes);
+        overallExecutionLog.push(`  -> [Conference ${conferenceId}] Starting conference for prompt: "${userPrompt.substring(0,100)}..."`);
+
+        const modelName = 'llama3'; // Default model for conference tasks, can be parameterized later
+        const finalModelARole = modelARole || "Logical Reasoner";
+        const finalModelBRole = modelBRole || "Creative Problem Solver";
+        const finalArbiterModelRole = arbiterModelRole || "Arbiter";
+
+        let arbiterResponse = '';
+        let debate_history = [];
+        let model_a_prompt_for_log = "";
+        let model_b_prompt_for_log = "";
+        let arbiter_prompt_for_log = "";
+
+        try {
+          if (num_rounds === 1) {
+            // Model A
+            const systemPromptA = `You are a ${finalModelARole}. Analyze the following prompt and provide a concise, logical answer.`;
+            const fullPromptA = `${systemPromptA}\n\nUser Prompt: "${userPrompt}"`;
+            model_a_prompt_for_log = fullPromptA;
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Model A (${modelName}) as ${finalModelARole}`}, expressHttpRes);
+            const responseA = await generateFromLocal(fullPromptA, modelName, expressHttpRes);
+            if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
+              // This throw will be caught by the main try-catch of the conference_task
+              throw new Error(`Model A (${finalModelARole}) failed: ${responseA}`);
+            }
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Model A (${finalModelARole}) response received.`}, expressHttpRes);
+            overallExecutionLog.push(`  -> [Conference ${conferenceId}] Model A (${finalModelARole}) response: ${responseA.substring(0,100)}...`);
+            debate_history.push({ round: 1, model_a_response: responseA, model_b_response: "" }); // Temporarily empty B
+
+            // Model B
+            const systemPromptB = `You are a ${finalModelBRole}. Analyze the following prompt and provide an innovative and imaginative answer.`;
+            const fullPromptB = `${systemPromptB}\n\nUser Prompt: "${userPrompt}"`;
+            model_b_prompt_for_log = fullPromptB;
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Model B (${modelName}) as ${finalModelBRole}`}, expressHttpRes);
+            const responseB = await generateFromLocal(fullPromptB, modelName, expressHttpRes);
+            if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
+              throw new Error(`Model B (${finalModelBRole}) failed: ${responseB}`);
+            }
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Model B (${finalModelBRole}) response received.`}, expressHttpRes);
+            overallExecutionLog.push(`  -> [Conference ${conferenceId}] Model B (${finalModelBRole}) response: ${responseB.substring(0,100)}...`);
+            debate_history[0].model_b_response = responseB; // Update round 1 B's response
+
+            // Arbiter Model
+            const arbiterSystemPrompt = `You are an ${finalArbiterModelRole}. Given the original prompt and the two responses below, evaluate them. Determine which response is better or synthesize a comprehensive answer that combines the best elements of both.`;
+            const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nResponse A (${finalModelARole}): "${responseA}"\n\nResponse B (${finalModelBRole}): "${responseB}"\n\nYour evaluation and synthesized answer:`;
+            arbiter_prompt_for_log = arbiterFullPrompt;
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Arbiter Model (${modelName}) as ${finalArbiterModelRole}`}, expressHttpRes);
+            arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, expressHttpRes);
+            if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
+              throw new Error(`Arbiter Model (${finalArbiterModelRole}) failed: ${arbiterResponse}`);
+            }
+          } else { // num_rounds > 1
+            let lastResponseA = "";
+            let lastResponseB = "";
+
+            for (let round = 1; round <= num_rounds; round++) {
+              sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Starting Round ${round}/${num_rounds}`}, expressHttpRes);
+              overallExecutionLog.push(`  -> [Conference ${conferenceId}] Starting Round ${round}/${num_rounds}`);
+
+              // Model A's turn
+              let promptA;
+              if (round === 1) {
+                promptA = `You are ${finalModelARole}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
+              } else {
+                promptA = `You are ${finalModelARole}. The original request was: "${userPrompt}". Your opponent (Model B) previously said: "${lastResponseB}". Based on this, provide your updated argument or rebuttal as ${finalModelARole}.`;
+              }
+              model_a_prompt_for_log = promptA; // Log the last prompt for A
+              sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Calling Model A (${finalModelARole})`}, expressHttpRes);
+              const currentResponseA = await generateFromLocal(promptA, modelName, expressHttpRes);
+              if (currentResponseA.startsWith('// LLM_ERROR:') || currentResponseA.startsWith('// LLM_WARNING:')) {
+                throw new Error(`Model A (${finalModelARole}) failed in Round ${round}: ${currentResponseA}`);
+              }
+              lastResponseA = currentResponseA;
+              sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Model A response: ${lastResponseA.substring(0, 50)}...`}, expressHttpRes);
+              overallExecutionLog.push(`  -> [Conference ${conferenceId} R${round}] Model A: ${lastResponseA.substring(0,50)}...`);
+
+              // Model B's turn
+              let promptB;
+              if (round === 1) {
+                promptB = `You are ${finalModelBRole}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
+              } else {
+                promptB = `You are ${finalModelBRole}. The original request was: "${userPrompt}". Your opponent (Model A) just said: "${lastResponseA}". Based on this, provide your updated argument or rebuttal as ${finalModelBRole}.`;
+              }
+              model_b_prompt_for_log = promptB; // Log the last prompt for B
+              sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Calling Model B (${finalModelBRole})`}, expressHttpRes);
+              const currentResponseB = await generateFromLocal(promptB, modelName, expressHttpRes);
+              if (currentResponseB.startsWith('// LLM_ERROR:') || currentResponseB.startsWith('// LLM_WARNING:')) {
+                throw new Error(`Model B (${finalModelBRole}) failed in Round ${round}: ${currentResponseB}`);
+              }
+              lastResponseB = currentResponseB;
+              sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Model B response: ${lastResponseB.substring(0, 50)}...`}, expressHttpRes);
+              overallExecutionLog.push(`  -> [Conference ${conferenceId} R${round}] Model B: ${lastResponseB.substring(0,50)}...`);
+
+              debate_history.push({ round: round, model_a_response: lastResponseA, model_b_response: lastResponseB });
+            }
+
+            // Arbiter after all rounds
+            let formattedDebateHistory = debate_history.map(r => `Round ${r.round}:\n  Model A (${finalModelARole}): ${r.model_a_response}\n  Model B (${finalModelBRole}): ${r.model_b_response}`).join('\n\n');
+            const arbiterSystemPrompt = `You are an ${finalArbiterModelRole}. You have observed a debate between Model A (${finalModelARole}) and Model B (${finalModelBRole}) over several rounds.`;
+            const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nFull Debate History:\n${formattedDebateHistory}\n\nBased on the entire debate, provide a comprehensive synthesized answer as ${finalArbiterModelRole}.`;
+            arbiter_prompt_for_log = arbiterFullPrompt;
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Arbiter Model (${finalArbiterModelRole}) with full debate history.`}, expressHttpRes);
+            arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, expressHttpRes);
+            if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
+              throw new Error(`Arbiter Model (${finalArbiterModelRole}) failed after debate: ${arbiterResponse}`);
+            }
+          }
+
+          sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response received.`}, expressHttpRes);
+          overallExecutionLog.push(`  -> [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response: ${arbiterResponse.substring(0,100)}...`);
+
+          if (output_id) {
+            taskContext.outputs[output_id] = arbiterResponse;
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Stored Arbiter response in context as output_id: '${output_id}'`}, expressHttpRes);
+            overallExecutionLog.push(`  -> [Conference ${conferenceId}] Stored Arbiter response in context as output_id: '${output_id}'`);
+          }
+
+          // Log conference details to conferences.json
+          const logEntry = {
+            conference_id: conferenceId,
+            timestamp: new Date().toISOString(),
+            original_prompt: userPrompt,
+            num_rounds: num_rounds, // Log num_rounds
+            model_a_name: modelName,
+            model_a_role: finalModelARole,
+            // For simplicity, log only the last prompts for A and B if multi-round, or the direct prompts if single round.
+            // A more detailed logging could store all prompts for each round in debate_history if needed.
+            model_a_prompt: model_a_prompt_for_log,
+            model_b_name: modelName,
+            model_b_role: finalModelBRole,
+            model_b_prompt: model_b_prompt_for_log,
+            debate_history: debate_history, // Log the full debate history
+            arbiter_model_name: modelName,
+            arbiter_model_role: finalArbiterModelRole,
+            arbiter_model_prompt: arbiter_prompt_for_log,
+            arbiter_model_response: arbiterResponse,
+            source: 'roadmap_step'
+          };
+
+          let conferences = [];
+          try {
+            if (fs.existsSync(CONFERENCES_LOG_FILE)) {
+              const fileContent = fs.readFileSync(CONFERENCES_LOG_FILE, 'utf-8');
+              if (fileContent.trim() !== "") { conferences = JSON.parse(fileContent); }
+            }
+          } catch (readError) {
+            console.warn(`[Conference ${conferenceId}] Error reading or parsing ${CONFERENCES_LOG_FILE} during step execution. Initializing. Error: ${readError.message}`);
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Warning: Could not read conference log file: ${readError.message}. Will create a new one.`}, expressHttpRes);
+            conferences = []; // Initialize if file is corrupt or unparsable
+          }
+          conferences.push(logEntry);
+          fs.writeFileSync(CONFERENCES_LOG_FILE, JSON.stringify(conferences, null, 2));
+          sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Conference log saved.`}, expressHttpRes);
+          overallExecutionLog.push(`  -> [Conference ${conferenceId}] Logged successfully to ${CONFERENCES_LOG_FILE}`);
+
+        } catch (confError) {
+          triggerStepFailure(confError.message, confError, currentStep.type, stepNumber, {i});
+          return;
+        }
+
+      } else if (currentStep.type === 'createDirectory') {
+        const { dirPath } = currentStep.details || {};
+        if (!dirPath) {
+          triggerStepFailure("Missing 'details.dirPath' for createDirectory.", null, currentStep.type, stepNumber, {i});
+          return;
+        }
+
+        const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
+        const stepDisablesConfirmation = currentStep.details?.requireConfirmation === false;
+        let effectiveRequireConfirmationForStep = false;
+        if (safetyMode) { effectiveRequireConfirmationForStep = !stepDisablesConfirmation; }
+        else { effectiveRequireConfirmationForStep = stepRequiresConfirmation; }
+
+        operationCountSinceLastConfirmation++;
+        if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && !effectiveRequireConfirmationForStep && !isConfirmedAction) {
+            const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+            sendSseMessage('confirmation_required', { confirmationId, message: `Batch confirmation: ${operationCountSinceLastConfirmation} operations. Proceed?`, details: { type: 'batch_confirmation', nextOperationWillBe: currentStep.type } }, expressHttpRes);
+            pendingConfirmations[confirmationId] = { expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep, confirmationType: 'batch', safetyMode, operationCountSinceLastConfirmation: 0 };
+            return;
+        }
+        const result = fsAgent.createDirectory(dirPath, { requireConfirmation: effectiveRequireConfirmationForStep, isConfirmedAction });
+        if (result.confirmationNeeded && !isConfirmedAction) {
+          const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+          pendingConfirmations[confirmationId] = { expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep, confirmationType: 'file', safetyMode, operationCountSinceLastConfirmation };
+          sendSseMessage('confirmation_required', { confirmationId, message: result.message, details: result }, expressHttpRes);
+          return;
+        }
+        if (result.success && isConfirmedAction) { operationCountSinceLastConfirmation = 0; }
+        if (result.success) sendSseMessage('log_entry', { message: `✅ Directory created: ${result.fullPath}` }, expressHttpRes);
+        else if (!result.confirmationNeeded) { // Genuine failure
+            triggerStepFailure(`fsAgent.createDirectory failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
+            return;
+        }
+      } else if (currentStep.type === 'createFile') {
+        const { filePath, content } = currentStep.details || {};
+        if (!filePath || content === undefined) {
+            triggerStepFailure("Missing 'details.filePath' or 'details.content' for createFile.", null, currentStep.type, stepNumber, {i});
+            return;
+        }
+
+        const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
+        const stepDisablesConfirmation = currentStep.details?.requireConfirmation === false;
+        let effectiveRequireConfirmationForStep = false;
+        if (safetyMode) { effectiveRequireConfirmationForStep = !stepDisablesConfirmation; }
+        else { effectiveRequireConfirmationForStep = stepRequiresConfirmation; }
+
+        operationCountSinceLastConfirmation++;
+        if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && !effectiveRequireConfirmationForStep && !isConfirmedAction) {
+            const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+            sendSseMessage('confirmation_required', { confirmationId, message: `Batch confirmation: ${operationCountSinceLastConfirmation} operations. Proceed?`, details: { type: 'batch_confirmation', nextOperationWillBe: currentStep.type } }, expressHttpRes);
+            pendingConfirmations[confirmationId] = { expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep, confirmationType: 'batch', safetyMode, operationCountSinceLastConfirmation: 0 };
+            return;
+        }
+        const result = fsAgent.createFile(filePath, content, { requireConfirmation: effectiveRequireConfirmationForStep, isConfirmedAction });
+        if (result.confirmationNeeded && !isConfirmedAction) {
+          const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+          pendingConfirmations[confirmationId] = { expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep, confirmationType: 'file', safetyMode, operationCountSinceLastConfirmation };
+          sendSseMessage('confirmation_required', { confirmationId, message: result.message, details: result }, expressHttpRes);
+          return;
+        }
+        if (result.success && isConfirmedAction) { operationCountSinceLastConfirmation = 0; }
+        if (result.success) sendSseMessage('file_written', { path: result.fullPath, message: `✅ File created: ${result.fullPath}` }, expressHttpRes);
+        else if (!result.confirmationNeeded) { // Genuine failure
+            triggerStepFailure(`fsAgent.createFile failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
+            return;
+        }
+      } else if ( currentStep.type === 'readFile' || currentStep.type === 'read_file_to_output') {
+        const { filePath, output_id } = currentStep.details || {};
+        if (!filePath) {
+            triggerStepFailure("Missing 'details.filePath' for readFile.", null, currentStep.type, stepNumber, {i});
+            return;
+        }
+        const result = fsAgent.readFile(filePath);
+        if (result.success) {
+          if (output_id) taskContext.outputs[output_id] = result.content;
+          sendSseMessage('log_entry', { message: `✅ File read: ${result.fullPath}. Stored in ${output_id || 'log'}.` }, expressHttpRes);
+        } else { // Genuine failure
+            triggerStepFailure(`fsAgent.readFile failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
+            return;
+        }
+      } else if (currentStep.type === 'updateFile') {
+        const { filePath, content, append } = currentStep.details || {};
+        if (!filePath || content === undefined) {
+            triggerStepFailure("Missing 'details.filePath' or 'details.content' for updateFile.", null, currentStep.type, stepNumber, {i});
+            return;
+        }
+
+        const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
+        const stepDisablesConfirmation = currentStep.details?.requireConfirmation === false;
+        let effectiveRequireConfirmationForStep = false;
+        if (safetyMode) { effectiveRequireConfirmationForStep = !stepDisablesConfirmation; }
+        else { effectiveRequireConfirmationForStep = stepRequiresConfirmation; }
+
+        operationCountSinceLastConfirmation++;
+        if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && !effectiveRequireConfirmationForStep && !isConfirmedAction) {
+            const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+            sendSseMessage('confirmation_required', { confirmationId, message: `Batch confirmation: ${operationCountSinceLastConfirmation} operations. Proceed?`, details: { type: 'batch_confirmation', nextOperationWillBe: currentStep.type } }, expressHttpRes);
+            pendingConfirmations[confirmationId] = { expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep, confirmationType: 'batch', safetyMode, operationCountSinceLastConfirmation: 0 };
+            return;
+        }
+        const result = fsAgent.updateFile(filePath, content, { append, requireConfirmation: effectiveRequireConfirmationForStep, isConfirmedAction });
+        if (result.confirmationNeeded && !isConfirmedAction) {
+          const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+          pendingConfirmations[confirmationId] = { expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep, confirmationType: 'file', safetyMode, operationCountSinceLastConfirmation };
+          sendSseMessage('confirmation_required', { confirmationId, message: result.message, details: result }, expressHttpRes);
+          return;
+        }
+        if (result.success && isConfirmedAction) { operationCountSinceLastConfirmation = 0; }
+        if (result.success) sendSseMessage('log_entry', { message: `✅ File updated: ${result.fullPath}` }, expressHttpRes);
+        else if (!result.confirmationNeeded) { // Genuine failure
+            triggerStepFailure(`fsAgent.updateFile failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
+            return;
+        }
+      } else if (currentStep.type === 'deleteFile') {
+        const { filePath } = currentStep.details || {};
+        if (!filePath) {
+            triggerStepFailure("Missing 'details.filePath' for deleteFile.", null, currentStep.type, stepNumber, {i});
+            return;
+        }
+
+        const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
+        const stepDisablesConfirmation = currentStep.details?.requireConfirmation === false;
+        let effectiveRequireConfirmationForStep = false;
+        if (safetyMode) { effectiveRequireConfirmationForStep = !stepDisablesConfirmation; }
+        else { effectiveRequireConfirmationForStep = stepRequiresConfirmation; }
+
+        operationCountSinceLastConfirmation++;
+        if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && !effectiveRequireConfirmationForStep && !isConfirmedAction) {
+            const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+            sendSseMessage('confirmation_required', { confirmationId, message: `Batch confirmation: ${operationCountSinceLastConfirmation} operations. Proceed?`, details: { type: 'batch_confirmation', nextOperationWillBe: currentStep.type } }, expressHttpRes);
+            pendingConfirmations[confirmationId] = { expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep, confirmationType: 'batch', safetyMode, operationCountSinceLastConfirmation: 0 };
+            return;
+        }
+        const result = fsAgent.deleteFile(filePath, { requireConfirmation: effectiveRequireConfirmationForStep, isConfirmedAction });
+        if (result.confirmationNeeded && !isConfirmedAction) {
+          const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+          pendingConfirmations[confirmationId] = { expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep, confirmationType: 'file', safetyMode, operationCountSinceLastConfirmation };
+          sendSseMessage('confirmation_required', { confirmationId, message: result.message, details: result }, expressHttpRes);
+          return;
+        }
+        if (result.success && isConfirmedAction) { operationCountSinceLastConfirmation = 0; }
+        if (result.success) sendSseMessage('log_entry', { message: `✅ File deleted: ${result.fullPath}` }, expressHttpRes);
+        else if (!result.confirmationNeeded) { // Genuine failure
+            triggerStepFailure(`fsAgent.deleteFile failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
+            return;
+        }
+      } else if (currentStep.type === 'deleteDirectory') {
+        const { dirPath } = currentStep.details || {};
+        if (!dirPath) {
+            triggerStepFailure("Missing 'details.dirPath' for deleteDirectory.", null, currentStep.type, stepNumber, {i});
+            return;
+        }
+
+        const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
+        const stepDisablesConfirmation = currentStep.details?.requireConfirmation === false;
+        let effectiveRequireConfirmationForStep = false;
+        if (safetyMode) { effectiveRequireConfirmationForStep = !stepDisablesConfirmation; }
+        else { effectiveRequireConfirmationForStep = stepRequiresConfirmation; }
+
+        operationCountSinceLastConfirmation++;
+        if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && !effectiveRequireConfirmationForStep && !isConfirmedAction) {
+            const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+            sendSseMessage('confirmation_required', { confirmationId, message: `Batch confirmation: ${operationCountSinceLastConfirmation} operations. Proceed?`, details: { type: 'batch_confirmation', nextOperationWillBe: currentStep.type } }, expressHttpRes);
+            pendingConfirmations[confirmationId] = { expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep, confirmationType: 'batch', safetyMode, operationCountSinceLastConfirmation: 0 };
+            return;
+        }
+        const result = fsAgent.deleteDirectory(dirPath, { requireConfirmation: effectiveRequireConfirmationForStep, isConfirmedAction });
+        if (result.confirmationNeeded && !isConfirmedAction) {
+          const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+          pendingConfirmations[confirmationId] = { expressHttpRes, task_description, steps, currentStepIndex: i, taskContext, overallExecutionLog, currentStep, confirmationType: 'file', safetyMode, operationCountSinceLastConfirmation };
+          sendSseMessage('confirmation_required', { confirmationId, message: result.message, details: result }, expressHttpRes);
+          return;
+        }
+        if (result.success && isConfirmedAction) { operationCountSinceLastConfirmation = 0; }
+        if (result.success) sendSseMessage('log_entry', { message: `✅ Directory deleted: ${result.fullPath}` }, expressHttpRes);
+        else if (!result.confirmationNeeded) { // Genuine failure
+            triggerStepFailure(`fsAgent.deleteDirectory failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
+            return;
+        }
+        } else {
+          sendSseMessage('log_entry', {
+            message: `  -> Unknown step type '${currentStep.type}'. Execution not implemented.`,
+          }, expressHttpRes);
+        }
+        // If we reach here, the step's core logic did not throw an error for this attempt
+        stepProcessedSuccessfully = true;
+
+      } catch (stepAttemptError) {
+        lastErrorForStep = stepAttemptError; // Store error from this attempt
+        const maxRetries = currentStep.details?.maxRetries || 0;
+        // const onErrorAction = currentStep.details?.onError; // For future refinement logic
+
+        if (currentStep._internalRetryCount < maxRetries) {
+          currentStep._internalRetryCount++;
+          const retryLogMsg = `[SSE] Step ${stepNumber} (${currentStep.type}) failed. Attempting retry ${currentStep._internalRetryCount}/${maxRetries}. Error: ${stepAttemptError.message}`;
+          sendSseMessage('log_entry', { message: retryLogMsg }, expressHttpRes);
+          overallExecutionLog.push(retryLogMsg.replace('[SSE]', ''));
+          console.warn(`[executeStepsInternal] ${retryLogMsg.replace('[SSE]', '')}`);
+          // The while loop will continue for the next retry
+        } else if (currentStep.details?.onError === 'refine_and_retry' &&
+                   currentStep._internalRefineCount < (currentStep.details?.maxRefinementRetries || 1)) {
+          currentStep._internalRefineCount++;
+          const refineLogMsg = `[SSE] Step ${stepNumber} (${currentStep.type}) failed. Attempting refinement ${currentStep._internalRefineCount}/${currentStep.details?.maxRefinementRetries || 1}. Error: ${stepAttemptError.message}`;
+          sendSseMessage('log_entry', { message: refineLogMsg }, expressHttpRes);
+          overallExecutionLog.push(refineLogMsg.replace('[SSE]', ''));
+          console.warn(`[executeStepsInternal] ${refineLogMsg.replace('[SSE]', '')}`);
+
+          const refinementPrompt = `
+Original step: ${JSON.stringify(currentStep, null, 2)}
+Error encountered: ${stepAttemptError.message}
+Task context outputs so far: ${JSON.stringify(taskContext.outputs, null, 2)}
+
+Please provide a revised JSON for the 'details' field of this step to address the error.
+Output *only* the revised JSON for the 'details' field. For example:
+{ "prompt": "New, corrected prompt here...", "filePath": "path/to/file.ext" }
+Do not output the entire step, only the 'details' object.
+`;
+          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Sending refinement prompt to LLM...` }, expressHttpRes);
+          // Use a different model or settings if needed for refinement, e.g. 'phi3' for structured output
+          const refinedDetailsString = await generateFromLocal(refinementPrompt, 'phi3', null); // Pass null for expressRes to avoid streaming to client during refinement
+
+          if (refinedDetailsString.startsWith('// LLM_ERROR:') || refinedDetailsString.startsWith('// LLM_WARNING:')) {
+            const llmErrorMsg = `[SSE] Step ${stepNumber}: LLM failed to provide refinement. Error: ${refinedDetailsString}`;
+            sendSseMessage('error', { content: llmErrorMsg }, expressHttpRes);
+            overallExecutionLog.push(llmErrorMsg.replace('[SSE]', ''));
+            console.error(`[executeStepsInternal] ${llmErrorMsg.replace('[SSE]', '')}`);
+            // This refinement attempt failed, break from while to triggerStepFailure
+            break;
+          }
+
+          try {
+            const refinedDetails = JSON.parse(refinedDetailsString);
+            const refinementNotification = `[SSE] Step ${stepNumber}: LLM proposed refinement: ${JSON.stringify(refinedDetails)}`;
+            sendSseMessage('log_entry', { message: refinementNotification }, expressHttpRes);
+            overallExecutionLog.push(refinementNotification.replace('[SSE]', ''));
+            console.log(`[executeStepsInternal] ${refinementNotification.replace('[SSE]', '')}`);
+
+            currentStep.details = refinedDetails; // Update step details
+            currentStep._internalRetryCount = 0; // Reset simple retry counter for the refined step
+            // The while loop will continue, attempting the refined step
+          } catch (parseError) {
+            const parseErrorMsg = `[SSE] Step ${stepNumber}: Failed to parse LLM refinement response: ${parseError.message}. LLM Raw: ${refinedDetailsString.substring(0,100)}...`;
+            sendSseMessage('error', { content: parseErrorMsg }, expressHttpRes);
+            overallExecutionLog.push(parseErrorMsg.replace('[SSE]', ''));
+            console.error(`[executeStepsInternal] ${parseErrorMsg.replace('[SSE]', '')}`);
+            // This refinement attempt failed due to parsing, break from while
+            break;
+          }
+        } else {
+          // All retries and refinements exhausted. Break from internal loop to trigger failure.
+          const exhaustedMsg = `[SSE] Step ${stepNumber} (${currentStep.type}) exhausted all retries and refinements. Last error: ${stepAttemptError.message}`;
+          sendSseMessage('log_entry', { message: exhaustedMsg }, expressHttpRes); // Log it before triggering failure options
+          overallExecutionLog.push(exhaustedMsg.replace('[SSE]', ''));
+          console.warn(`[executeStepsInternal] ${exhaustedMsg.replace('[SSE]', '')}`);
+          break; // Exit while loop, stepProcessedSuccessfully is false
+        }
+      }
+    } // End of internal while loop for retries/refinements
+
+    if (!stepProcessedSuccessfully) {
+      // If loop finished and step was not successful (all retries/refinements failed)
+      const finalErrorMessage = lastErrorForStep ? lastErrorForStep.message : "Unknown error after retries/refinements.";
+      triggerStepFailure(finalErrorMessage, lastErrorForStep, currentStep.type, stepNumber, {i});
+      return; // Pause main execution, pass to user
+    }
+    // If step was successful, reset its internal counters for any future manual retries by user
+    currentStep._internalRetryCount = 0;
+    currentStep._internalRefineCount = 0;
+    currentStep._internalEvalRetryCount = 0; // Reset eval retry count
+
+
+    // --- LLM-based Result Evaluation ---
+    if (stepProcessedSuccessfully && currentStep.details?.evaluationPrompt) {
+      sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): Output produced. Evaluating with LLM...` }, expressHttpRes);
+      overallExecutionLog.push(`  -> Step ${stepNumber} (${currentStep.type}): Output produced. Evaluating with LLM.`);
+
+      currentStep._internalEvalRetryCount = currentStep._internalEvalRetryCount || 0;
+      const maxEvaluationRetries = currentStep.details.maxEvaluationRetries || 1;
+
+      let evaluationPassed = false;
+      while (currentStep._internalEvalRetryCount < maxEvaluationRetries && !evaluationPassed) {
+        const stepOutputId = currentStep.details.output_id;
+        const stepOutput = stepOutputId ? taskContext.outputs[stepOutputId] : null;
+
+        if (stepOutput === null && stepOutputId) {
+          const evalErrorMsg = `[SSE] Step ${stepNumber} (${currentStep.type}): Cannot evaluate. Output variable '${stepOutputId}' not found in task context.`;
+          sendSseMessage('error', { content: evalErrorMsg });
+          overallExecutionLog.push(evalErrorMsg.replace('[SSE]', ''));
+          lastErrorForStep = new Error(evalErrorMsg); // Set this to trigger failure below
+          stepProcessedSuccessfully = false; // Mark as failed to go to triggerStepFailure
+          break; // Break from evaluation retry loop
+        }
+
+        // Construct the evaluation prompt by resolving templates
+        let finalEvaluationPrompt = currentStep.details.evaluationPrompt;
+        // Template for {{step_output}}
+        finalEvaluationPrompt = finalEvaluationPrompt.replace(/\{\{step_output\}\}/g, stepOutput || "N/A");
+        // Template for {{original_prompt}} (if the step had a prompt)
+        const originalPromptForEval = currentStep.details.prompt || currentStep.details.description || "N/A";
+        finalEvaluationPrompt = finalEvaluationPrompt.replace(/\{\{original_prompt\}\}/g, originalPromptForEval);
+
+        sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Sending evaluation prompt to LLM: "${finalEvaluationPrompt.substring(0, 100)}..."` }, expressHttpRes);
+        const evaluationResultString = await generateFromLocal(finalEvaluationPrompt, 'phi3', null); // Use phi3 or a model good at classification
+
+        if (evaluationResultString.startsWith('// LLM_ERROR:') || evaluationResultString.startsWith('// LLM_WARNING:')) {
+          const llmErrorMsg = `[SSE] Step ${stepNumber}: LLM failed to provide evaluation. Error: ${evaluationResultString}`;
+          sendSseMessage('error', { content: llmErrorMsg }, expressHttpRes);
+          overallExecutionLog.push(llmErrorMsg.replace('[SSE]', ''));
+          lastErrorForStep = new Error(llmErrorMsg);
+          stepProcessedSuccessfully = false; // Mark as failed
+          break; // Break from evaluation retry loop
+        }
+
+        const evaluationResult = evaluationResultString.trim().toLowerCase();
+        sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: LLM Evaluation Result: "${evaluationResult}"` }, expressHttpRes);
+        overallExecutionLog.push(`  -> Step ${stepNumber} (${currentStep.type}): LLM Evaluation Result: "${evaluationResult}"`);
+
+        if (evaluationResult.includes('success')) {
+          evaluationPassed = true;
+          stepProcessedSuccessfully = true; // Confirm success
+          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Evaluation PASSED.` }, expressHttpRes);
+        } else { // Evaluation failed
+          currentStep._internalEvalRetryCount++;
+          stepProcessedSuccessfully = false; // Mark as not successful for this attempt
+          lastErrorForStep = new Error(`Evaluation failed. LLM response: ${evaluationResult}`); // Store this as the reason for failure
+
+          const onEvalFailureAction = currentStep.details.onEvaluationFailure || 'fail_step'; // Default to fail_step
+          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Evaluation FAILED. Action: ${onEvalFailureAction}. Attempt ${currentStep._internalEvalRetryCount}/${maxEvaluationRetries}` }, expressHttpRes);
+
+          if (currentStep._internalEvalRetryCount >= maxEvaluationRetries) {
+            sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Max evaluation retries reached.` }, expressHttpRes);
+            break; // Break from while, stepProcessedSuccessfully is false, will go to triggerStepFailure
+          }
+
+          if (onEvalFailureAction === 'retry') {
+            // Reset for the main `while` loop to re-run this step
+            currentStep._internalRetryCount = 0; // Reset simple retries for the re-evaluation attempt
+            currentStep._internalRefineCount = 0; // Reset refinement retries
+            // The outer `while` loop condition for retries needs to be re-evaluated for this step.
+            // To achieve this, we can effectively tell the main loop that this step needs to be retried due to evaluation.
+            // We can decrement 'i' and 'continue' the main for loop, but that's messy.
+            // A cleaner way is to modify the step's retry/refine counts to ensure the while loop runs again.
+            // For a simple 'retry' on evaluation failure, we effectively want to restart its error retry/refinement cycle.
+            // However, the existing while loop is for error retries. This is an evaluation retry.
+            // Let's make it simpler: if onEvaluationFailure is 'retry', we just loop again in *this* eval while loop.
+            // The step's core logic will be re-executed because stepProcessedSuccessfully is false.
+            // We need to ensure the main step execution logic is re-entered.
+            // This requires setting stepProcessedSuccessfully = false and ensuring the *outer* while loop continues.
+            // This means we need to adjust the logic so this evaluation failure can trigger the main retry/refine loop.
+            // For now, this 'retry' will just re-run the evaluation prompt if the step itself is not re-executed.
+            // This part needs careful thought. Let's assume for now 'retry' means retry the step execution.
+             sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Evaluation failed. Marked for re-execution attempt ${currentStep._internalEvalRetryCount}.` }, expressHttpRes);
+             // To force re-execution of the step, we set stepProcessedSuccessfully to false and break this inner while.
+             // Then the outer while loop's condition needs to be re-evaluated.
+             // This will be handled by the fact that stepProcessedSuccessfully is false when this inner loop exits.
+             // And we will need to ensure the main retry/refinement loop is re-entered.
+             // This is complex. For now, 'retry' on eval failure will just re-run the step.
+             // We need to reset the step's state to allow it to re-run through its normal retry/refine cycle.
+            currentStep._internalRetryCount = 0;
+            currentStep._internalRefineCount = 0;
+            // The outer while loop will re-process this step.
+            // We need to break this inner evaluation loop and let the outer loop re-evaluate its conditions.
+            // Setting stepProcessedSuccessfully = false and breaking is the right approach.
+            break; // Break evaluation loop, outer loop will see stepProcessedSuccessfully = false.
+
+          } else if (onEvalFailureAction === 'refine_and_retry') {
+            // Trigger refinement logic
+            sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Evaluation failed. Attempting LLM refinement for step details.` }, expressHttpRes);
+            // Use the refinement logic from the main error handling.
+            // To do this, we can set up conditions to fall into that block.
+            currentStep.details.onError = 'refine_and_retry'; // Ensure this is set
+            currentStep._internalRetryCount = currentStep.details.maxRetries || 0; // Exhaust simple retries to force refinement path
+            // The outer while loop will pick this up.
+            break; // Break evaluation loop.
+
+          } else { // 'fail_step' or default
+            // Do nothing here, the fact that stepProcessedSuccessfully is false and eval retries are exhausted will trigger failure.
+            break; // Break evaluation loop.
+          }
+        }
+      } // End of while for evaluation retries
+
+      // If, after evaluation retries, the evaluation still hasn't passed, then the step is considered failed.
+      if (!evaluationPassed) {
+        stepProcessedSuccessfully = false; // Ensure it's marked as failed overall
+        // lastErrorForStep should already be set from the last evaluation failure.
+        if (!lastErrorForStep) lastErrorForStep = new Error("Step failed LLM evaluation after all attempts.");
+      }
+    } // End of if currentStep.details.evaluationPrompt
+
+    if (!stepProcessedSuccessfully) {
+      // If loop finished and step was not successful (all retries/refinements/evaluations failed)
+      const finalErrorMessage = lastErrorForStep ? lastErrorForStep.message : "Unknown error after retries/refinements/evaluation.";
+      triggerStepFailure(finalErrorMessage, lastErrorForStep, currentStep.type, stepNumber, {i});
+      return; // Pause main execution, pass to user
+    }
+    // If step was successful, reset its internal counters for any future manual retries by user
+    currentStep._internalRetryCount = 0;
+    currentStep._internalRefineCount = 0;
+    currentStep._internalEvalRetryCount = 0; // Reset eval retry count also
+
+  } // End of for loop iterating through steps
+
+  console.log(`[executeStepsInternal] Task processing complete for: "${task_description}"`);
+  sendSseMessage('log_entry', { message: '[SSE] All steps processed on server.' }, expressHttpRes);
+  try {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const logPath = path.join(LOG_DIR, `task-streamed-${timestamp}.log.md`);
+    fs.writeFileSync(logPath, `# Task: ${task_description}\n\n${overallExecutionLog.join('\n')}`);
+    sendSseMessage('log_entry', { message: `[SSE] Summary log saved to ${logPath}` }, expressHttpRes);
+  } catch (err) {
+    sendSseMessage('error', { content: `[SSE] Failed to save summary log: ${err.message}` }, expressHttpRes);
+  }
+  sendSseMessage('execution_complete', { message: 'Autonomous task execution finished.', finalLogSummary: overallExecutionLog }, expressHttpRes);
+
+  if (expressHttpRes.writable) {
+    expressHttpRes.end();
+  }
+}
+
+const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
+  console.log(`[${req.method} /execute-autonomous-task] Request received.`);
+  const payload = parseTaskPayload(req);
+
+  if (payload.error) {
+    console.log(
+      `[${req.method} /execute-autonomous-task] Invalid payload: ${payload.error}`
+    );
+    return expressHttpRes.status(400).json({ message: payload.error });
+  }
+
+  let { task_description, steps, safetyMode, isAutonomousMode } = payload; // Extract isAutonomousMode
+  console.log(`[handleExecuteAutonomousTask] Received task. Goal: "${task_description.substring(0,100)}...", Safety Mode: ${safetyMode}, Autonomous Mode: ${isAutonomousMode}`);
+
+  // expressHttpRes is the original response object for this specific request.
+  // It's crucial for sending SSE messages back to the correct client.
+
+  if (!task_description) { // Should be caught by parseTaskPayload, but double check
+    return expressHttpRes
+      .status(400)
+      .json({ message: 'Invalid payload: task_description is essential.' });
+  }
+  // If not in autonomous mode, steps must be a non-empty array (frontend ensures this, parseTaskPayload too)
+  if (!isAutonomousMode && (!steps || !Array.isArray(steps))) {
+    // Frontend should prevent empty steps if not autonomous, parseTaskPayload also checks
+    console.log('[handleExecuteAutonomousTask] Error: Non-autonomous task received without valid steps.');
+    return expressHttpRes
+        .status(400)
+        .json({ message: 'Invalid payload: Steps are required for non-autonomous mode.' });
+  }
+
+  expressHttpRes.setHeader('Content-Type', 'text/event-stream');
+  expressHttpRes.setHeader('Cache-Control', 'no-cache');
+  expressHttpRes.setHeader('Connection', 'keep-alive');
+  expressHttpRes.flushHeaders();
+
+  // This sendSseMessage can now be passed to executeStepsInternal
+  // and used by the confirmation endpoint as well, as it can target a specific res.
+  const sendSseMessage = (type, data, res = expressHttpRes) => {
+    if (res && res.writable) {
+      res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+    } else {
+      console.warn(
+        `[SSE] Attempted to write to a closed or unavailable stream. Type: ${type}`
+      );
+    }
+  };
+
+  // Initialize log and context here, as they might be stored for pending plan approval
+  // before executeStepsInternal is called.
+  const overallExecutionLog = [`Task: "${task_description}"`];
+  const taskContext = { outputs: {} };
+
+  if (isAutonomousMode) {
+    sendSseMessage('log_entry', { message: `[SSE] Autonomous Mode enabled. Attempting to generate steps for goal: "${task_description}"` });
+    overallExecutionLog.push(`[Autonomous Mode] Generating steps for goal: "${task_description}"`);
+    console.log(`[handleExecuteAutonomousTask] Autonomous Mode: Generating steps for goal "${task_description}"`);
+
+    const autonomousPrompt = `
+You are an AI assistant that helps break down a complex user goal into a series of actionable steps for an automated execution system.
+The user's goal is: "${task_description}"
+
+You must generate a JSON array of step objects. Each object must have a "type" and a "details" field.
+Output *only* the JSON array of steps. Do not include any other text, explanations, or markdown (i.e. no \`\`\`json ... \`\`\` wrapper).
+
+Valid step "type"s are:
+- "generic_step": For general tasks or prompts that need further LLM processing during actual execution. details should include \`{"description": "textual description of the step"}\`. Can also include \`{"output_id": "some_var_name"}\` if the LLM response for this step should be stored.
+- "create_file_with_llm_content": Creates a file using an LLM to generate its content. details must include \`{"filePath": "path/to/file.ext", "prompt": "LLM prompt to generate file content"}\`. Can also include \`{"output_id": "some_var_name"}\` to store the generated content.
+- "createFile": Creates a file with specified static content. details must include \`{"filePath": "path/to/file.ext", "content": "Static content here"}\`.
+- "readFile": Reads a file and stores its content. details must include \`{"filePath": "path/to/file.ext", "output_id": "variable_name_for_content"}\`.
+- "updateFile": Updates an existing file or appends to it. details must include \`{"filePath": "path/to/file.ext", "content": "Content to write/append", "append": true_or_false}\`. 'append' is a boolean (true to append, false to overwrite).
+- "deleteFile": Deletes a file. details must include \`{"filePath": "path/to/file.ext"}\`.
+- "createDirectory": Creates a new directory. details must include \`{"dirPath": "path/to/directory"}\`.
+- "deleteDirectory": Deletes a directory. details must include \`{"dirPath": "path/to/directory"}\`.
+- "git_operation": Performs a git operation. details must include \`{"command": "add|commit|pull|push|revert_last_commit", ...other_git_params}\`.
+    Examples:
+    \`{"command": "add", "filePath": "path/to/file.ext"}\` (or use "." for all changes)
+    \`{"command": "commit", "message": "Your commit message"}\`
+    \`{"command": "pull", "remote": "origin", "branch": "main"}\` (optional remote/branch, defaults may apply)
+    \`{"command": "push", "remote": "origin", "branch": "main"}\` (optional remote/branch)
+    \`{"command": "revert_last_commit"}\`
+- "show_workspace_tree": Displays the directory structure of the workspace or a subfolder. details can optionally include \`{"path": "relative/path/to/show"}\` (defaults to workspace root).
+- "loop_iterations": Repeats a sequence of steps a specified number of times. details must include \`{"count": N, "loop_steps": [array_of_steps_for_loop_body]}\`. Optionally, \`{"iterator_var": "var_name"}\` can be provided to make the current loop index (0-based) available as \`{{outputs.var_name}}\` within the \`loop_steps\`.
+
+Analyze the user's goal and decompose it into these structured steps. Ensure all paths are relative to the workspace root.
+Be careful with file paths, ensuring they are valid and make sense in the context of the steps.
+For example, if the goal is "Create a new project called 'my-app', add a README.md, and then commit it", the steps might be:
+[
+  {"type": "createDirectory", "details": {"dirPath": "my-app"}},
+  {"type": "create_file_with_llm_content", "details": {"filePath": "my-app/README.md", "prompt": "Write a basic README for a new project called my-app."}},
+  {"type": "git_operation", "details": {"command": "add", "filePath": "my-app/README.md"}},
+  {"type": "git_operation", "details": {"command": "commit", "message": "Initial commit: Add README for my-app"}}
+]
+
+Another example, for a goal "Create 3 numbered log files":
+[
+  {
+    "type": "loop_iterations",
+    "details": {
+      "count": 3,
+      "iterator_var": "idx",
+      "loop_steps": [
+        {
+          "type": "createFile",
+          "details": {
+            "filePath": "output/log_{{outputs.idx}}.txt",
+            "content": "Log entry for iteration {{outputs.idx}}"
+          }
+        }
+      ]
+    }
+  }
+]
+Remember, output *only* the JSON array.
+`;
+
+    // Using 'phi3' as it's generally faster and good at structured output for such tasks.
+    // Fallback to 'codellama' or other preferred model if 'phi3' is not suitable or available.
+    // The generateFromLocal function streams LLM chunks via SSE if expressHttpRes is provided.
+    // However, for step generation, we need the full response before proceeding.
+    // We'll pass expressHttpRes for potential error streaming, but primarily await the full string.
+    const llmGeneratedStepsString = await generateFromLocal(autonomousPrompt, 'phi3', expressHttpRes); // Using phi3
+    console.log(`[handleExecuteAutonomousTask] Raw LLM output for steps (first 500 chars): ${llmGeneratedStepsString.substring(0, 500)}`);
+    overallExecutionLog.push(`[Autonomous Mode] Raw LLM output for steps: ${llmGeneratedStepsString.substring(0, 200)}...`);
+
+    if (!llmGeneratedStepsString || llmGeneratedStepsString.startsWith('// LLM_ERROR:') || llmGeneratedStepsString.startsWith('// LLM_WARNING:')) {
+      const errorMsg = `LLM failed to generate a valid plan. Output: ${llmGeneratedStepsString}`;
+      console.error(`[handleExecuteAutonomousTask] ${errorMsg}`);
+      overallExecutionLog.push(`[Autonomous Mode] ❌ ${errorMsg}`);
+      sendSseMessage('error', { content: errorMsg });
+      sendSseMessage('execution_complete', { message: 'Task terminated due to LLM plan generation error.' });
+      if (expressHttpRes.writable) {
+        expressHttpRes.end();
+      }
+      return;
+    }
+
+    try {
+      // Attempt to find the JSON array within the LLM output
+      // Common issue: LLM wraps JSON in ```json ... ``` or adds explanations.
+      const jsonMatch = llmGeneratedStepsString.match(/\[\s*\{[\s\S]*?\}\s*\]/);
+      if (!jsonMatch) {
+          throw new Error("No valid JSON array found in LLM output. Output started with: " + llmGeneratedStepsString.substring(0,100));
+      }
+      const extractedJsonString = jsonMatch[0];
+      steps = JSON.parse(extractedJsonString); // This is the critical part
+
+      if (!Array.isArray(steps) || steps.some(step => typeof step.type !== 'string' || typeof step.details !== 'object')) {
+        throw new Error('LLM output, while valid JSON, is not a valid array of step objects (type/details). Parsed: ' + JSON.stringify(steps).substring(0,200));
+      }
+
+      sendSseMessage('log_entry', { message: `[SSE] Successfully parsed ${steps.length} steps from LLM output.` });
+      overallExecutionLog.push(`[Autonomous Mode] Successfully parsed ${steps.length} steps from LLM output.`);
+      console.log(`[handleExecuteAutonomousTask] Autonomous Mode: Parsed ${steps.length} steps from LLM.`);
+    } catch (e) {
+      const errorMsg = `Failed to parse LLM-generated steps into a valid JSON array of step objects. Error: ${e.message}. Raw LLM output (first 300 chars): ${llmGeneratedStepsString.substring(0, 300)}...`;
+      console.error(`[handleExecuteAutonomousTask] ${errorMsg}`);
+      overallExecutionLog.push(`[Autonomous Mode] ❌ ${errorMsg}`);
+      sendSseMessage('error', { content: errorMsg });
+      sendSseMessage('execution_complete', { message: 'Task terminated due to LLM step generation or parsing error.' });
+      if (expressHttpRes.writable) {
+        expressHttpRes.end();
+      }
+      return; // Terminate: Do not proceed to pendingPlanApprovals
+    }
+
+    // If parsing succeeded and steps are valid, then proceed to propose the plan.
+    const planId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+    pendingPlanApprovals[planId] = {
+      generatedSteps: steps, // These are the LLM-generated steps
+      task_description,
+      safetyMode,
+      originalExpressHttpRes: expressHttpRes,
+      sendSseMessage,
+      overallExecutionLog,
+      taskContext,
+    };
+    console.log(`[handleExecuteAutonomousTask] Plan ${planId} generated and awaiting approval. Stored originalExpressHttpRes.`);
+    sendSseMessage('proposed_plan', { planId, generated_steps: steps });
+    // Connection stays open, waiting for approval/decline.
+    return;
+
+  } else { // Not Autonomous Mode
+    sendSseMessage('log_entry', { message: '[SSE] Manual Mode enabled. Using user-provided steps.' });
+    overallExecutionLog.push('[Manual Mode] Using user-provided steps.');
+    console.log('[handleExecuteAutonomousTask] Manual Mode: Using user-provided steps.');
+    if (!steps || !Array.isArray(steps) || steps.length === 0) {
+        const errorMsg = 'Non-autonomous task requires a valid array of steps.';
+        console.error(`[handleExecuteAutonomousTask] ${errorMsg}`);
+        overallExecutionLog.push(`[Manual Mode] ❌ ${errorMsg}`);
+        sendSseMessage('error', { content: errorMsg });
+        sendSseMessage('execution_complete', { message: 'Task terminated due to missing/invalid steps in manual mode.' });
+        if (expressHttpRes.writable) { expressHttpRes.end(); }
+        return;
+    }
+    // Directly execute for non-autonomous mode
+    await executeStepsInternal(
+      expressHttpRes,
+      task_description,
+      steps,
+      taskContext,
+      overallExecutionLog,
+      0,
+      sendSseMessage,
+      safetyMode,
+      0
+    );
+  }
+};
+
+app.post('/execute-autonomous-task', handleExecuteAutonomousTask);
+app.get('/execute-autonomous-task', handleExecuteAutonomousTask);
+
+// --- Plan Approval Endpoints ---
+app.post('/api/approve-plan/:planId', async (req, res) => {
+  const { planId } = req.params;
+  console.log(`[API /api/approve-plan/${planId}] Received approval request.`);
+
+  const planDetails = pendingPlanApprovals[planId];
+  if (!planDetails) {
+    console.log(`[API /api/approve-plan/${planId}] Plan ID not found or already processed.`);
+    return res.status(404).json({ message: 'Plan ID not found or already processed.' });
+  }
+
+  const {
+    generatedSteps,
+    task_description,
+    safetyMode,
+    originalExpressHttpRes, // Crucial: the response stream of the original client
+    sendSseMessage: originalSendSseMessage, // The SSE sender for that client
+    overallExecutionLog,
+    taskContext,
+  } = planDetails;
+
+  if (!originalExpressHttpRes || !originalExpressHttpRes.writable) {
+    console.error(`[API /api/approve-plan/${planId}] Original HTTP response stream is not writable. Cannot execute plan.`);
+    // Clean up anyway
+    delete pendingPlanApprovals[planId];
+    return res.status(500).json({ message: 'Cannot execute plan: original client connection likely lost.' });
+  }
+
+  delete pendingPlanApprovals[planId]; // Remove before execution to prevent re-processing
+
+  originalSendSseMessage('log_entry', { message: `[SSE] Plan ${planId} approved by user. Starting execution...` }, originalExpressHttpRes);
+  overallExecutionLog.push(`[Autonomous Mode] Plan ${planId} approved by user. Starting execution.`);
+  console.log(`[API /api/approve-plan/${planId}] Plan approved. Starting execution for original client.`);
+
+  try {
+    await executeStepsInternal(
+      originalExpressHttpRes, // Use the original client's response stream
+      task_description,
+      generatedSteps,         // Use the LLM-generated steps
+      taskContext,            // Use the stored context
+      overallExecutionLog,    // Use the stored log
+      0,                      // Start from step 0
+      originalSendSseMessage, // Use the stored SSE sender
+      safetyMode,
+      0                       // Initial operation count
+    );
+    res.status(200).json({ message: 'Plan approved and execution started.' });
+  } catch (e) {
+    console.error(`[API /api/approve-plan/${planId}] Error during execution after approval:`, e);
+    originalSendSseMessage('error', { content: `Critical error during execution of approved plan ${planId}: ${e.message}` }, originalExpressHttpRes);
+    if (originalExpressHttpRes.writable) {
+      originalExpressHttpRes.end(); // Ensure stream is closed on error
+    }
+    // Don't send res.status(500) if headers already sent by executeStepsInternal or SSE
+    if (!res.headersSent) {
+        res.status(500).json({ message: 'Error during execution after approval.' });
+    }
+  }
+});
+
+app.post('/api/decline-plan/:planId', async (req, res) => {
+  const { planId } = req.params;
+  console.log(`[API /api/decline-plan/${planId}] Received decline request.`);
+
+  const planDetails = pendingPlanApprovals[planId];
+  if (!planDetails) {
+    console.log(`[API /api/decline-plan/${planId}] Plan ID not found or already processed.`);
+    return res.status(404).json({ message: 'Plan ID not found or already processed.' });
+  }
+
+  const { originalExpressHttpRes, sendSseMessage: originalSendSseMessage, overallExecutionLog } = planDetails;
+  delete pendingPlanApprovals[planId];
+
+  if (originalExpressHttpRes && originalExpressHttpRes.writable) {
+    const declineMessage = `[SSE] Plan ${planId} declined by user. Task will not be executed.`;
+    originalSendSseMessage('log_entry', { message: declineMessage }, originalExpressHttpRes);
+    overallExecutionLog.push(`[Autonomous Mode] Plan ${planId} declined by user.`); // Log it server-side too
+    console.log(`[API /api/decline-plan/${planId}] Plan declined. Notifying original client and closing stream.`);
+    originalSendSseMessage('execution_complete', { message: `Plan ${planId} declined. Task cancelled.` }, originalExpressHttpRes);
+    originalExpressHttpRes.end();
+  } else {
+    console.log(`[API /api/decline-plan/${planId}] Original client connection for plan ${planId} seems to be already closed.`);
+  }
+
+  res.status(200).json({ message: 'Plan declined successfully.' });
+});
+
+// --- Resume Task Endpoint ---
+app.post('/api/confirm-action/:confirmationId', async (req, res) => {
+  const { confirmationId } = req.params;
+  const { confirmed } = req.body;
+
+  console.log(`[POST /api/confirm-action/${confirmationId}] Received confirmation: ${confirmed}`);
+
+  const SseMessageWrapper = (type, data, httpRes) => {
+    if (httpRes && httpRes.writable) {
+        httpRes.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+    } else {
+        console.warn(`[SSE Confirm] Attempted to write to a closed or unavailable stream. Type: ${type}`);
+    }
+  };
+
+  const pendingTask = pendingConfirmations[confirmationId];
+  if (!pendingTask) {
+    console.log(`[POST /api/confirm-action/${confirmationId}] Confirmation ID not found or already processed.`);
+    return res.status(404).json({ message: 'Confirmation ID not found or already processed.' });
+  }
+
+  const {
+    expressHttpRes: originalExpressHttpRes,
+    task_description,
+    steps,
+    currentStepIndex,
+    taskContext,
+    overallExecutionLog,
+    currentStep,
+    safetyMode: taskSafetyMode,
+    confirmationType, // 'file', 'batch', or 'git'
+    operationCountSinceLastConfirmation: storedOpCount
+   } = pendingTask;
+
+  if (!originalExpressHttpRes || !originalExpressHttpRes.writable) {
+    console.error(`[POST /api/confirm-action/${confirmationId}] Original HTTP response stream is not writable. Cannot resume.`);
+    delete pendingConfirmations[confirmationId];
+    return res.status(500).json({ message: 'Cannot resume task: original client connection lost.' });
+  }
+
+  const sendResumedSseMessage = (type, data) => SseMessageWrapper(type, data, originalExpressHttpRes);
+  delete pendingConfirmations[confirmationId]; // Clean up immediately
+
+  if (confirmationType === 'batch') {
+    if (confirmed) {
+      sendResumedSseMessage('log_entry', { message: `[SSE] Batch execution confirmed by user for ID: ${confirmationId}. Resuming task.` });
+      overallExecutionLog.push(`[Confirmation] Batch execution for ${CONFIRM_AFTER_N_OPERATIONS} operations confirmed by user.`);
+      try {
+        await executeStepsInternal(
+          originalExpressHttpRes, task_description, steps, taskContext, overallExecutionLog,
+          currentStepIndex, // Resume from the step that triggered batch confirmation
+          sendResumedSseMessage, taskSafetyMode,
+          storedOpCount // This should be 0, as it was reset when batch confirmation was stored
+        );
+      } catch (resumeError) { console.error(`[POST /api/confirm-action/${confirmationId}] Error resuming batch: `, resumeError); sendResumedSseMessage('error', { content: `Error resuming task: ${resumeError.message}` }); if (originalExpressHttpRes.writable) { originalExpressHttpRes.end(); } }
+    } else { // Batch denied
+      overallExecutionLog.push(`[Confirmation] Batch execution denied by user for ID: ${confirmationId}. Task terminated.`);
+      sendResumedSseMessage('log_entry', { message: `[SSE] User cancelled batch execution for ID: ${confirmationId}. Task terminated.`});
+      sendResumedSseMessage('execution_complete', { message: 'Task terminated by user at batch confirmation.' });
+      if (originalExpressHttpRes.writable) { originalExpressHttpRes.end(); }
+      console.log(`[POST /api/confirm-action/${confirmationId}] Batch execution denied. Task terminated.`);
+    }
+  } else if (confirmationType === 'file' || confirmationType === 'git') { // File or Git specific confirmation
+    if (confirmed) {
+      sendResumedSseMessage('log_entry', { message: `[SSE] Action for ${confirmationType} ID: ${confirmationId} confirmed by user. Resuming task.` });
+      overallExecutionLog.push(`[Confirmation] Action for step ${currentStepIndex + 1} (${currentStep.type}) (type: ${confirmationType}) confirmed by user.`);
+      currentStep.details = currentStep.details || {};
+      currentStep.details.isConfirmedAction = true;
+      const updatedSteps = [...steps];
+      updatedSteps[currentStepIndex] = currentStep;
+      try {
+        await executeStepsInternal(
+          originalExpressHttpRes, task_description, updatedSteps, taskContext, overallExecutionLog,
+          currentStepIndex, sendResumedSseMessage, taskSafetyMode,
+          storedOpCount // Pass the preserved operation count
+        );
+      } catch (resumeError) { console.error(`[POST /api/confirm-action/${confirmationId}] Error resuming ${confirmationType}: `, resumeError); sendResumedSseMessage('error', { content: `Error resuming task: ${resumeError.message}` }); if (originalExpressHttpRes.writable) { originalExpressHttpRes.end(); }}
+    } else { // File or Git specific action denied
+      sendResumedSseMessage('log_entry', { message: `[SSE] Action for ${confirmationType} ID: ${confirmationId} denied by user. Skipping step.` });
+      overallExecutionLog.push(`[Confirmation] Action for step ${currentStepIndex + 1} (${currentStep.type}) (type: ${confirmationType}) denied by user. Skipping.`);
+      try {
+        await executeStepsInternal(
+          originalExpressHttpRes, task_description, steps, taskContext, overallExecutionLog,
+          currentStepIndex + 1, // Skip current step
+          sendResumedSseMessage, taskSafetyMode,
+          storedOpCount // Pass the preserved operation count
+        );
+      } catch (resumeError) { console.error(`[POST /api/confirm-action/${confirmationId}] Error after skipping ${confirmationType} step: `, resumeError); sendResumedSseMessage('error', { content: `Error resuming task: ${resumeError.message}` }); if (originalExpressHttpRes.writable) { originalExpressHttpRes.end(); }}
+    }
+  } else {
+     console.error(`[POST /api/confirm-action/${confirmationId}] Unknown confirmation type: ${confirmationType}`);
+     sendResumedSseMessage('error', { content: `Cannot process unknown confirmation type: ${confirmationType}` });
+     if (originalExpressHttpRes.writable) { originalExpressHttpRes.end(); }
+  }
+  res.status(200).json({ message: `Action processed for ${confirmationId}. User confirmed: ${confirmed}` });
+});
+
+// --- Step Failure Resolution Endpoints ---
+
+// Helper function to handle common failure retrieval and validation logic
+function getPendingFailureDetails(failureId, res) {
+  const failureDetails = pendingFailures[failureId];
+  if (!failureDetails) {
+    console.log(`[API Failure Handling] Failure ID ${failureId} not found or already processed.`);
+    res.status(404).json({ message: 'Failure ID not found or already processed.' });
+    return null;
+  }
+
+  const { originalExpressHttpRes, sendSseMessage } = failureDetails;
+  if (!originalExpressHttpRes || !originalExpressHttpRes.writable) {
+    console.error(`[API Failure Handling] Original HTTP response stream for ${failureId} is not writable. Cannot proceed.`);
+    // Clean up if stream is dead
+    delete pendingFailures[failureId];
+    res.status(500).json({ message: 'Cannot proceed with failure resolution: original client connection likely lost.' });
+    return null;
+  }
+  return failureDetails;
+}
+
+// 1. Retry Step Endpoint
+app.post('/api/retry-step/:failureId', async (req, res) => {
+  const { failureId } = req.params;
+  console.log(`[API /api/retry-step/${failureId}] Received retry request.`);
+
+  const failureDetails = getPendingFailureDetails(failureId, res);
+  if (!failureDetails) return;
+
+  const {
+    originalExpressHttpRes,
+    sendSseMessage, // This is the specific SSE sender for the original client
+    task_description,
+    steps,
+    currentStepIndex, // Index of the failed step
+    taskContext,
+    overallExecutionLog,
+    safetyMode,
+    // errorDetails, // Not directly needed for retry logic itself, but was part of stored state
+  } = failureDetails;
+
+  delete pendingFailures[failureId]; // Remove before attempting retry
+
+  const retryMessage = `[SSE] User chose to retry step ${currentStepIndex + 1}. Resuming task.`;
+  sendSseMessage('log_entry', { message: retryMessage }, originalExpressHttpRes);
+  overallExecutionLog.push(`[Failure Resolution] User chose to retry step ${currentStepIndex + 1}.`);
+  console.log(`[API /api/retry-step/${failureId}] Retrying step ${currentStepIndex + 1} for task "${task_description.substring(0,50)}..."`);
+
+  try {
+    await executeStepsInternal(
+      originalExpressHttpRes,
+      task_description,
+      steps,
+      taskContext,
+      overallExecutionLog,
+      currentStepIndex, // Retry the same step
+      sendSseMessage,
+      safetyMode,
+      0 // Reset operation count for the retry, or manage more complex state if needed
+    );
+    res.status(200).json({ message: 'Retry initiated for step.' });
+  } catch (e) {
+    console.error(`[API /api/retry-step/${failureId}] Error during retry execution:`, e);
+    sendSseMessage('error', { content: `Critical error during retry of step ${currentStepIndex + 1}: ${e.message}` }, originalExpressHttpRes);
+    if (originalExpressHttpRes.writable) {
+      originalExpressHttpRes.end(); // Ensure stream is closed on critical error during retry
+    }
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Error during retry execution.' });
+    }
+  }
+});
+
+// 2. Skip Step Endpoint
+app.post('/api/skip-step/:failureId', async (req, res) => {
+  const { failureId } = req.params;
+  console.log(`[API /api/skip-step/${failureId}] Received skip request.`);
+
+  const failureDetails = getPendingFailureDetails(failureId, res);
+  if (!failureDetails) return;
+
+  const {
+    originalExpressHttpRes,
+    sendSseMessage,
+    task_description,
+    steps,
+    currentStepIndex, // Index of the failed step
+    taskContext,
+    overallExecutionLog,
+    safetyMode,
+  } = failureDetails;
+
+  delete pendingFailures[failureId];
+
+  const skipMessage = `[SSE] User chose to skip step ${currentStepIndex + 1}. Resuming task from next step.`;
+  sendSseMessage('log_entry', { message: skipMessage }, originalExpressHttpRes);
+  overallExecutionLog.push(`[Failure Resolution] User chose to skip step ${currentStepIndex + 1}.`);
+  console.log(`[API /api/skip-step/${failureId}] Skipping step ${currentStepIndex + 1}, resuming from ${currentStepIndex + 2} for task "${task_description.substring(0,50)}..."`);
+
+  try {
+    await executeStepsInternal(
+      originalExpressHttpRes,
+      task_description,
+      steps,
+      taskContext,
+      overallExecutionLog,
+      currentStepIndex + 1, // Start from the NEXT step
+      sendSseMessage,
+      safetyMode,
+      0 // Reset operation count
+    );
+    res.status(200).json({ message: 'Skipped step. Continuing task execution.' });
+  } catch (e) {
+    console.error(`[API /api/skip-step/${failureId}] Error during execution after skipping:`, e);
+    sendSseMessage('error', { content: `Critical error after skipping step ${currentStepIndex + 1}: ${e.message}` }, originalExpressHttpRes);
+    if (originalExpressHttpRes.writable) {
+      originalExpressHttpRes.end();
+    }
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Error during execution after skipping step.' });
+    }
+  }
+});
+
+// 3. Convert to Manual Endpoint
+app.post('/api/convert-to-manual/:failureId', async (req, res) => {
+  const { failureId } = req.params;
+  console.log(`[API /api/convert-to-manual/${failureId}] Received convert-to-manual request.`);
+
+  const failureDetails = getPendingFailureDetails(failureId, res);
+  if (!failureDetails) return;
+
+  const {
+    originalExpressHttpRes,
+    sendSseMessage,
+    task_description, // For logging context if needed
+    steps,
+    currentStepIndex,
+    overallExecutionLog,
+  } = failureDetails;
+
+  delete pendingFailures[failureId];
+
+  const remainingSteps = steps.slice(currentStepIndex);
+  const manualMessage = `[SSE] Task converted to manual mode by user. Remaining ${remainingSteps.length} steps provided.`;
+
+  sendSseMessage('manual_mode_activated', {
+    message: 'Task converted to manual mode. Remaining steps provided.',
+    remainingSteps: remainingSteps,
+  }, originalExpressHttpRes);
+
+  overallExecutionLog.push(`[Failure Resolution] Task "${task_description.substring(0,50)}..." converted to manual mode by user at step ${currentStepIndex + 1}. Execution terminated by Roadrunner. Remaining steps sent to client.`);
+  console.log(`[API /api/convert-to-manual/${failureId}] Converting task to manual. ${remainingSteps.length} steps sent to client.`);
+
+  sendSseMessage('execution_complete', { message: 'Task converted to manual mode by user. Backend processing halted.' }, originalExpressHttpRes);
+
+  if (originalExpressHttpRes.writable) {
+    originalExpressHttpRes.end(); // Close the original SSE connection
+  }
+
+  res.status(200).json({ message: 'Task converted to manual mode. Remaining steps sent to client.' });
+});
+
+// New endpoint for categorized Ollama models
+app.get('/api/ollama-models/categorized', async (req, res) => {
+  const logPrefix = '[Ollama Fetch Debug]';
+  console.log(`${logPrefix} Attempting to fetch Ollama models from /api/tags...`);
+  let ollamaApiResponse;
+  let rawBodyText;
+  try {
+    ollamaApiResponse = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    console.log(`${logPrefix} Received response from /api/tags - Status: ${ollamaApiResponse.status}, Headers: ${JSON.stringify(Object.fromEntries(ollamaApiResponse.headers))}`);
+
+    rawBodyText = await ollamaApiResponse.text();
+    console.log(`${logPrefix} Raw response body from /api/tags: ${rawBodyText}`);
+
+    if (!ollamaApiResponse.ok) {
+      console.error(
+        `${logPrefix} Ollama API Error /api/tags: ${ollamaApiResponse.status} ${ollamaApiResponse.statusText}`,
+        rawBodyText
+      );
+      throw new Error(
+        `Ollama API request to /api/tags failed: ${ollamaApiResponse.status} ${ollamaApiResponse.statusText}. Body: ${rawBodyText.substring(0, 100)}`
+      );
+    }
+
+    const ollamaData = JSON.parse(rawBodyText);
+    console.log(`${logPrefix} Parsed JSON data from /api/tags:`, ollamaData);
+
+    const models = ollamaData.models || [];
+    console.log(`${logPrefix} Extracted models array:`, models);
+
+    const categorizedModels = categorizeOllamaModels(models, modelCategories);
+    console.log(`${logPrefix} Final categorized models being sent:`, categorizedModels);
+    res.json(categorizedModels);
+  } catch (error) {
+    console.error(`${logPrefix} Error during Ollama fetch or processing:`, error.message, error.stack);
+    // Log more specific errors based on whether it's a fetch issue or an API response issue
+    if (ollamaApiResponse && !ollamaApiResponse.ok) {
+      // This branch handles errors thrown after a failed API response (e.g. 4xx, 5xx from Ollama)
+      console.error(
+        `${logPrefix} [Error /api/ollama-models/categorized] Ollama API returned an error:`,
+        error.message
+      );
+      res.status(500).json({
+        error: 'Failed to fetch models from Ollama API',
+        details: error.message,
+        ollama_status: ollamaApiResponse.status,
+        ollama_body: rawBodyText ? rawBodyText.substring(0,500) : "Could not read body",
+      });
+    } else {
+      // This branch handles network errors or other issues where fetch itself failed
+      console.error(
+        `${logPrefix} [Fetch Error /api/ollama-models/categorized] Error fetching from Ollama /api/tags:`,
+        error
+      );
+      res.status(500).json({
+        error: 'Failed to connect or send request to Ollama API',
+        details: error.message,
+      });
+    }
+  }
+});
+
+// Search logs via LogCore
+app.get('/api/logs/search', async (req, res) => {
+  try {
+    const { modules, levels, limit, ...rest } = req.query;
+    const options = { ...rest };
+    if (modules) options.modules = Array.isArray(modules) ? modules : String(modules).split(',');
+    if (levels) options.levels = Array.isArray(levels) ? levels : String(levels).split(',');
+    if (limit) options.limit = parseInt(limit, 10);
+    // const results = await logcore.searchLogs(options); // Removed TokomakCore/logcore dependency
+    // res.json(results); // Removed TokomakCore/logcore dependency
+    res.json({ message: "Log search functionality is pending a new logging implementation.", results: [] });
+  } catch (err) {
+    // console.error('[API /api/logs/search]', err.message); // Original error logging
+    console.error('[API /api/logs/search] Error (logcore removed):', err.message); // Modified error logging
+    res.status(500).json({ error: 'Log search failed (logcore removed)', details: err.message });
+  }
+});
+
+// Export logs based on query
+app.get('/api/logs/export', async (req, res) => {
+  try {
+    const { format = 'jsonl', ...rest } = req.query;
+    // const filePath = await logcore.exportLogs({ format, ...rest }); // Removed TokomakCore/logcore dependency
+    // res.download(filePath, err => { // Removed TokomakCore/logcore dependency
+    //   if (err) console.error('[API /api/logs/export] download error', err.message);
+    // }); // Removed TokomakCore/logcore dependency
+    res.status(501).json({ message: "Log export functionality is pending a new logging implementation." });
+  } catch (err) {
+    // console.error('[API /api/logs/export]', err.message); // Original error logging
+    console.error('[API /api/logs/export] Error (logcore removed):', err.message); // Modified error logging
+    res.status(500).json({ error: 'Log export failed (logcore removed)', details: err.message });
+  }
+});
+
+// Endpoint to initiate Ollama model download and stream progress
+app.post('/api/ollama/pull-model', async (req, res) => {
+  const { modelName } = req.body;
+
+  if (!modelName || typeof modelName !== 'string' || modelName.trim() === '') {
+    return res.status(400).json({ message: "modelName (string) is required." });
+  }
+
+  console.log(`[SSE /api/ollama/pull-model] Received request to download model: ${modelName}`);
+
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders(); // Send headers immediately
+
+  const sendSseDownloadStatus = (ollamaStatusObject) => {
+    if (res.writable) {
+      res.write(`data: ${JSON.stringify({ type: 'model_pull_status', payload: ollamaStatusObject })}\n\n`);
+    }
+  };
+
+  const sendSseError = (errorMessage, details = {}) => {
+    if (res.writable) {
+      res.write(`data: ${JSON.stringify({ type: 'model_pull_error', message: errorMessage, modelName, ...details })}\n\n`);
+      // Consider ending the response here or letting the main try/catch handle it
+    }
+  };
+
+  req.on('close', () => {
+    console.log(`[SSE /api/ollama/pull-model] Client disconnected for model ${modelName}. Download will continue in background if Ollama supports it.`);
+    // Ollama's /api/pull doesn't have a direct abort mechanism via API once started.
+    // The fetch request itself could be aborted if we kept a reference to AbortController's signal,
+    // but that only stops our side from processing the stream, not Ollama from downloading.
+  });
+
+  try {
+    console.info(`[Ollama Pull /api/pull-model] Initiating pull request for model: ${modelName} to ${OLLAMA_BASE_URL}/api/pull`);
+    const ollamaRes = await fetch(`${OLLAMA_BASE_URL}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: modelName, stream: true }),
+    });
+
+    console.info(`[Ollama Pull /api/pull-model] Received response from Ollama for ${modelName}. Status: ${ollamaRes.status} ${ollamaRes.statusText}`);
+
+    if (!ollamaRes.ok) {
+      const errorBody = await ollamaRes.text();
+      console.error(`[Ollama Pull /api/pull-model] Ollama API error for ${modelName}: ${ollamaRes.status} ${ollamaRes.statusText} - ${errorBody}`);
+      sendSseError(
+        `Ollama API request failed: ${ollamaRes.status} ${ollamaRes.statusText}`,
+        { details: errorBody.substring(0, 200), ollama_status: ollamaRes.status }
+      );
+      if (res.writable) res.end();
+      return;
+    }
+
+    for await (const chunk of ollamaRes.body) {
+      if (!res.writable) { // Check if client disconnected
+          console.log(`[Ollama Pull /api/pull-model] Client disconnected for ${modelName}, but Ollama stream is still sending data. Stopping SSE forward.`);
+          return;
+      }
+      const lines = chunk.toString().split('\n');
+      for (const line of lines) {
+        if (line.trim() === '') continue;
+        try {
+          const parsedOllamaObject = JSON.parse(line);
+          console.debug(`[Ollama Pull /api/pull-model] Received data line for ${modelName}: `, parsedOllamaObject);
+
+          if (parsedOllamaObject.error) {
+            console.error(`[Ollama Pull /api/pull-model] Error from Ollama stream for ${modelName}: ${parsedOllamaObject.error}`);
+            sendSseError(`Ollama stream error: ${parsedOllamaObject.error}`, { ollamaError: parsedOllamaObject.error, model_name: modelName });
+            // No need to 'continue' here as we want to send this error and then let the stream naturally end or continue if Ollama sends more.
+            // If this error is terminal, Ollama should close the stream.
+          }
+
+          sendSseDownloadStatus(parsedOllamaObject); // Send the object to the client
+
+          if (parsedOllamaObject.status) {
+            const statusLower = parsedOllamaObject.status.toLowerCase();
+            if (statusLower.includes('layer already exists') || statusLower.includes('up to date')) {
+              console.info(`[Ollama Pull /api/pull-model] Status for ${modelName}: ${parsedOllamaObject.status}`);
+            }
+            if (statusLower.includes('success')) {
+             console.info(`[Ollama Pull /api/pull-model] Detected success status from Ollama for ${modelName}: ${parsedOllamaObject.status}`);
+            }
+          }
+        } catch (parseError) {
+          console.warn(`[Ollama Pull /api/pull-model] Failed to parse JSON line from Ollama stream for ${modelName}. Line: "${line.substring(0, 100)}...". Error: ${parseError.message}`);
+        }
+      }
+    }
+    console.info(`[Ollama Pull /api/pull-model] Ollama stream ended for model ${modelName}.`);
+    sendSseDownloadStatus({ status: `Download stream for '${modelName}' finished or Ollama stream ended.`, modelName: modelName, final: true });
+
+  } catch (error) {
+    console.error(`[Ollama Pull /api/pull-model] Fetch exception for model ${modelName}:`, error);
+    sendSseError(
+      'Failed to connect to Ollama or network error during pull.',
+      { model_name: modelName, original_error: error.message }
+    );
+  } finally {
+    if (res.writable) {
+      console.log(`[SSE /api/ollama/pull-model] Closing SSE connection for ${modelName}.`);
+      res.end();
+    }
+  }
+});
+
+// --- Multi-Model Conference Endpoint ---
+app.post('/execute-conference-task', async (req, res) => {
+  const { prompt: userPrompt, modelName: requestedModelName, model_a_role: requestedModelARole, model_b_role: requestedModelBRole, arbiter_model_role: requestedArbiterModelRole, num_rounds: requestedNumRounds } = req.body;
+
+  if (!userPrompt) {
+    return res.status(400).json({ error: 'Missing "prompt" in request body.' });
+  }
+
+  const conferenceId = uuidv4();
+  const num_rounds = (typeof requestedNumRounds === 'number' && requestedNumRounds > 0) ? requestedNumRounds : 1;
+  console.log(`[Conference ${conferenceId}] Received task with prompt: "${userPrompt.substring(0, 100)}...", Rounds: ${num_rounds}`);
+
+  const modelName = requestedModelName || 'llama3';
+  const modelA_role_final = requestedModelARole || "Logical Reasoner";
+  const modelB_role_final = requestedModelBRole || "Creative Problem Solver";
+  const arbiter_role_final = requestedArbiterModelRole || "Arbiter";
+
+  let arbiterResponse = '';
+  let debate_history = [];
+  let model_a_prompt_for_log = "";
+  let model_b_prompt_for_log = "";
+  let arbiter_prompt_for_log = "";
+
+  try {
+    if (num_rounds === 1) {
+      // Model A
+      const systemPromptA = `You are a ${modelA_role_final}. Analyze the following prompt and provide a concise, logical answer.`;
+      const fullPromptA = `${systemPromptA}\n\nUser Prompt: "${userPrompt}"`;
+      model_a_prompt_for_log = fullPromptA;
+      console.log(`[Conference ${conferenceId}] Calling Model A (${modelName}) with role: ${modelA_role_final}`);
+      const responseA = await generateFromLocal(fullPromptA, modelName, null);
+      if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
+        throw new Error(`Model A (${modelA_role_final}) failed: ${responseA}`);
+      }
+      console.log(`[Conference ${conferenceId}] Model A response (first 100 chars): "${responseA.substring(0, 100)}..."`);
+      debate_history.push({ round: 1, model_a_response: responseA, model_b_response: "" });
+
+      // Model B
+      const systemPromptB = `You are a ${modelB_role_final}. Analyze the following prompt and provide an innovative and imaginative answer.`;
+      const fullPromptB = `${systemPromptB}\n\nUser Prompt: "${userPrompt}"`;
+      model_b_prompt_for_log = fullPromptB;
+      console.log(`[Conference ${conferenceId}] Calling Model B (${modelName}) with role: ${modelB_role_final}`);
+      const responseB = await generateFromLocal(fullPromptB, modelName, null);
+      if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
+        throw new Error(`Model B (${modelB_role_final}) failed: ${responseB}`);
+      }
+      console.log(`[Conference ${conferenceId}] Model B response (first 100 chars): "${responseB.substring(0, 100)}..."`);
+      debate_history[0].model_b_response = responseB;
+
+      // Arbiter
+      const arbiterSystemPrompt = `You are an ${arbiter_role_final}. Given the original prompt and the two responses below, evaluate them. Determine which response is better or synthesize a comprehensive answer that combines the best elements of both.`;
+      const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nResponse A (${modelA_role_final}): "${responseA}"\n\nResponse B (${modelB_role_final}): "${responseB}"\n\nYour evaluation and synthesized answer:`;
+      arbiter_prompt_for_log = arbiterFullPrompt;
+      console.log(`[Conference ${conferenceId}] Calling Arbiter (${modelName}) as ${arbiter_role_final}`);
+      arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, null);
+      if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
+        throw new Error(`Arbiter (${arbiter_role_final}) failed: ${arbiterResponse}`);
+      }
+    } else { // num_rounds > 1
+      let lastResponseA = "";
+      let lastResponseB = "";
+
+      for (let round = 1; round <= num_rounds; round++) {
+        console.log(`[Conference ${conferenceId}] Round ${round}/${num_rounds} starting...`);
+        // Model A's turn
+        let promptA;
+        if (round === 1) {
+          promptA = `You are ${modelA_role_final}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
+        } else {
+          promptA = `You are ${modelA_role_final}. The original request was: "${userPrompt}". Your opponent (Model B) previously said: "${lastResponseB}". Based on this, provide your updated argument or rebuttal as ${modelA_role_final}.`;
+        }
+        model_a_prompt_for_log = promptA;
+        console.log(`[Conference ${conferenceId} R${round}] Calling Model A (${modelA_role_final})`);
+        const currentResponseA = await generateFromLocal(promptA, modelName, null);
+        if (currentResponseA.startsWith('// LLM_ERROR:') || currentResponseA.startsWith('// LLM_WARNING:')) {
+          throw new Error(`Model A (${modelA_role_final}) failed in Round ${round}: ${currentResponseA}`);
+        }
+        lastResponseA = currentResponseA;
+        console.log(`[Conference ${conferenceId} R${round}] Model A response: ${lastResponseA.substring(0,50)}...`);
+
+        // Model B's turn
+        let promptB;
+        if (round === 1) {
+          promptB = `You are ${modelB_role_final}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
+        } else {
+          promptB = `You are ${modelB_role_final}. The original request was: "${userPrompt}". Your opponent (Model A) just said: "${lastResponseA}". Based on this, provide your updated argument or rebuttal as ${modelB_role_final}.`;
+        }
+        model_b_prompt_for_log = promptB;
+        console.log(`[Conference ${conferenceId} R${round}] Calling Model B (${modelB_role_final})`);
+        const currentResponseB = await generateFromLocal(promptB, modelName, null);
+        if (currentResponseB.startsWith('// LLM_ERROR:') || currentResponseB.startsWith('// LLM_WARNING:')) {
+          throw new Error(`Model B (${modelB_role_final}) failed in Round ${round}: ${currentResponseB}`);
+        }
+        lastResponseB = currentResponseB;
+        console.log(`[Conference ${conferenceId} R${round}] Model B response: ${lastResponseB.substring(0,50)}...`);
+
+        debate_history.push({ round: round, model_a_response: lastResponseA, model_b_response: lastResponseB });
+      }
+
+      // Arbiter after all rounds
+      let formattedDebateHistory = debate_history.map(r => `Round ${r.round}:\n  Model A (${modelA_role_final}): ${r.model_a_response}\n  Model B (${modelB_role_final}): ${r.model_b_response}`).join('\n\n');
+      const arbiterSystemPrompt = `You are an ${arbiter_role_final}. You have observed a debate between Model A (${modelA_role_final}) and Model B (${modelB_role_final}) over several rounds.`;
+      const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nFull Debate History:\n${formattedDebateHistory}\n\nBased on the entire debate, provide a comprehensive synthesized answer as ${arbiter_role_final}.`;
+      arbiter_prompt_for_log = arbiterFullPrompt;
+      console.log(`[Conference ${conferenceId}] Calling Arbiter Model (${arbiter_role_final}) with full debate history.`);
+      arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, null);
+      if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
+        throw new Error(`Arbiter Model (${arbiter_role_final}) failed after debate: ${arbiterResponse}`);
+      }
+    }
+    console.log(`[Conference ${conferenceId}] Arbiter response (first 100 chars): "${arbiterResponse.substring(0, 100)}..."`);
+
+    const logEntry = {
+      conference_id: conferenceId,
+      timestamp: new Date().toISOString(),
+      original_prompt: userPrompt,
+      num_rounds: num_rounds,
+      model_name_override: requestedModelName,
+      model_a_name: modelName,
+      model_a_role: modelA_role_final,
+      model_a_prompt: model_a_prompt_for_log,
+      model_b_name: modelName,
+      model_b_role: modelB_role_final,
+      model_b_prompt: model_b_prompt_for_log,
+      debate_history: debate_history,
+      arbiter_model_name: modelName,
+      arbiter_model_role: arbiter_role_final,
+      arbiter_model_prompt: arbiter_prompt_for_log,
+      arbiter_model_response: arbiterResponse,
+      source: 'direct_api_call'
+    };
+
+    let conferences = [];
+    try {
+      if (fs.existsSync(CONFERENCES_LOG_FILE)) {
+        const fileContent = fs.readFileSync(CONFERENCES_LOG_FILE, 'utf-8');
+        if (fileContent.trim() !== "") { // Check if file is not empty
+          conferences = JSON.parse(fileContent);
+        }
+      }
+    } catch (readError) {
+      console.warn(`[Conference ${conferenceId}] Error reading or parsing ${CONFERENCES_LOG_FILE}. Initializing with new array. Error: ${readError.message}`);
+      conferences = []; // Initialize if file is corrupt or unparsable
+    }
+
+    conferences.push(logEntry);
+    fs.writeFileSync(CONFERENCES_LOG_FILE, JSON.stringify(conferences, null, 2));
+    console.log(`[Conference ${conferenceId}] Logged successfully to ${CONFERENCES_LOG_FILE}`);
+
+    res.json({ conference_id: conferenceId, final_response: arbiterResponse, debate_history: debate_history, num_rounds: num_rounds });
+
+  } catch (error) {
+    console.error(`[Conference ${conferenceId}] Error processing conference task:`, error.message, error.stack);
+    res.status(500).json({ error: 'Failed to execute conference task.', conference_id: conferenceId, details: error.message });
+  }
+});
+
+
+
+
+(async () => {
+  try {
+    // Preserve any existing logic that was inside the IIFE before app.listen
+    // For example, if checkOllamaStatus() or startOllama() were called here,
+    // they should be preserved if they are still relevant.
+    // Based on previous analysis, the original IIFE was just a placeholder comment.
+    // If there was actual logic, it would need to be reinstated here.
+    // We assume for now the primary goal is to get app.listen working with the new config.
+
+    console.log('[Server Startup] Checking Ollama status...');
+    let ollamaReady = await checkOllamaStatus(); // Ensure checkOllamaStatus is available in this scope
+    if (!ollamaReady) {
+      console.log('[Server Startup] Ollama not detected or not responsive. Attempting to start Ollama...');
+      try {
+        await startOllama(); // Ensure startOllama is available in this scope
+        // Wait a moment for Ollama to initialize after exec (if applicable)
+        console.log('[Server Startup] Waiting for Ollama to initialize after start attempt (5s)...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        ollamaReady = await checkOllamaStatus(); // Check status again
+      } catch (startError) {
+        console.error(`[Server Startup] Error during Ollama start attempt: ${startError.message}`);
+        // Ollama could not be started by exec, ollamaReady remains false.
+      }
+    }
+    // Removed the redundant, nested IIFE structure here.
+    // The logic continues within the single, top-level IIFE.
+    if (!ollamaReady) {
+      console.error('--------------------------------------------------------------------');
+      console.error('[Server Startup] WARNING: Ollama is not running and/or could not be started by the server.');
+      console.error('[Server Startup] Roadrunner backend will start, but LLM-dependent features will fail.');
+      console.error('[Server Startup] Please ensure Ollama is installed and running manually if needed.');
+      console.error(`[Server Startup] Attempted to connect/start Ollama at: ${OLLAMA_BASE_URL}`);
+      console.error('--------------------------------------------------------------------');
+    } else {
+      console.log('[Server Startup] Ollama reported as operational.');
+    }
+
+    app.listen(PORT, () => {
+      console.log(`Roadrunner backend server listening on port ${PORT}`);
+      // BEGIN PRESERVE EXISTING LOGS IF ANY
+      // If the original app.listen callback had other console.log lines, they should be kept here.
+      // (Assuming there were none based on the placeholder comment)
+      // END PRESERVE EXISTING LOGS
+      console.log(`[Config] Ollama URL target: ${OLLAMA_BASE_URL}`);
+      console.log(`[Config] LOG_DIR configured to: ${LOG_DIR}`);
+      console.log(`[Config] WORKSPACE_DIR configured to: ${WORKSPACE_DIR}`);
+      // console.log(`[Paths] Generated Components Directory: ${COMPONENT_DIR}`); // Removed COMPONENT_DIR logging
+      console.log(`[Paths] Conferences Log Directory: ${CONFERENCES_LOG_DIR}`);
+    });
+  } catch (err) {
+    console.error('[Server Startup IIFE] Error during server startup:', err);
+    process.exit(1); // Exit if the IIFE startup fails critically
+  }
+})();
+module.exports = { handleExecuteAutonomousTask };

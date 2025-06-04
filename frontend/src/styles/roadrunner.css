@@ -1,0 +1,737 @@
+/*
+  ROADRUNNER STYLESHEET
+  ---------------------
+  This file contains the primary styles for the Roadrunner application.
+  It includes base Tailwind imports, global styles, and component-specific
+  styles using a BIRD TAXONOMY-BASED NAMING CONVENTION.
+
+  New classes should follow this convention for clarity and modularity.
+  Example: .corvidae-app-container, .accipiter-header, .cardinalis-button
+*/
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --theme-orange: #FF6A00;
+  --theme-orange-dark: #c2410c;
+  --theme-orange-light: #ff944d;
+  --log-bg: #0b0f14;
+}
+
+/* Global Element Styles */
+body {
+  margin: 0;
+  background-color: black;
+  font-family: 'JetBrains Mono', monospace;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 14px; /* Added this line */
+}
+
+input[type="text"],
+textarea {
+  background-color: #000000;
+  color: var(--theme-orange);
+  border: 1px solid var(--theme-orange-dark);
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+}
+
+input[type="text"]:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--theme-orange);
+  box-shadow: 0 0 0 2px var(--theme-orange-light);
+}
+
+/* Utility Classes */
+.font-ui-strange {
+  font-family: 'JetBrains Mono', 'Share Tech Mono', 'Fira Code', monospace;
+}
+
+.glow-box {
+  filter: drop-shadow(0 0 10px var(--theme-orange));
+}
+
+/* Temporary styles for App.vue highlightSyntax method. */
+/* TODO: Refactor highlightSyntax to use semantic classes. */
+.sylvia-task-description .text-cyan-400 { color: #22d3ee; }
+.sylvia-task-description .font-bold { font-weight: 700; }
+.sylvia-task-description .text-blue-400 { color: #60a5fa; }
+.sylvia-task-description .text-purple-400 { color: #c084fc; }
+.sylvia-task-description .text-indigo-400 { color: #a5b4fc; }
+.sylvia-task-description .text-green-400 { color: #4ade80; }
+.sylvia-task-description .text-yellow-400 { color: #facc15; }
+.sylvia-task-description .text-pink-400 { color: #f472b6; }
+.sylvia-task-description .text-teal-400 { color: #2dd4bf; }
+.sylvia-task-description .text-red-400 { color: #f87171; }
+.sylvia-task-description .text-gray-500 { color: #6b7280; }
+.sylvia-task-description .text-orange-400 { color: #fb923c; }
+.sylvia-task-description .font-semibold { font-weight: 600; }
+.sylvia-task-description .inline-block { display: inline-block; }
+.sylvia-task-description .mr-1 { margin-right: 0.25rem; }
+
+/* === Bird Taxonomy Styles (App.vue & RoadrunnerExecutor.vue) === */
+
+/* Page & App Containers */
+.corvidae-app-container { /* App.vue main wrapper */
+  padding: 1rem;
+  font-family: 'JetBrains Mono', 'Share Tech Mono', 'Fira Code', monospace;
+  min-height: calc(100vh - 2rem); /* body is slightly larger */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.geococcyx-executor-page { /* RoadrunnerExecutor.vue main wrapper */
+  padding: 1.5rem;
+  font-family: 'JetBrains Mono', 'Share Tech Mono', 'Fira Code', monospace;
+  min-height: calc(100vh - 2rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Cards & Panels */
+.tyrannidae-main-card { /* App.vue primary card */
+  border-radius: 0.75rem;
+  max-width: 36rem;
+  width: 100%;
+  background-color: transparent;
+  border: 1px solid var(--theme-orange); /* subtle edge around card */
+  height: 100%;
+  max-height: calc(100vh - 2rem);
+  display: flex; /* allow inner panel to stretch */
+  flex-direction: column;
+}
+.bubo-executor-card { /* RoadrunnerExecutor.vue primary card */
+  background-color: var(--theme-orange);
+  box-shadow: 0 0 40px var(--theme-orange);
+  border-width: 4px;
+  border-style: solid;
+  border-color: var(--theme-orange-dark);
+  border-radius: 1.5rem;
+  padding: 0.25rem;
+  width: 100%;
+  max-width: 42rem;
+}
+.furnariidae-inner-panel { /* Common inner panel style */
+  background-color: #111827;
+  border: 1px solid var(--theme-orange-light);
+  border-radius: 1rem;
+  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+  padding: 1.5rem; /* This padding is for the content *within* the inner panel */
+  width: 100%;
+  height: 100%; /* Takes full height of tyrannidae-main-card */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Headers & Titles */
+.accipiter-header { /* App.vue header */
+  background-color: var(--theme-orange); /* Explicitly set to theme orange */
+  color: black; /* Explicitly set to black */
+  text-align: center;
+  font-size: 1.25rem; line-height: 1.75rem; font-weight: 700;
+  padding: 0.75rem 1rem;
+  border-top-left-radius: 0.75rem; border-top-right-radius: 0.75rem;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.accipiter-title {} /* App.vue header title (mostly inherits) */
+
+.aquila-executor-title { /* RoadrunnerExecutor.vue title */
+  font-size: 1.875rem; line-height: 2.25rem; font-weight: 700; text-align: center;
+  margin-bottom: 1rem; color: var(--theme-orange); letter-spacing: 0.025em;
+  text-transform: uppercase; filter: drop-shadow(0 0 10px var(--theme-orange));
+}
+.aratinga-tasks-header { /* App.vue tasks section header */
+  font-size: 1.25rem; line-height: 1.75rem; font-weight: 700;
+  color: var(--theme-orange); margin-bottom: 0.75rem;
+  display: flex; align-items: center;
+}
+.aratinga-header-icon { margin-right: 0.5rem; }
+.aratinga-module-name { color: #fde047; margin-left: 0.5rem; }
+
+.corvus-console-header { /* App.vue console output header */
+  font-size: 1.125rem; /* text-lg */
+  line-height: 1.75rem; /* text-lg */
+  font-weight: 600; /* font-semibold */
+  color: var(--theme-orange); /* text-[var(--theme-orange)] */
+  margin-bottom: 0.5rem; /* mb-2 */
+}
+
+/* Buttons */
+.fringilla-close-button { /* App.vue header close button */
+  color: black; /* Explicitly ensure color is black */
+  font-weight: 700; padding: 0.25rem;
+  background-color: transparent; border: none; cursor: pointer;
+  font-size: 1.25rem; line-height: 1;
+}
+.fringilla-close-button:hover { color: #374151; }
+
+.pelecanus-button-action { /* App.vue refresh button */
+  padding: 0.5rem; border: 1px solid var(--theme-orange);
+  border-radius: 0.25rem; background-color: black; color: var(--theme-orange);
+  height: 2.5rem; box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.7);
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.pelecanus-button-action:hover { background-color: #1f2937; }
+
+.cardinalis-button-primary { /* App.vue main 'Run' button */
+  width: 100%; padding: 0.5rem; background-color: var(--theme-orange);
+  color: black; font-weight: 700; border-radius: 0.375rem;
+  border: none; cursor: pointer;
+  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter, -webkit-backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms;
+}
+.cardinalis-button-primary:hover { background-color: var(--theme-orange-light); }
+
+.pandion-execute-button { /* App.vue 'Execute Tasks' button */
+  background-color: #16a34a; color: white; font-weight: 700;
+  padding: 0.5rem 1rem; border-radius: 0.25rem;
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms;
+  font-size: 0.875rem; border: none; cursor: pointer;
+}
+.pandion-execute-button:hover { background-color: #15803d; }
+.pandion-execute-button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.tachornis-button-container { /* RoadrunnerExecutor.vue floating button container */
+  position: absolute; top: 1rem; right: 1rem; z-index: 50;
+}
+.tachornis-floating-button { /* RoadrunnerExecutor.vue floating button */
+  color: var(--theme-orange); background-color: black; border: 1px solid var(--theme-orange);
+  border-radius: 9999px; padding: 0.25rem 0.75rem; font-size: 1.25rem;
+  line-height: 1; font-weight: 700; box-shadow: 0 0 10px var(--theme-orange);
+  transition-property: color, background-color, border-color, box-shadow;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms;
+  cursor: pointer;
+}
+.tachornis-floating-button:hover { background-color: var(--theme-orange); color: black; }
+
+.cardinalis-button-large-action { /* RoadrunnerExecutor.vue 'Execute' button */
+  width: 100%; background-color: var(--theme-orange); color: black; font-weight: 700;
+  padding: 0.5rem 1rem; border-radius: 0.75rem;
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px -1px rgba(0,0,0,0.1);
+  transition-property: background-color, box-shadow;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms;
+  border: none; cursor: pointer;
+}
+.cardinalis-button-large-action:hover { background-color: var(--theme-orange-light); }
+
+/* Forms & Inputs */
+.passeriformes-form-area { /* App.vue form container */
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0;
+}
+.passeriformes-form-area > * + * { margin-top: 1.25rem; }
+
+.apodiformes-form-grid { /* RoadrunnerExecutor.vue form container */
+  display: grid; gap: 1rem; background-color: #0f172a; padding: 1rem;
+  border-radius: 0.75rem; border: 2px solid var(--theme-orange-dark);
+  box-shadow: inset 0 2px 4px 0 rgba(0,0,0,0.05);
+}
+
+.piciformes-input-row { /* App.vue module select row */
+  display: flex; align-items: flex-end;
+}
+.piciformes-input-row > * + * { margin-left: 0.5rem; }
+.piciformes-input-group { flex-grow: 1; }
+
+.emberiza-label { /* Common label style */
+  display: block; margin-bottom: 0.25rem;
+  color: var(--theme-orange-light); font-weight: 600;
+}
+
+.turdus-select { /* App.vue select dropdown */
+  width: 100%; padding: 0.5rem; background-color: black;
+  border: 1px solid var(--theme-orange); color: white;
+  border-radius: 0.375rem; box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.7);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23FF6A00' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.5rem center; background-repeat: no-repeat;
+  background-size: 1.5em 1.5em; padding-right: 2.5rem;
+}
+.turdus-select:focus {
+  outline: none; border-color: var(--theme-orange);
+  box-shadow: 0 0 0 2px var(--theme-orange);
+}
+
+.hirundo-text-input { /* RoadrunnerExecutor.vue text input/textarea */
+  width: 100%; /* Uses global input/textarea styles for other properties */
+}
+
+/* Checkboxes */
+.spizella-checkbox-group { /* App.vue checkbox group */
+  display: flex; align-items: center;
+}
+.spizella-checkbox-group > * + * { margin-left: 1rem; }
+
+.parus-checkbox { /* App.vue header checkboxes */
+  height: 1rem; width: 1rem; background-color: #374151;
+  border: 1px solid #4b5563; border-radius: 0.25rem;
+  appearance: none; display: inline-block; position: relative; cursor: pointer;
+  vertical-align: middle;
+}
+.parus-checkbox:checked { background-color: currentColor; border-color: currentColor; }
+.parus-checkbox:checked::after {
+  content: ''; position: absolute; left: 0.3rem; top: 0.1rem;
+  width: 0.25rem; height: 0.5rem; border: solid white;
+  border-width: 0 0.125rem 0.125rem 0; transform: rotate(45deg);
+}
+.parus-checkbox-accent-blue { color: #2563eb; }
+.parus-checkbox-accent-blue:focus { box-shadow: 0 0 0 2px #3b82f6; outline: none; }
+.parus-checkbox-accent-indigo { color: #4f46e5; }
+.parus-checkbox-accent-indigo:focus { box-shadow: 0 0 0 2px #6366f1; outline: none; }
+
+.junco-checkbox-label { /* App.vue checkbox label */
+  margin-left: 0.5rem; font-size: 0.875rem; font-weight: 500;
+  color: #d1d5db; cursor: pointer; vertical-align: middle;
+}
+
+/* Task List & Items (App.vue) */
+.columbidae-task-list { list-style: none; padding: 0; }
+.columbidae-task-list > * + * { margin-top: 0.5rem; }
+
+.passer-task-item {
+  display: flex; align-items: flex-start; padding: 0.625rem;
+  border-radius: 0.5rem;
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms;
+}
+.passer-task-item-pending { background-color: #1f2937; color: #d1d5db; }
+.passer-task-item-pending:hover { background-color: #374151; }
+.passer-task-item-completed { background-color: rgba(22, 101, 52, 0.4); color: #9ca3af; }
+
+.parus-task-checkbox { /* App.vue task item checkbox */
+  margin-right: 0.75rem; height: 1.25rem; width: 1.25rem; margin-top: 0.125rem;
+  color: var(--theme-orange); background-color: #4b5563; border: 1px solid #6b7280;
+  border-radius: 0.25rem; flex-shrink: 0; appearance: none;
+  display: inline-block; position: relative; cursor: pointer;
+}
+.parus-task-checkbox:checked { background-color: var(--theme-orange); border-color: var(--theme-orange); }
+.parus-task-checkbox:checked::after {
+  content: ''; position: absolute; left: 0.4rem; top: 0.15rem;
+  width: 0.3rem; height: 0.6rem; border: solid white;
+  border-width: 0 0.15rem 0.15rem 0; transform: rotate(45deg);
+}
+.parus-task-checkbox:focus { outline: none; box-shadow: 0 0 0 2px var(--theme-orange-light); }
+
+.passer-task-content-wrapper { flex-grow: 1; }
+
+.sylvia-task-editor-input { /* App.vue task editor */
+  width: 100%; padding: 0.25rem; background-color: #374151;
+  border: 1px solid #4b5563; border-radius: 0.25rem; color: #e5e7eb;
+  line-height: 1.625;
+}
+.sylvia-task-editor-input:focus {
+  outline: none; border-color: var(--theme-orange);
+  box-shadow: 0 0 0 1px var(--theme-orange);
+}
+.sylvia-task-editor-input-completed { opacity: 0.6; text-decoration: line-through; }
+
+.sylvia-task-description { /* App.vue task description display */
+  line-height: 1.625;
+}
+.sylvia-task-description-completed { opacity: 0.6; text-decoration: line-through; }
+
+.phylloscopus-metadata-container { /* App.vue metadata container */
+  margin-top: 0.25rem; display: flex; flex-wrap: wrap;
+  column-gap: 0.5rem; row-gap: 0.25rem;
+}
+.regulus-metadata-badge { /* App.vue metadata badge */
+  display: inline-flex; align-items: center; padding: 0.125rem 0.5rem;
+  border-radius: 9999px; font-size: 0.75rem; line-height: 1rem; font-weight: 500;
+  background-color: #374151; color: #d1d5db; border: 1px solid #4b5563;
+}
+.regulus-metadata-key { margin-right: 0.25rem; color: #9ca3af; font-weight: 700; }
+
+.motacilla-parse-warning { /* App.vue parse warning */
+  margin-top: 0.25rem; font-size: 0.75rem; line-height: 1rem; color: #eab308;
+}
+
+/* Log & Message Displays */
+.strigiformes-log-display { /* App.vue info log display */
+  padding: 1rem; background-color: var(--log-bg);
+  border: 1px solid var(--theme-orange-dark); border-radius: 0.375rem;
+  font-size: 0.875rem; line-height: 1.625; color: #e5e7eb;
+  font-family: 'JetBrains Mono', 'Share Tech Mono', 'Fira Code', monospace;
+}
+.otus-log-text {} /* App.vue info log text line */
+.otus-log-text + .otus-log-text { margin-top: 0.25rem; }
+
+.megascops-error-message { /* App.vue error message */
+  margin: 0.5rem 0; padding: 0.75rem; background-color: #b91c1c;
+  color: white; border-radius: 0.375rem; border: 1px solid #ef4444;
+}
+.megascops-error-strong { font-weight: 700; }
+
+.cuculus-no-tasks-message { /* App.vue 'no tasks' message */
+  color: #9ca3af; font-style: italic; margin-top: 0.5rem; padding: 0.625rem;
+}
+
+.psittaciformes-tasks-section { /* App.vue tasks section container */
+  margin-top: 1.5rem; padding: 1rem; background-color: var(--log-bg);
+  border: 1px solid var(--theme-orange-dark); border-radius: 0.375rem;
+  font-size: 0.875rem; color: #e5e7eb;
+}
+
+/* Console Output (App.vue & RoadrunnerExecutor.vue) */
+.corvus-console-output-panel { /* App.vue console output panel */
+  margin-top: 1.5rem; padding: 1rem; background-color: var(--log-bg);
+  border: 1px solid var(--theme-orange-dark); border-radius: 0.375rem;
+  font-size: 0.875rem; color: #e5e7eb;
+}
+.corvus-console-scrollbox { /* App.vue console scroll area */
+  background-color: #000000;
+  font-family: 'JetBrains Mono', 'Share Tech Mono', 'Fira Code', monospace;
+  padding: 0.75rem; border-radius: 0.375rem;
+  max-height: 15rem; overflow-y: auto; font-size: 0.875rem;
+}
+.pica-console-line { /* App.vue console line */
+  white-space: pre-wrap; line-height: 1.625;
+}
+.pica-timestamp { /* App.vue console timestamp */
+  margin-right: 0.5rem; color: #6b7280;
+}
+.pica-log-message {} /* Base for App.vue log messages */
+.pica-log-message-success { color: #4ade80; }
+.pica-log-message-error { color: #ef4444; }
+.pica-log-message-warn { color: #eab308; }
+.pica-log-message-info-dryrun { color: #60a5fa; }
+.pica-log-message-debug { color: #9ca3af; }
+.pica-log-message-info { color: #d1d5db; }
+
+.otus-log-area { /* RoadrunnerExecutor.vue log display area */
+  background-color: #000000;
+  color: var(--theme-orange-light);
+  font-family: 'JetBrains Mono', 'Share Tech Mono', 'Fira Code', monospace;
+  font-size: 0.875rem;
+  border-radius: 0.25rem;
+  padding: 1rem;
+  max-height: 24rem;
+  overflow-y: auto;
+  border: 1px solid var(--theme-orange-dark);
+}
+.tyto-log-preformatted { /* RoadrunnerExecutor.vue preformatted log text */
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Tab Navigation */
+.tab-navigation {
+  display: flex;
+  margin-bottom: 1rem; /* Space between tabs and content */
+  border-bottom: 2px solid var(--theme-orange-dark);
+}
+
+.tab-navigation button {
+  padding: 0.75rem 1.5rem;
+  cursor: pointer;
+  background-color: #000000; /* Dark background for inactive tabs */
+  color: var(--theme-orange-light);
+  border: none;
+  border-bottom: 2px solid transparent; /* For active state */
+  font-size: 1rem;
+  font-weight: 500;
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+
+.tab-navigation button:hover {
+  background-color: #1f2937; /* Slightly lighter on hover */
+  color: var(--theme-orange);
+}
+
+.tab-navigation button.active {
+  background-color: #111827; /* Background of inner panel */
+  color: var(--theme-orange);
+  font-weight: 700;
+  border-bottom-color: var(--theme-orange); /* Highlight active tab */
+}
+
+/* Tab Content Panes */
+.tab-content {
+  padding-top: 1rem; /* Space below the tab bar's border */
+  flex-grow: 1; /* Takes available vertical space */
+  overflow-y: auto; /* Allows scrolling within the tab content */
+  min-height: 0; /* Crucial for scrollable flex children */
+}
+
+/* Optional: if you need specific styling for content areas */
+.coder-tab-content {
+  /* Styles specific to coder tab content if any */
+}
+.brainstorming-tab-content {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0; /* Important for nested scrolling flex layouts */
+  /* Styles specific to brainstorming tab content if any */
+}
+.configuration-tab-content {
+  /* Styles specific to configuration tab content if any */
+}
+
+/* Chat Interface Styling */
+.chat-history-panel {
+  flex-grow: 1; /* Allow this panel to take up available vertical space */
+  min-height: 0; /* Essential for scrollable content within a flex item */
+  overflow-y: auto;
+  /* height: 300px; */ /* REMOVED - was causing the blank space issue */
+  /* border: 1px solid var(--theme-orange-dark); */ /* Removed border */
+  border: none; /* Explicitly remove border */
+  background-color: #111827; /* Match .furnariidae-inner-panel background */
+  padding: 0.75rem;
+  border-radius: 0.375rem; /* Keep radius for slight rounding within the panel */
+  margin-bottom: 1rem;
+  color: #e5e7eb; /* Default text color for system messages or errors within panel */
+}
+
+.chat-message {
+  margin-bottom: 0.75rem;
+  line-height: 1.625;
+}
+
+.user-message .message-text {
+  background-color: #002b36; /* Solarized dark blue/green, good contrast with orange */
+  color: #93a1a1; /* Solarized light gray */
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  display: inline-block;
+  text-align: left;
+  /* border: 1px solid #001f28; */ /* Removed border */
+  border: none;
+}
+.user-message {
+ text-align: right; /* Aligns the whole block to the right */
+}
+
+.model-message .message-text {
+  background-color: #272822; /* Monokai-like dark background */
+  color: #f8f8f2; /* Monokai-like light text */
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  display: inline-block;
+  text-align: left;
+  /* border: 1px solid #1c1d1a; */ /* Removed border */
+  border: none;
+}
+.model-message {
+  text-align: left; /* Aligns the whole block to the left */
+}
+
+.sender-label {
+  font-weight: 700;
+  color: var(--theme-orange-light); /* Use theme color for sender */
+  display: block; /* Makes sender label appear on its own line */
+  margin-bottom: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.user-message .sender-label {
+  text-align: right;
+  margin-right: 0.5rem; /* Consistent spacing for user messages */
+}
+
+.model-message .sender-label {
+  text-align: left;
+  margin-left: 0.5rem; /* Consistent spacing for model messages */
+}
+
+.message-text {
+  white-space: pre-wrap; /* Preserves whitespace and newlines */
+  word-wrap: break-word;
+  display: block; /* Makes the pre take the full width of its inline-block parent */
+}
+
+.chat-input-area {
+  display: flex;
+  align-items: flex-end; /* Align items to the bottom for a cleaner look with varying heights */
+  margin-bottom: 1rem;
+  gap: 0.5rem; /* Add gap between flex items */
+  padding: 0.5rem; /* Add some padding around the input area */
+  border: 1px solid var(--theme-orange-dark); /* Common border for cohesion */
+  border-radius: 0.375rem; /* Rounded corners for the area */
+  background-color: #000000; /* Match textarea background */
+}
+
+.chat-input-area textarea.hirundo-text-input {
+  flex-grow: 1;
+  min-height: 40px; /* Ensure it's at least button height */
+  resize: vertical; /* Allow vertical resize */
+  /* The textarea already has border styles from global input[type="text"], textarea */
+  /* Ensure its background matches the chat-input-area if it was different */
+  background-color: #000000;
+}
+
+/* Container for the file input and its custom styled label */
+.chat-file-input-container {
+  position: relative; /* For absolute positioning of the input */
+  display: inline-flex; /* Align items nicely */
+  align-items: center;
+}
+
+.chat-file-input-label {
+  padding: 0.5rem 0.75rem;
+  background-color: var(--theme-orange);
+  color: black;
+  border: 1px solid var(--theme-orange-dark);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-weight: 600;
+  height: 2.5rem; /* Match pelecanus button height */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.chat-file-input-label:hover {
+  background-color: var(--theme-orange-light);
+}
+
+.chat-file-input-label::before {
+  content: '📎'; /* Paperclip icon */
+  font-size: 1.25rem; /* Adjust icon size */
+  margin-right: 0.25rem; /* Space if you add text next to it, or if text is removed */
+}
+
+/* Hide the actual file input but keep it functional */
+.chat-file-input {
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  left: 0;
+  top: 0;
+  cursor: pointer;
+}
+
+/* Ensure the label for the file input does not have emberiza-label's default margin */
+.chat-input-area .chat-file-input-container .emberiza-label {
+  margin-bottom: 0; /* Override if necessary, or remove this if label text is removed */
+  display: none; /* Hide the "Attach File:" text as icon is now the primary UI */
+}
+
+/* The file input itself uses turdus-select, let's hide it via its wrapper */
+.chat-input-area .chat-file-input-container input.turdus-select {
+   /* This is the actual input, we make it transparent and cover with label */
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  cursor: pointer;
+  z-index: 1; /* ensure it's clickable if label is not perfectly covering */
+}
+/* Styling for the div that WRAPS the label and input, if one was added in HTML */
+/* In App.vue, the structure became <div style="margin-left: 0.5rem;"> which contains label and input */
+/* We can target that div if needed, or directly style .chat-file-input-container */
+.chat-input-area > div:has(input#brainstormingFileUpload) {
+  display: flex; /* To make the label and (hidden) input align if needed */
+  flex-direction: column; /* Stack label and input if label text was visible */
+  align-items: stretch; /* Make label/button full width of this small container */
+  position: relative; /* For the actual input to be positioned absolutely within */
+}
+
+.chat-input-area > div:has(input#brainstormingFileUpload) > label.emberiza-label {
+  display: none; /* Hide the text "Attach File:" */
+}
+
+.chat-input-area > div:has(input#brainstormingFileUpload) > input#brainstormingFileUpload.turdus-select {
+  /* This will be the visible part, styled like a button */
+  /* Instead of styling the input, we style a label and hide the input */
+  /* So, the input itself should be hidden. The label acts as the button. */
+  /* The previous attempt to move the div with label and input into chat-input-area */
+  /* had this structure: <div style="margin-left: 0.5rem;"> <label/> <input/> </div> */
+  /* We need to make THAT input effectively invisible and the LABEL the styled button */
+  /* Let's create a dedicated class for the file input button that the LABEL will take */
+}
+/* New approach: Styling the label as the button, and hiding the input */
+label[for="brainstormingFileUpload"].chat-file-upload-button {
+  padding: 0.5rem 0.75rem; /* Consistent padding */
+  background-color: var(--theme-orange);
+  color: black;
+  border: 1px solid var(--theme-orange-dark);
+  border-radius: 0.25rem; /* Consistent border-radius */
+  cursor: pointer;
+  font-weight: 600;
+  height: 2.5rem; /* Match send button height */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+  margin-bottom: 0; /* Remove default emberiza-label margin */
+}
+
+label[for="brainstormingFileUpload"].chat-file-upload-button:hover {
+  background-color: var(--theme-orange-light);
+}
+
+label[for="brainstormingFileUpload"].chat-file-upload-button::before {
+  content: '📎'; /* Paperclip emoji as icon */
+  font-size: 1.25rem; /* Adjust as needed */
+  /* margin-right: 0.5rem; */ /* Add if you want space next to icon, or if there was text */
+}
+
+/* Hide the actual file input, place it under the styled label */
+input#brainstormingFileUpload.turdus-select {
+  position: absolute;
+  width: 1px; /* Make it tiny */
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap; /* For older browsers */
+  border: 0;
+  z-index: -1; /* Hide it behind other elements if not fully clipped */
+}
+/* End new approach */
+
+.chat-input-area button.pelecanus-button-action {
+  height: 2.5rem; /* Standardize height */
+  padding: 0.5rem 1rem; /* Adjust padding for send button if needed */
+  /* margin-left is handled by gap in .chat-input-area */
+}
+
+/* New Chat Send Button Style */
+.chat-input-area button.chat-send-button {
+  background-color: var(--theme-orange);
+  color: black;
+  font-weight: 700; /* Inherits from pelecanus-button-action or can be explicit */
+  border: none; /* Remove default border or override pelecanus */
+  padding: 0.5rem 1rem; /* Consistent with pelecanus-button-action */
+  height: 2.5rem;    /* Consistent with pelecanus-button-action */
+  border-radius: 0.25rem; /* Consistent with pelecanus-button-action */
+  /* pelecanus-button-action also has box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.7); */
+  /* We can keep it or remove it. Let's keep it for now. */
+  box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.7);
+  cursor: pointer; /* Ensure cursor is pointer */
+}
+
+.chat-input-area button.chat-send-button:hover {
+  background-color: var(--theme-orange-light);
+  color: black; /* Ensure text color remains black on hover */
+}
+/* End New Chat Send Button Style */
+
+.chat-error-message {
+  color: #ef4444; /* Tailwind red-500 */
+  font-weight: bold;
+  padding: 0.5rem;
+  background-color: rgba(239, 68, 68, 0.1);
+  border: 1px solid #ef4444;
+  border-radius: 0.375rem;
+  margin-top: 0.5rem;
+}

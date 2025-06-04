@@ -1,0 +1,12 @@
+{
+  "task_description": "Minimal test for fsAgent.createFile",
+  "steps": [
+    {
+      "type": "createFile",
+      "details": {
+        "filePath": "debug_test_file.txt",
+        "content": "Hello from minimal debug test."
+      }
+    }
+  ]
+}

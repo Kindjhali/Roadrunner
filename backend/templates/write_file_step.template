@@ -1,0 +1,5 @@
+{
+  "type": "write_file",
+  "path": "./output/example.txt",
+  "content": "Hello from Roadrunner"
+}

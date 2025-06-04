@@ -1,0 +1,12 @@
+// {{FILE_NAME}}
+// Created for module: {{MODULE_NAME}}
+
+function init() {
+  console.log('Module {{MODULE_NAME}} - {{FILE_NAME}} initialized');
+}
+
+// TODO: Add module logic
+
+module.exports = {
+  init
+};

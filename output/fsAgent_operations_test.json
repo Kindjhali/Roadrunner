@@ -1,0 +1,82 @@
+{
+  "task_description": "Test advanced fsAgent operations: create/delete directories, update/delete files, confirmation handling, and path traversal.",
+  "steps": [
+    {
+      "type": "createDirectory",
+      "details": { "dirPath": "test_dir_fsagent" }
+    },
+    {
+      "type": "create_file_with_llm_content",
+      "details": {
+        "filePath": "test_dir_fsagent/original_content.txt",
+        "prompt": "Original content for fsAgent test file.",
+        "requireConfirmation": false
+      }
+    },
+    {
+      "type": "updateFile",
+      "details": {
+        "filePath": "test_dir_fsagent/original_content.txt",
+        "content": "\nAppended content.",
+        "append": true
+      }
+    },
+    {
+      "type": "read_file_to_output",
+      "details": {
+        "filePath": "test_dir_fsagent/original_content.txt",
+        "output_id": "appended_content_check"
+      }
+    },
+    {
+      "type": "updateFile",
+      "details": {
+        "filePath": "test_dir_fsagent/original_content.txt",
+        "content": "Overwritten content.",
+        "append": false,
+        "requireConfirmation": true
+      }
+    },
+    {
+      "type": "create_file_with_llm_content",
+      "details": {
+        "filePath": "test_dir_fsagent/to_be_deleted.txt",
+        "prompt": "This file will be deleted.",
+        "requireConfirmation": false
+      }
+    },
+    {
+      "type": "deleteFile",
+      "details": {
+        "filePath": "test_dir_fsagent/to_be_deleted.txt",
+        "requireConfirmation": true
+      }
+    },
+    {
+      "type": "deleteDirectory",
+      "details": {
+        "dirPath": "test_dir_fsagent",
+        "requireConfirmation": true
+      }
+    },
+    {
+      "type": "show_workspace_tree",
+      "details": { "path": "." }
+    },
+    {
+      "type": "createFile",
+      "details": {
+        "filePath": "../../../attempt_bad_write.txt",
+        "content": "Path traversal attempt",
+        "requireConfirmation": false
+      }
+    },
+    {
+      "type": "readFile",
+      "details": {
+        "filePath": "../../../etc/passwd",
+        "output_id": "bad_read_attempt"
+      }
+    }
+  ]
+}

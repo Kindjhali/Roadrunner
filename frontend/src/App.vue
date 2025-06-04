@@ -1,0 +1,589 @@
+<template>
+  <div class="corvidae-app-container">
+    <div class="tyrannidae-main-card glow-box">
+      <div class="furnariidae-inner-panel">
+        <div class="accipiter-header">
+          <span class="accipiter-title">Roadrunner AI Executor</span>
+          <button @click="closeWindow" class="fringilla-close-button">X</button>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tab-navigation">
+          <button @click="activeTab = 'coder'" :class="{ 'active': activeTab === 'coder' }">Coder</button>
+          <button @click="activeTab = 'brainstorming'" :class="{ 'active': activeTab === 'brainstorming' }">Brainstorming</button>
+          <button @click="activeTab = 'configuration'" :class="{ 'active': activeTab === 'configuration' }">Configuration</button>
+        </div>
+
+        <!-- Coder Tab Content -->
+        <div v-if="activeTab === 'coder'" class="tab-content coder-tab-content p-4 space-y-4">
+          <div class="passeriformes-form-area space-y-4">
+            <div v-if="isIntegratedMode" class="piciformes-input-row flex items-center space-x-2">
+              <label for="moduleSelect" class="emberiza-label">Module:</label>
+              <select id="moduleSelect" v-model="selectedModule" class="turdus-select">
+                <option disabled value="">-- Choose a module --</option>
+                <option v-for="mod in modules" :key="mod.value" :value="mod.value">{{ mod.text }}</option>
+              </select>
+              <button @click="handleRefresh" title="Refresh Modules" class="pelecanus-button-action">
+                🔄
+              </button>
+            </div>
+
+            <div>
+              <label for="modeSelect" class="emberiza-label">Mode:</label>
+            <select id="modeSelect" v-model="selectedMode" class="turdus-select">
+              <option value="full">full</option>
+              <option value="partial">partial</option>
+            </select>
+          </div>
+
+          <div class="piciformes-input-row">
+            <div class="piciformes-input-group">
+              <label for="modelSelect" class="emberiza-label">Default Task Model:</label>
+              <select id="modelSelect" v-model="selectedModelId" class="turdus-select">
+                <option disabled value="">-- Select Default Model --</option>
+                <optgroup v-for="(group, category) in categorizedCoderModels" :key="category" :label="category.toUpperCase()">
+                  <option v-for="model in group" :key="model.id" :value="model.id">
+                    {{ model.name }}
+                  </option>
+                </optgroup>
+              </select>
+            </div>
+            <button @click="loadAvailableModels" title="Refresh Models" class="pelecanus-button-action">
+              🔄
+            </button>
+          </div>
+
+          <div>
+            <label for="taskFileUpload" class="emberiza-label">Custom Task File (.md, .txt):</label>
+            <input type="file" id="taskFileUpload" @change="handleFileUpload" accept=".md,.txt" class="turdus-select">
+          </div>
+
+          <!-- Session Management Section -->
+          <div class="session-management-area border-t border-b border-gray-700 py-4 my-4 space-y-3">
+            <h3 class="text-lg font-semibold text-gray-300">Session Management</h3>
+            <div class="piciformes-input-row">
+              <label for="newSessionName" class="emberiza-label">Session Name:</label>
+              <input type="text" id="newSessionName" v-model="newSessionName" placeholder="Optional, e.g., my-feature-session" class="turdus-select flex-grow">
+            </div>
+            <div class="flex space-x-2">
+              <button @click="saveCurrentSession" class="pelecanus-button-action">Save Session</button>
+              <button @click="listSessions" class="pelecanus-button-action">Refresh Sessions List</button>
+            </div>
+            <div v-if="availableSessions.length > 0" class="piciformes-input-row items-center">
+              <label for="availableSessionsDropdown" class="emberiza-label">Load Session:</label>
+              <select id="availableSessionsDropdown" @change="loadSelectedSession($event.target.value)" class="turdus-select flex-grow">
+                <option value="">-- Select a session --</option>
+                <option v-for="session in availableSessions" :key="session.id" :value="session.id">
+                  {{ session.name }} ({{ new Date(session.mtime).toLocaleString() }})
+                </option>
+              </select>
+            </div>
+             <div v-else class="text-gray-500 text-sm">
+              No saved sessions found. Click "Refresh Sessions List" or save a new one.
+            </div>
+          </div>
+          <!-- End Session Management Section -->
+
+          <!-- Task Display Area -->
+          <div class="task-display-area border-b border-gray-700 py-4 my-4 space-y-2">
+            <h3 class="text-lg font-semibold text-gray-300">Session Tasks ({{ sessionTasks.length }}) <span v-if="activeSessionTaskId && activeSessionTaskDetails" class="text-sm text-gray-400">- Selected: {{ getActiveTaskDescription() }}</span></h3>
+            <div v-if="sessionTasks.length > 0" class="flex flex-col md:flex-row">
+              <!-- Task List -->
+              <div class="w-full md:w-1/3 pr-0 md:pr-2 md:border-r md:border-gray-600 max-h-96 overflow-y-auto mb-4 md:mb-0">
+                <ul class="list-none pl-0 text-sm">
+                  <li v-for="(task) in sessionTasks" :key="task.taskId"
+                      @click="setActiveSessionTask(task.taskId)"
+                      :class="['p-2 my-1 rounded cursor-pointer hover:bg-gray-700', { 'bg-blue-700 hover:bg-blue-600 text-white ring-2 ring-blue-400': task.taskId === activeSessionTaskId }]">
+                    <div class="font-medium">{{ task.task_description || 'Untitled Task' }}</div>
+                    <div class="text-xs text-gray-400">{{ task.steps ? task.steps.length : 0 }} steps - <span class="italic">ID: {{ task.taskId.substring(0,8) }}...</span></div>
+                    <!-- Per-task Model Selector -->
+                    <div class="mt-1">
+                      <label :for="'taskModelSelect-' + task.taskId" class="text-xs text-gray-400 mr-1">Model:</label>
+                      <select :id="'taskModelSelect-' + task.taskId"
+                              v-model="task.modelConfigId"
+                              @change="updateTaskModelConfig(task, $event.target.value)"
+                              @click.stop <!-- Prevent li click when interacting with select -->
+                              class="turdus-select turdus-select-xs text-xs bg-gray-700 border-gray-600 focus:ring-blue-500 focus:border-blue-500">
+                        <option disabled value="">-- Select Model --</option>
+                        <optgroup v-for="(group, category) in categorizedCoderModels" :key="category" :label="category.toUpperCase()">
+                          <option v-for="model in group" :key="model.id" :value="model.id">
+                            {{ model.name }}
+                          </option>
+                        </optgroup>
+                      </select>
+                    </div>
+                    <div v-if="task.modelConfig" class="text-xs text-gray-500 italic">Using: {{ task.modelConfig.name }} ({{task.modelConfig.type}})</div>
+
+
+                    <!-- Display Statistics -->
+                    <div v-if="task.lastExecutionStats && task.lastExecutionStats.overallStatus !== 'not_run'" class="text-xs mt-1">
+                      <span :class="['font-semibold', task.lastExecutionStats.overallStatus === 'success' ? 'text-green-400' : (task.lastExecutionStats.overallStatus === 'failure' ? 'text-red-400' : 'text-yellow-400')]">
+                        Status: {{ task.lastExecutionStats.overallStatus.replace('_', ' ') }}
+                      </span>
+                      <span class="ml-2 text-gray-400">S: {{ task.lastExecutionStats.stepsSucceeded }}/{{ task.lastExecutionStats.stepsTotal }}</span>
+                      <span v-if="task.lastExecutionStats.stepsFailed > 0" class="ml-1 text-red-400">F: {{ task.lastExecutionStats.stepsFailed }}</span>
+                      <span v-if="task.lastExecutionStats.stepsSkipped > 0" class="ml-1 text-yellow-400">Sk: {{ task.lastExecutionStats.stepsSkipped }}</span>
+                      <div v-if="task.lastExecutionStats.logFile" class="text-gray-500 truncate" :title="task.lastExecutionStats.logFile">Log: {{ task.lastExecutionStats.logFile }}</div>
+                    </div>
+                     <div v-else class="text-xs text-gray-500 mt-1 italic">
+                        Not yet run or no stats.
+                    </div>
+                  </li>
+                </ul>
+              </div>
+              <!-- Steps and Annotations for Active Task -->
+              <div class="w-full md:w-2/3 md:pl-2 max-h-96 overflow-y-auto">
+                <!-- ... (existing steps and annotations display) ... -->
+              </div>
+            </div>
+            <div v-else class="text-gray-500 text-sm">
+               No tasks in the current session. Upload a task file or load a session.
+            </div>
+          </div>
+          <!-- End Task Display Area -->
+
+          <button @click="runExecutor" class="cardinalis-button-primary" :disabled="!activeSessionTaskId && sessionTasks.length === 0">
+            Run Active Task
+          </button>
+
+          <!-- Executor Console Output Panel -->
+          <div class="executor-output-panel border-t border-gray-700 mt-4 pt-4 space-y-2">
+            <h3 class="text-lg font-semibold text-gray-300">Executor Output</h3>
+            <div v-if="executorOutput.length === 0" class="text-gray-500 text-sm">
+              No output yet. Run a task to see logs.
+            </div>
+            <div v-else class="max-h-60 overflow-y-auto bg-gray-900 p-2 rounded space-y-1 text-sm">
+              <div v-for="(item, index) in executorOutput" :key="index"
+                   :class="['whitespace-pre-wrap', item.type === 'error' ? 'text-red-400' : (item.type === 'success' ? 'text-green-400' : 'text-gray-300')]">
+                <span class="font-mono text-xs mr-2">{{ new Date(item.timestamp).toLocaleTimeString() }}</span>
+                <span>{{ item.message }}</span>
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <!-- Brainstorming Tab Content -->
+        <div v-if="activeTab === 'brainstorming'" class="tab-content brainstorming-tab-content p-4 flex flex-col space-y-4">
+          <!-- Model Selection for Brainstorming -->
+          <div class="piciformes-input-row">
+            <div class="piciformes-input-group">
+              <label for="brainstormingModelSelect" class="emberiza-label">Brainstorming Model:</label>
+              <select id="brainstormingModelSelect" v-model="selectedBrainstormingModelId" class="turdus-select">
+                <option disabled value="">-- Select Model --</option>
+                <!-- Assuming categorizedCoderModels can be used here, or a similar structure for brainstorming models -->
+                <optgroup v-for="(group, category) in categorizedCoderModels" :key="category" :label="category.toUpperCase()">
+                  <option v-for="model in group" :key="model.id" :value="model.id">
+                    {{ model.name }}
+                  </option>
+                </optgroup>
+              </select>
+            </div>
+            <!-- Optional: Refresh button for brainstorming models if applicable
+            <button @click="loadBrainstormingModels" title="Refresh Models" class="pelecanus-button-action">
+              🔄
+            </button>
+            -->
+          </div>
+
+          <!-- Chat History Panel -->
+          <div class="chat-history-panel" ref="brainstormingChatHistory">
+            <div v-for="(message, index) in brainstormingHistory" :key="index" :class="['chat-message', message.sender === 'user' ? 'user-message' : 'model-message']">
+              <div class="sender-label">{{ message.sender === 'user' ? 'You' : (message.modelName || 'Model') }}</div>
+              <div class="message-text" v-html="renderMarkdown(message.text)"></div>
+              <!-- Basic display for tool events -->
+              <div v-if="message.toolEvents && message.toolEvents.length > 0" class="tool-events-display mt-1 p-1 border-l-2 border-gray-500 text-xs">
+                <div v-for="event in message.toolEvents" :key="event.id" class="tool-event ml-2 my-1">
+                  <span class="font-semibold">{{ event.toolName }}</span> (Status: <span :class="{'text-green-400': event.status === 'success', 'text-red-400': event.status === 'error', 'text-yellow-400': event.status === 'running'}">{{ event.status }}</span>)
+                  <pre v-if="event.details" class="bg-gray-800 p-1 rounded text-xs overflow-x-auto">{{ JSON.stringify(event.details, null, 2) }}</pre>
+                </div>
+              </div>
+            </div>
+            <div v-if="isStreamingResponse" class="chat-message model-message">
+              <div class="sender-label">Model (Streaming...)</div>
+              <div class="message-text"><em>Typing...</em></div>
+            </div>
+          </div>
+
+          <!-- Error Display -->
+          <div v-if="brainstormingModelError" class="chat-error-message">
+            {{ brainstormingModelError }}
+          </div>
+
+          <!-- Chat Input Area -->
+          <div class="chat-input-area">
+            <textarea v-model="brainstormingInput" @keyup.enter.exact="sendBrainstormingMessage" placeholder="Type your message or drop a file..." class="hirundo-text-input"></textarea>
+
+            <label for="brainstormingFileUpload" class="chat-file-upload-button" title="Attach File">
+              <!-- Icon is in CSS ::before, or can be text/SVG here -->
+            </label>
+            <input type="file" id="brainstormingFileUpload" @change="handleBrainstormingFileUpload" style="display: none;">
+
+            <button @click="sendBrainstormingMessage" :disabled="isStreamingResponse || !brainstormingInput.trim()" class="pelecanus-button-action chat-send-button">
+              Send
+            </button>
+          </div>
+        </div>
+
+        <!-- Configuration Tab Content -->
+        <div v-if="activeTab === 'configuration'" class="tab-content configuration-tab-content p-4 space-y-4">
+          <configuration-tab />
+        </div>
+
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import RoadmapParser from './RoadmapParser';
+import Executor from './executor';
+import ConfigurationTab from './components/ConfigurationTab.vue';
+
+export default {
+  // ... (name, components)
+  data() {
+    const isIntegrated = !!(window.electronAPI && window.electronAPI.tokomakRoadrunner);
+    return {
+      isIntegratedMode: isIntegrated,
+      activeTab: 'coder',
+      selectedModule: '',
+      selectedMode: 'full',
+      selectedModelId: '', // ID of the globally selected default model for new tasks
+      // categorizedModels: {}, // Will store models fetched from backend, structured by category
+      // coderModels and languageModels are now derived from categorizedModels
+
+      sessionTasks: [],
+      availableSessions: [],
+      currentSessionId: null,
+      newSessionName: '',
+      activeSessionTaskId: null,
+      copyStatusMessage: '',
+      stepAnnotationInputs: {},
+
+      brainstormingInput: '',
+      brainstormingHistory: [],
+      brainstormingModelError: '',
+      isStreamingResponse: false,
+      isDraggingOver: false,
+      uploadedTasksContent: null,
+      modules: [],
+      tasks: [], // Legacy tasks, to be phased out or used for non-session tasks
+      errorMessage: '',
+      roadmapContentPlaceholder: `...`, // Placeholder content
+      highlightKeywords: [ /* ... */ ],
+      executorOutput: [],
+      // ... other data properties
+      useOpenAIFromStorageGlobal: false, // Keep this if it's a global setting
+      selectedBrainstormingModelId: '',
+    };
+  },
+  computed: {
+    // ... (selectedModuleShortName, selectedModuleDisplayName, currentModuleStatusIcon)
+    selectedBrainstormingModelLabel() {
+      if (!this.selectedBrainstormingModelId) return 'None Selected';
+      for (const category in this.categorizedCoderModels) { // Assuming categorizedCoderModels is used for brainstorming too
+        const model = this.categorizedCoderModels[category].find(m => m.id === this.selectedBrainstormingModelId);
+        if (model) return model.name;
+      }
+      return 'Unknown Model';
+    },
+
+    activeSessionTaskDetails() {
+      if (!this.activeSessionTaskId || !this.sessionTasks) return null;
+      const task = this.sessionTasks.find(t => t.taskId === this.activeSessionTaskId);
+      if (task) {
+        this.initializeTaskProperties(task); // Ensure modelConfigId is set if needed
+      }
+      return task;
+    },
+
+    categorizedCoderModels() {
+      // This will be used for populating dropdowns
+      // It's populated by loadAvailableModels
+      // Example structure: { ollama: [{id, name, type}], openai: [{id, name, type}]}
+      return this.$store.getters.getCategorizedModels || {}; // Assuming models are in Vuex store
+    },
+
+    allAvailableModelsForTasks() {
+      // Flattens categorizedCoderModels for easier use in per-task select
+      let models = [];
+      for (const category in this.categorizedCoderModels) {
+        models = models.concat(this.categorizedCoderModels[category]);
+      }
+      // Ensure unique models if IDs might overlap (though they shouldn't if IDs are unique)
+      return Array.from(new Map(models.map(m => [m.id, m])).values());
+    },
+     defaultModelConfig() {
+        if (this.selectedModelId) {
+            for (const category in this.categorizedCoderModels) {
+                const model = this.categorizedCoderModels[category].find(m => m.id === this.selectedModelId);
+                if (model) return { ...model }; // Return a copy
+            }
+        }
+        // Fallback if selectedModelId is not set or not found
+        if (this.allAvailableModelsForTasks.length > 0) {
+            return { ...this.allAvailableModelsForTasks[0] }; // Default to the first available model
+        }
+        return { id: 'default/unknown', name: 'Unknown/Default', type: 'unknown' }; // Absolute fallback
+    }
+  },
+  watch: {
+    selectedModule(newModule, oldModule) { /* ... */ },
+    categorizedCoderModels: { // Watch for changes in models to set a default
+      handler(newModels) {
+        if (newModels && Object.keys(newModels).length > 0 && !this.selectedModelId) {
+          // Try to set a sensible default, e.g., the first model from the first category
+          const firstCategory = Object.keys(newModels)[0];
+          if (newModels[firstCategory] && newModels[firstCategory].length > 0) {
+            this.selectedModelId = newModels[firstCategory][0].id;
+          }
+        }
+      },
+      deep: true,
+      immediate: true // Run on component mount as well
+    }
+  },
+  methods: {
+    // ... (closeWindow, handleRefresh, openDirectoryDialog, saveGeneralConfiguration, etc.)
+    initializeTaskProperties(task) {
+      if (!task.modelConfig || !task.modelConfig.id) {
+        this.$set(task, 'modelConfig', { ...this.defaultModelConfig });
+      }
+      if (!task.modelConfigId) { // Used for v-model on select
+          this.$set(task, 'modelConfigId', task.modelConfig.id);
+      }
+      // ... (existing initializeAnnotations logic)
+       if (task.steps && Array.isArray(task.steps)) {
+          task.steps.forEach(step => {
+            if (!step.hasOwnProperty('annotations') || !Array.isArray(step.annotations)) {
+              this.$set(step, 'annotations', []);
+            }
+            if (!step.hasOwnProperty('lastStatus')) {
+              this.$set(step, 'lastStatus', 'not_run');
+            }
+          });
+        }
+    },
+
+    updateTaskModelConfig(task, selectedModelId) {
+      const model = this.allAvailableModelsForTasks.find(m => m.id === selectedModelId);
+      if (model) {
+        task.modelConfig = { ...model }; // Store a copy of the full model object
+        task.modelConfigId = model.id; // Ensure modelConfigId is also updated if not already
+        this.$forceUpdate(); // May be needed if changes are deep and not immediately reactive in the list
+        this.executorOutput.unshift({ message: `Model for task "${task.task_description}" changed to ${model.name}. Save session to persist.`, type: 'info', timestamp: new Date() });
+      }
+    },
+
+    addTaskToSession(taskDetails) { // Generic method to add a task
+        const newTask = {
+            taskId: `task-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            task_description: taskDetails.description || 'Untitled Task from Add',
+            steps: taskDetails.steps || [],
+            modelConfig: { ...this.defaultModelConfig }, // Assign default model
+            modelConfigId: this.defaultModelConfig.id,
+            timestamp: new Date().toISOString(),
+            status: 'defined',
+            lastExecutionStats: { /* ... initial stats ... */ },
+        };
+        this.initializeTaskProperties(newTask);
+        this.sessionTasks.push(newTask);
+        this.activeSessionTaskId = newTask.taskId;
+    },
+
+    handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const fileContent = e.target.result;
+          const parser = new RoadmapParser(fileContent);
+          const parsedSteps = parser.parse();
+
+          if (parsedSteps.length === 0) { /* ... error handling ... */ return; }
+
+          this.addTaskToSession({
+              description: `Uploaded: ${file.name}`,
+              steps: parsedSteps
+          });
+          // ... (rest of existing handleFileUpload logic like clearing other states)
+          event.target.value = null;
+        };
+        reader.onerror = (e) => { /* ... error handling ... */ };
+        reader.readAsText(file);
+      }
+    },
+    async loadRoadmap() {
+        // ... (existing logic to fetch roadmap content)
+        // When steps are parsed:
+        // const parsedSteps = parser.parse();
+        // this.addTaskToSession({ description: `Module: ${prettyModuleName}`, steps: parsedSteps });
+        // ...
+    },
+    async loadSelectedSession(sessionId) {
+      if (!sessionId) return;
+      // ... (fetch session data)
+      // if (result.success && result.sessionData) {
+      //   this.sessionTasks = result.sessionData.tasks || [];
+      //   this.sessionTasks.forEach(task => this.initializeTaskProperties(task)); // Ensures modelConfig is set
+      // ...
+    },
+
+    runExecutor() {
+      // ... (existing logic to find activeSessionTaskDetails) ...
+      const activeTask = this.activeSessionTaskDetails;
+      if (!activeTask) { /* ... error ... */ return; }
+
+      const payload = {
+        task_description: activeTask.task_description,
+        steps: JSON.stringify(activeTask.steps),
+        // The model for the task is now part of the task object itself
+        // Backend needs to be aware of how to use this.
+        // For now, we'll send it, assuming backend might use it for certain steps,
+        // or for a future enhancement where it influences planner model.
+        modelId: activeTask.modelConfig?.id || this.defaultModelConfig.id, // Send the ID
+        modelType: activeTask.modelConfig?.type || this.defaultModelConfig.type, // Send the type
+        safetyMode: this.safetyModeActive, // Global safety mode
+        isAutonomousMode: false, // runExecutor is for defined tasks, so not autonomous planning
+        sessionId: this.currentSessionId,
+        sessionTaskId: this.activeSessionTaskId,
+        useOpenAIFromStorage: localStorage.getItem('useStoredOpenAIKey') === 'true',
+      };
+      this.executorOutput.unshift({ message: `Executing task: "${payload.task_description}". Using model: ${payload.modelId} (${payload.modelType}).`, type: 'info', timestamp: new Date() });
+      // ... (rest of SSE setup and call to /execute-autonomous-task with the new payload)
+      // The backend /execute-autonomous-task currently doesn't take top-level modelId/modelType for execution.
+      // It uses its own defaults for generic_step, etc. This frontend change prepares for future backend enhancements.
+      // The critical part is that modelConfig is *stored* with the task in the frontend.
+    },
+
+    async loadAvailableModels() {
+      this.executorOutput.unshift({ message: 'ℹ️ Fetching available LLM models...', type: 'info', timestamp: new Date() });
+      try {
+        const response = await fetch('http://127.0.0.1:3030/api/ollama-models/categorized');
+        if (!response.ok) { /* ... error handling ... */ throw new Error('Backend model fetch failed'); }
+
+        const categorizedData = await response.json();
+        this.$store.dispatch('updateModels', categorizedData); // Dispatch to Vuex store
+
+        // Set a default selectedModelId if not already set and models are available
+        if (!this.selectedModelId && this.allAvailableModelsForTasks.length > 0) {
+            // Prefer a local model if available, otherwise first in list
+            let defaultModel = this.allAvailableModelsForTasks.find(m => m.type === 'ollama');
+            if (!defaultModel) defaultModel = this.allAvailableModelsForTasks[0];
+            this.selectedModelId = defaultModel.id;
+        }
+        this.executorOutput.unshift({ message: `✅ Models loaded: ${this.allAvailableModelsForTasks.length} total. Default task model: ${this.defaultModelConfig.name}`, type: 'success', timestamp: new Date() });
+
+      } catch (error) { /* ... error handling ... */ }
+    },
+    // ... (rest of methods: copyLog, exportLog, IPC handlers, etc.)
+
+    sendBrainstormingMessage() {
+      if (!this.brainstormingInput.trim() || this.isStreamingResponse) return;
+
+      const messageText = this.brainstormingInput.trim();
+      this.brainstormingHistory.push({
+        sender: 'user',
+        text: messageText,
+        timestamp: new Date().toISOString()
+      });
+      this.brainstormingInput = '';
+
+      // Simulate model response (replace with actual API call)
+      this.isStreamingResponse = true;
+      // Placeholder: In a real scenario, you'd call your backend API here.
+      // For now, just echo the message after a delay.
+      // Example structure for a model message with potential tool events
+      const modelResponseMessage = {
+        sender: 'model',
+        text: `Thinking about "${messageText}"...`,
+        modelName: this.selectedBrainstormingModelLabel || 'Default Brainstorming Model', // Use selected model's name
+        timestamp: new Date().toISOString(),
+        toolEvents: [] // Placeholder for tool events
+      };
+      this.brainstormingHistory.push(modelResponseMessage);
+      this.scrollToBottom('brainstorming'); // Scroll after user message and initial model thinking message
+
+      setTimeout(() => {
+        // Find the "Thinking..." message and update it
+        const thinkingMessageIndex = this.brainstormingHistory.findIndex(m => m.text.startsWith("Thinking about") && m.sender === "model");
+        if (thinkingMessageIndex !== -1) {
+            this.$set(this.brainstormingHistory, thinkingMessageIndex, {
+                ...this.brainstormingHistory[thinkingMessageIndex],
+                text: `This is a simulated streamed response to: "${messageText}".\n\nHere's a list:\n- Point 1\n- Point 2`,
+                // Example: Simulate a tool event occurring
+                // toolEvents: [{ id: 'tool_123', toolName: 'example_tool', status: 'success', details: { info: "Tool executed successfully" } }]
+            });
+        }
+        this.isStreamingResponse = false;
+        this.$nextTick(() => { this.scrollToBottom('brainstorming'); });
+      }, 1500); // Simulate network delay
+
+      this.$nextTick(() => { this.scrollToBottom('brainstorming'); });
+    },
+
+    handleBrainstormingFileUpload(event) {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const fileContent = e.target.result;
+          this.brainstormingHistory.push({
+            sender: 'user',
+            text: `Attached file: ${file.name}\n\nContent Preview:\n${fileContent.substring(0, 200)}${fileContent.length > 200 ? '...' : ''}`,
+            timestamp: new Date().toISOString()
+          });
+          this.executorOutput.unshift({ message: `Brainstorming: File "${file.name}" attached. First 200 chars logged.`, type: 'info', timestamp: new Date() });
+          this.$nextTick(() => { this.scrollToBottom('brainstorming'); });
+        };
+        reader.onerror = (e) => {
+          this.brainstormingModelError = `Error reading file: ${e.target.error.name}`;
+          this.executorOutput.unshift({ message: `Brainstorming: Error reading file ${file.name}.`, type: 'error', timestamp: new Date() });
+        };
+        reader.readAsText(file); // Read as text for preview
+        event.target.value = null; // Reset file input
+      }
+    },
+
+    renderMarkdown(text) {
+      if (!text) return '';
+      // Basic pseudo-markdown for lists and bold, plus HTML escaping
+      let escapedText = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+      escapedText = escapedText.replace(/^\s*-\s*(.*)/gm, '<ul><li>$1</li></ul>'); // Basic lists (very naive)
+      escapedText = escapedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>'); // Bold
+      escapedText = escapedText.replace(/\n/g, '<br>'); // Newlines
+      // Consolidate multiple <ul> tags that might be adjacent after naive replacement
+      escapedText = escapedText.replace(/<\/ul>\s*<ul>/g, '');
+      return escapedText;
+    },
+
+    scrollToBottom(type) {
+      this.$nextTick(() => {
+        if (type === 'brainstorming') {
+          const container = this.$refs.brainstormingChatHistory;
+          if (container) {
+            container.scrollTop = container.scrollHeight;
+          }
+        }
+        // Add other chat panel types if needed
+      });
+    }
+  },
+  // ... (mounted, beforeUnmount)
+  mounted() {
+    // ...
+    this.loadAvailableModels(); // Load models on mount
+    // ...
+  },
+};
+</script>
+
+<style scoped>
+/* ... (existing styles) ... */
+.turdus-select-xs {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem; /* Smaller font size */
+  /* Add other styling to make it less tall if needed, e.g., height or line-height */
+}
+</style>

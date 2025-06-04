@@ -1,0 +1,4 @@
+[1m[47m[31mError launching app
+[30mUnable to find Electron app at /app/roadrunner/dist/electron/main.js
+
+Cannot find module '/app/roadrunner/dist/electron/main.js'[0m

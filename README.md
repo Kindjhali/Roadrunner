@@ -1,2 +1,259 @@
-# Roadrunner
-A simple light weight task runner for AI and local AI models. Inpput a prompt or file and it will run untill falling over or asking for furtther instructions.
+# Roadrunner Project
+
+> **Important Note on Project Structure:**
+> The `roadrunner/` directory contains the components of a **standalone  Electron application (frontend in `roadrunner/frontend/`, main process in `roadrunner/electron.js`) and its backend server (`roadrunner/backend/`).** While the `TokomakAI.Desktop/` application is the primary focus for new development, the `roadrunner/backend/` is being stabilized to support this standalone  `roadrunner/` application. Its core logic and agents (fsAgent, gitAgent) have informed the `TokomakCore/roadrunnercore` module, which serves as the backend for Roadrunner features integrated within `TokomakAI.Desktop`.
+> Task definition for this  application is via UI inputs for a task goal and a sequence of steps.
+> The primary, actively developed user interface for this project is now **`TokomakAI.Desktop/`**, which is a separate Electron application.
+> Please refer to the main project `README.md` (in the root directory) for the overall architecture and instructions for running the current application.
+
+The newer `roadrunnercore` module within `TokomakCore/` repurposes this application's backend logic so that TokomakAI Desktop can offer the same Roadrunner features internally. When users open the Roadrunner panel from the Toko32 dashboard, the desktop app launches its own copy of this frontend in a modal while communicating with `roadrunnercore` rather than this standalone server. Despite sharing code, the standalone `roadrunner/` app and the integrated `roadrunnercore` setup are maintained as separate projects.
+
+**This README primarily concerns the standalone  application components within the `roadrunner/` directory (Electron main process, Vue.js frontend, and Node.js backend).**
+
+---
+
+**Roadrunner was originally conceived as an experimental desktop application to function as an autonomous AI agent. It leverages Large Language Models (LLMs), primarily through Ollama (for local model execution) and potentially OpenAI (for remote model access), to understand, plan, and execute complex tasks.**
+
+The goal of Roadrunner is to automate various aspects of the software development lifecycle and other digital tasks by interpreting natural language instructions and interacting with system resources. LLM responses are streamed to the frontend for real-time logging.
+
+---
+
+## 🚀 Core Capabilities
+
+Roadrunner's key features include:
+
+- **Task Definition:** Users define tasks by uploading a file containing a "Sequence of Steps" and an "Overall Task Goal" via the UI. These are then managed as part of a session.
+- **Session Management:** Roadrunner now supports saving and loading task sessions. Users can manage collections of tasks, save them with custom names, and reload them later. This allows for better organization and persistence of work. For details, see [HOW_TO_USE_ROADRUNNER.md](./HOW_TO_USE_ROADRUNNER.md).
+- **LLM Integration:**
+    - Connects to LLM services (e.g., Ollama) for natural language interpretation and content generation, with responses streamed to the UI.
+    - Supports OpenAI models if an API key is provided via Owlcore secure storage (requires `useOpenAIFromStorage: true` in task request).
+    - Steps can specify preferred LLM providers and models (e.g., `"ollama/mistral"`, `"openai/gpt-4-turbo"` via `details.model` field).
+- **Task Execution Engine:**
+    - Parses steps into commands (e.g., `generic_step`, `create_file_with_llm_content`, `read_file_to_output`, `git_operation`, `show_workspace_tree`, `loop_iterations`).
+    - Supports step chaining using outputs from previous steps (e.g., `{{outputs.variable_name}}`).
+    - Manages a `taskContext` for output storage.
+    - Supports LLM-based evaluation of step outputs (`evaluationPrompt`) with configurable recovery actions like re-prompting (`reprompt_step_llm`), refining, or retrying.
+- **Filesystem Integration (`fsAgent.js`):**
+    - Performs file operations (create, read, update, delete, tree view) primarily within `roadrunner/output/`, with safety guardrails and backups.
+- **Git Automation (`gitAgent.js`):**
+    - Integrates Git commands (`add`, `commit`, `push`, `pull`, `revert_last_commit`) via the `git_operation` step.
+- **Autonomous Execution:** Aims to execute defined steps sequentially with minimal intervention.
+- **Error Handling & Logging:** Streams errors and logs to the UI. If critical operations fail (e.g., directory creation for logs/workspace) the server will prevent startup. For task execution errors, the system can pause and provide options for retry/skip/manual intervention. Task execution logs are saved to disk.
+
+For a more detailed features list, see [ROADRUNNER_SETUP_AND_FEATURES.md](./ROADRUNNER_SETUP_AND_FEATURES.md).
+
+---
+
+## 🛠️ High-Level Workflow
+
+Interacting with Roadrunner typically follows these steps:
+
+1.  **Launch:** Start the Roadrunner Electron application and backend server.
+2.  **Define/Load Task(s) into Session:**
+    - **Upload a task file:** Use the "Custom Task File" option in the "Coder" tab. This adds the parsed steps as a new task to your current session.
+    - **Load a predefined task set ( 'module'):** Select a predefined set from the dropdown. This adds the set's tasks (based on a  'module' definition) to your current session.
+    - **Load a saved session:** Use the "Load Session" dropdown to load a previously saved set of tasks.
+    - Optionally, give your current session a name using the "Session Name" input.
+3.  **Save Session (Optional but Recommended):**
+    - Click "Save Session" to persist the tasks currently in your session.
+4.  **Select Active Task:**
+    - From the "Session Tasks" list, click on the task you wish to run. It will become the highlighted "active task".
+5.  **Initiate Task:** Click the **"Run Active Task"** button.
+6.  **Monitor:** Observe the application's log output in the UI. This log provides real-time feedback on:
+    - The task and steps being processed.
+    - LLM interactions (with responses streamed).
+    - Filesystem operations (creations, reads, deletions, tree views) and any backup statuses.
+    - Git command execution.
+    - Any errors, warnings, or successes encountered during each step.
+
+---
+
+## 💻 Technical Stack
+
+- **Desktop Application:** Electron
+- **Frontend:** Vue.js 3 (with Vite), using `EventSource` for real-time updates.
+- **Backend:** Node.js with Express.js, providing Server-Sent Events (SSE) for streaming.
+- **LLM Interface:** Primarily via Ollama for local models; OpenAI API for remote models (streaming supported for both).
+- **Agents:** Modular agents for filesystem (`fsAgent.js`) and Git (`gitAgent.js`) operations.
+
+---
+
+## Installation & Setup
+
+The main components to set up from the `roadrunner/` directory perspective is the backend server. The `TokomakAI.Desktop/` application is run from its own directory.
+
+1.  **Backend Server Setup (`roadrunner/backend/`)**:
+    ```bash
+    cd roadrunner/backend
+    npm install
+    npm start 
+    # The backend server will run on http://localhost:3030 by default.
+    # Configure paths as needed via environment variables or config/backend_config.json
+    # See roadrunner/backend/README.md for details.
+    ```
+
+2.  **Desktop Application Setup (`TokomakAI.Desktop/`)**:
+    Refer to the main project `README.md` or `TokomakAI.Desktop/README.md` for instructions on running the main UI. Typically:
+    ```bash
+    cd ../TokomakAI.Desktop # (Assuming you are in roadrunner/)
+    npm install
+    npm run electron:dev 
+    ```
+
+    3.  **Standalone  Roadrunner App Setup (`roadrunner/`)**:
+        This refers to the Electron application defined by `roadrunner/electron.js` and its frontend in `roadrunner/frontend/`.
+
+        *   **Prerequisite:** Ensure the **Backend Server** (see point 1 above, `roadrunner/backend/server.js`) is running, as this standalone application relies on it (e.g., for loading AI models via `http://127.0.0.1:3030`).
+        *   **Running the app:**
+            Navigate to the `roadrunner` directory and run:
+            ```bash
+            # Install dependencies (if first time or after changes)
+            npm install
+
+            # Build the frontend and launch the Electron app
+            npm start
+            ```
+
+**Configuration**:
+*   **Backend**: Refer to the `roadrunner/backend/README.md` for detailed instructions on path configuration and other settings.
+
+---
+
+## ⚠️ Current Status & Disclaimer
+
+**The `roadrunner/` application (frontend, Electron main process, and backend) is a standalone  application. The `roadrunner/backend/` is being stabilized for this purpose, and its core components have informed the `TokomakCore/roadrunnercore` module, which provides Roadrunner functionalities within the modern `TokomakAI.Desktop` application.**
+
+- The vision of a fully autonomous AI agent is a work in progress.
+- **Core Features Implemented:** UI for task definition, backend for step-based execution, LLM integration with streaming, filesystem operations (within `roadrunner/output/` and configurable external roots) with safety guardrails and backups, Git integration for basic commands, step chaining, and a task interruption/confirmation flow (currently auto-denied by the  UI).
+- **Areas for Future Development:** More advanced autonomous decision-making by the LLM, complex Git workflows, UI enhancements for specific step types and confirmation handling, robust error recovery, and user-configurable settings.
+- The application's UI and backend are evolving. While the `/execute-autonomous-task` endpoint is the focus, older endpoints like `/run` may not be fully functional with recent streaming-focused refactoring of LLM utilities.
+
+Use with curiosity and for local development tasks. It is not yet a production-ready tool. Your feedback and contributions are welcome!
+
+---
+
+## Further Reading
+
+- [HOW_TO_USE_ROADRUNNER.md](./HOW_TO_USE_ROADRUNNER.md): Detailed instructions on how to operate Roadrunner and its features.
+- [ROADRUNNER_SETUP_AND_FEATURES.md](./ROADRUNNER_SETUP_AND_FEATURES.md): Information on setting up Roadrunner and an overview of its capabilities.
+- [BUILD_AND_THEME_GUIDE.md](./BUILD_AND_THEME_GUIDE.md): A guide for building Roadrunner and customizing its theme.
+- [roadrunner.steps.md](./roadrunner.steps.md): Details on the steps and processes involved in Roadrunner's operations.
+
+---
+
+## पुरानी जानकारी (Outdated Information - For Reference During Transition)
+
+The information below regarding the "RoadrunnerExecutorApp" and its specific UI for scaffolding components refers to the ** `roadrunner/frontend/` application**. This functionality and UI approach have been superseded by the `TokomakAI.Desktop/` application and its more general Task Runner feature which interacts with the `roadrunner/backend/`.
+
+The previous version of Roadrunner (i.e., `roadrunner/frontend/` + `roadrunner/electron.js`) was focused more narrowly as a "RoadrunnerExecutorApp," a UI for scaffolding Vue.js components. This functionality is being expanded and integrated into the broader vision of an autonomous agent now primarily driven by `TokomakAI.Desktop/`. The UI in `TokomakAI.Desktop/` uses a new task definition approach (goal and steps) rather than the older module/mode/model selection for component generation.
+
+The backend endpoint (`/run`) for the previous component generation functionality still exists but is separate from the new `/execute-autonomous-task` endpoint and may require updates to work with refactored LLM utilities. It is NOT the primary way to interact with the current system.
+
+---
+
+## API Endpoints
+
+This section details primary API endpoints available on the Roadrunner backend server (typically `http://localhost:3030`).
+
+### Task Execution
+
+*   **Endpoint:** `POST /execute-autonomous-task` (also supports `GET` for simplicity, but `POST` is preferred for complex bodies)
+*   **Description:** Initiates a task execution sequence. This is the main endpoint for Roadrunner operations.
+*   **Request Body:**
+    ```json
+    {
+      "task_description": "Description of the overall task goal",
+      "steps": [
+        {
+          "type": "generic_step", // Or execute_generic_task_with_llm
+          "details": {
+            "prompt": "Instruction for LLM for this step.",
+            "output_id": "optional_variable_name_to_store_output",
+            // New optional fields for LLM and evaluation:
+            "model": "ollama/mistral", // e.g., "ollama/mistral", "openai/gpt-4-turbo". Defaults to ollama/codellama.
+            "evaluationModel": "ollama/phi3", // Model for evaluationPrompt. Defaults to ollama/phi3.
+            "evaluationPrompt": "Prompt for an LLM to evaluate the main output of this step. Use {{step_output}} and {{original_prompt}}.",
+            "onEvaluationFailure": "reprompt_step_llm", // "retry", "refine_and_retry", "reprompt_step_llm", or "fail_step"
+            "maxEvaluationRetries": 2, // Default 1
+            "maxRepromptRetries": 1 // Default 1 (for reprompt_step_llm)
+          }
+        },
+        {
+          "type": "create_file_with_llm_content",
+          "details": {
+            "filePath": "path/to/file.txt",
+            "prompt": "Prompt for file content. This will use the 'model' specified below if any.",
+            "model": "ollama/mistral", // Optional: specify model for this LLM call
+            "output_id": "file_content_var",
+            // Evaluation fields can also be added here as above
+            "evaluationPrompt": "Does the content '{{step_output}}' adequately address '{{original_prompt}}'?",
+            "onEvaluationFailure": "fail_step"
+          }
+        },
+        {
+          "type": "loop_iterations",
+          "details": {
+            "count": 3, // Number of iterations
+            "iterator_var": "idx", // Optional: stores current index (0-based) as {{outputs.idx}}
+            "loop_steps": [ // Array of step objects to execute in each iteration
+              { "type": "createFile", "details": { "filePath": "output/file_{{outputs.idx}}.txt", "content": "Content for file {{outputs.idx}}" } },
+              { "type": "generic_step", "details": { "prompt": "Log iteration number {{outputs.idx}}" } }
+            ]
+          }
+        }
+        // ... other step types ...
+      ],
+      "safetyMode": true, // boolean, true by default. If true, requires confirmation for destructive operations.
+      "isAutonomousMode": false, // boolean, false by default. If true, 'steps' are ignored and task_description is used as a goal for LLM to generate steps.
+      "useOpenAIFromStorage": false // boolean, optional, defaults to false. If true, attempts to use OpenAI API key from Owlcore secure storage if an openai/... model is specified.
+    }
+    ```
+*   **Response:** Streams Server-Sent Events (SSE) with progress, logs, LLM chunks, confirmation requests, failure options, and completion status.
+*   **Authentication:** None.
+
+### Multi-Model Conference
+
+*   **Endpoint:** `POST /execute-conference-task`
+*   **Description:** Triggers a multi-model conference (debate and synthesis) using three LLM calls based on the provided prompt.
+*   **Request Body:**
+    ```json
+    {
+      "prompt": "Your question or topic for the conference"
+      // Optional: "model_a_role", "model_b_role", "arbiter_model_role", "num_rounds"
+    }
+    ```
+*   **Response:**
+    ```json
+    {
+      "conference_id": "uuid",
+      "final_arbiter_response": "The arbiter's final synthesized answer",
+      // ... other details like full debate history ...
+    }
+    ```
+    On error, may return a 500 status with `{"error": "Failed to execute conference task.", "details": "..."}`.
+*   **Authentication:** None.
+
+### Session Management
+
+*   **`POST /api/session/save`**
+    *   **Description:** Saves the current session tasks to a file.
+    *   **Request Body:** `{ name?: "sessionName", tasks: [array_of_task_objects] }`. `name` is optional; if not provided, a timestamp-based name is generated.
+    *   **Response (201):** `{ message: "Session saved successfully.", sessionId: "filename.json" }`.
+*   **`GET /api/sessions/list`**
+    *   **Description:** Lists available saved sessions.
+    *   **Response (200):** `[{ id: "filename.json", name: "User Friendly Name" }, ...]`.
+*   **`GET /api/session/load/:sessionId`**
+    *   **Description:** Loads a specific session by its filename.
+    *   **URL Parameter:** `sessionId` (string) - The filename of the session (e.g., `mySession.json`).
+    *   **Response (200):** The session data (typically an array of task objects). (404 if not found).
+
+### Log Retrieval
+
+*   **`GET /api/logs/:filename`**
+    *   **Description:** Retrieves a specific task execution log file.
+    *   **URL Parameter:** `filename` (string) - The name of the log file (e.g., `task-XYZ-timestamp.log.md`).
+    *   **Response (200 OK):** Raw markdown content of the log file.
+    *   **Errors:** 400 for invalid filename, 404 if log file not found.
+*   **Authentication:** None for any of these current endpoints.
+
+<!-- Test modification for autonomous commit -->

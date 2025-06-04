@@ -1,0 +1,3 @@
+[2274:0603/133049.783064:ERROR:ui/ozone/platform/x11/ozone_platform_x11.cc:250] Missing X server or $DISPLAY
+[2274:0603/133049.783170:ERROR:ui/aura/env.cc:257] The platform failed to initialize.  Exiting.
+/app/roadrunner/node_modules/electron/dist/electron exited with signal SIGSEGV

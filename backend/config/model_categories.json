@@ -1,0 +1,47 @@
+{
+  "categories": {
+    "coder": [
+      "codellama",
+      "codebooga",
+      "wizardcoder",
+      "starcoder",
+      "deepseek-coder"
+    ],
+    "language": [
+      "llama2",
+      "mistral",
+      "mixtral",
+      "gemma",
+      "phi",
+      "qwen",
+      "openhermes",
+      "neural-chat",
+      "starling-lm"
+    ],
+    "remote_chat": []
+  },
+  "default_category": "language",
+  "static_models": [
+    {
+      "name": "OpenAI/gpt-3.5-turbo",
+      "id": "gpt-3.5-turbo",
+      "type": "remote_openai",
+      "category": "remote_chat",
+      "details": { "family": "gpt" }
+    },
+    {
+      "name": "OpenAI/gpt-4",
+      "id": "gpt-4",
+      "type": "remote_openai",
+      "category": "remote_chat",
+      "details": { "family": "gpt" }
+    },
+    {
+      "name": "OpenAI/gpt-4-turbo",
+      "id": "gpt-4-turbo",
+      "type": "remote_openai",
+      "category": "remote_chat",
+      "details": { "family": "gpt" }
+    }
+  ]
+}
