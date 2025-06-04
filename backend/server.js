@@ -67,7 +67,52 @@ const gitAgent = require('./gitAgent');
 const { resolvePathInWorkspace, generateDirectoryTree } = fsAgent;
 
 // --- Path Configuration ---
-const CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json');
+// Specific for backend server settings (LLM provider, API key)
+const BACKEND_CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json');
+const BACKEND_CONFIG_EXAMPLE_PATH = path.join(__dirname, 'config', 'backend_config.example.json');
+let backendSettings = {
+  llmProvider: null, // e.g., 'ollama', 'openai'
+  apiKey: '',        // API key if required by the provider
+  // Default Ollama model to use if provider is 'ollama'
+  defaultOllamaModel: 'codellama',
+};
+
+// Function to load backend settings
+function loadBackendConfig() {
+  try {
+    if (fs.existsSync(BACKEND_CONFIG_FILE_PATH)) {
+      const configFileContent = fs.readFileSync(BACKEND_CONFIG_FILE_PATH, 'utf-8');
+      backendSettings = JSON.parse(configFileContent);
+      console.log(`[Config] Loaded backend settings from ${BACKEND_CONFIG_FILE_PATH}`);
+    } else if (fs.existsSync(BACKEND_CONFIG_EXAMPLE_PATH)) {
+      console.log(`[Config] Backend config not found. Copying from ${BACKEND_CONFIG_EXAMPLE_PATH}`);
+      const exampleContent = fs.readFileSync(BACKEND_CONFIG_EXAMPLE_PATH, 'utf-8');
+      fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, exampleContent, 'utf-8');
+      backendSettings = JSON.parse(exampleContent);
+      console.log(`[Config] Copied backend settings from example to ${BACKEND_CONFIG_FILE_PATH}`);
+    } else {
+      console.log(`[Config] Backend config and example not found. Creating default ${BACKEND_CONFIG_FILE_PATH}`);
+      fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(backendSettings, null, 2), 'utf-8');
+      console.log(`[Config] Created default backend settings file at ${BACKEND_CONFIG_FILE_PATH}`);
+    }
+  } catch (error) {
+    console.error(`[Config] Error loading/creating backend_config.json:`, error);
+    // Fallback to default settings in case of error
+    backendSettings = { llmProvider: null, apiKey: '', defaultOllamaModel: 'codellama' };
+    console.warn('[Config] Using default backend settings due to error.');
+  }
+}
+
+// Load backend settings on server startup
+loadBackendConfig();
+
+// Path configuration for workspace, logs etc. (existing logic)
+const CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json'); // This might be confusing now.
+                                                                                // The above BACKEND_CONFIG_FILE_PATH is more specific.
+                                                                                // For now, let existing path logic use its own CONFIG_FILE_PATH
+                                                                                // if it's for different settings.
+                                                                                // If they are meant to be the same file, this needs consolidation.
+                                                                                // Assuming for now backend_config.json can store both types of settings.
 
 // Helper function to resolve path, ensuring it's absolute
 // If a path is relative, it's resolved from __dirname (i.e., roadrunner/backend)
@@ -286,18 +331,52 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// --- API for Backend Settings ---
+app.get('/api/settings', (req, res) => {
+  // Ensure sensitive parts of backendSettings (like full API keys) are not exposed if not needed
+  // For now, returning all loaded backend settings.
+  // Consider filtering or providing a specific view if frontend only needs parts of it.
+  res.json(backendSettings);
+});
+
+app.post('/api/settings', (req, res) => {
+  const { llmProvider, apiKey, defaultOllamaModel } = req.body;
+  console.log('[API /api/settings] Received settings update request:', req.body);
+
+  const newSettings = {
+    ...backendSettings, // Preserve existing settings not being updated
+  };
+
+  if (llmProvider !== undefined) newSettings.llmProvider = llmProvider;
+  if (apiKey !== undefined) newSettings.apiKey = apiKey;
+  if (defaultOllamaModel !== undefined) newSettings.defaultOllamaModel = defaultOllamaModel;
+
+  try {
+    fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(newSettings, null, 2), 'utf-8');
+    backendSettings = newSettings; // Update in-memory settings
+    console.log(`[API /api/settings] Backend settings updated and saved to ${BACKEND_CONFIG_FILE_PATH}`);
+    res.json({ message: 'Settings updated successfully.', settings: backendSettings });
+  } catch (error) {
+    console.error(`[API /api/settings] Error saving backend settings:`, error);
+    res.status(500).json({ error: 'Failed to save settings.', details: error.message });
+  }
+});
+
+
 // --- LLM Interaction Functions ---
 
-async function generateFromLocal(prompt, modelName = 'codellama', expressRes) {
+async function generateFromLocal(prompt, modelName = backendSettings.defaultOllamaModel || 'codellama', expressRes) {
+  // Use modelName if provided, otherwise fallback to backendSettings.defaultOllamaModel, then 'codellama'
+  const effectiveModelName = modelName || backendSettings.defaultOllamaModel || 'codellama';
   console.log(
-    `[LLM Local Streaming] Initiating for prompt to ${modelName}: "${prompt.substring(0, 100)}..."`
+    `[LLM Local Streaming] Initiating for prompt to ${effectiveModelName}: "${prompt.substring(0, 100)}..."`
   );
   let accumulatedResponse = '';
   try {
     const ollamaRes = await fetch(`${OLLAMA_BASE_URL}/api/generate`, { // MODIFIED to use OLLAMA_BASE_URL
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: modelName, prompt: prompt, stream: true }),
+      body: JSON.stringify({ model: effectiveModelName, prompt: prompt, stream: true }),
     });
     if (!ollamaRes.ok) {
       const errorBody = await ollamaRes.text();
@@ -560,7 +639,7 @@ async function executeLoopBody(
             throw new Error("Missing prompt/description for generic_step in loop.");
         }
         sendSseMessage('log_entry', { message: `[SSE] Loop Step ${loopStepNumber}: LLM prompt: "${promptText.substring(0,50)}..."`});
-        const llmFullResponse = await generateFromLocal(promptText, 'codellama', expressHttpRes);
+        const llmFullResponse = await generateFromLocal(promptText, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes);
         if (llmFullResponse.startsWith('// LLM_ERROR:') || llmFullResponse.startsWith('// LLM_WARNING:')) {
             throw new Error(`LLM generation failed in loop: ${llmFullResponse}`);
         }
@@ -589,7 +668,7 @@ async function executeLoopBody(
             throw new Error("Missing filePath or prompt for create_file_with_llm_content in loop.");
         }
         sendSseMessage('log_entry', { message: `[SSE] Loop Step ${loopStepNumber}: LLM for file ${filePath} prompt: "${prompt.substring(0,50)}..."`});
-        const fileContent = await generateFromLocal(prompt, 'codellama', expressHttpRes);
+        const fileContent = await generateFromLocal(prompt, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes);
         if (fileContent.startsWith('// LLM_ERROR:') || fileContent.startsWith('// LLM_WARNING:')) {
             throw new Error(`LLM generation for file content failed in loop: ${fileContent}`);
         }
@@ -886,7 +965,7 @@ async function executeStepsInternal(
           sendSseMessage('log_entry', {
             message: `[SSE] Step ${stepNumber} (${currentStep.type}): Sending prompt to LLM: "${promptText.substring(0, 100)}..."`,
           }, expressHttpRes);
-          let llmFullResponse = await generateFromLocal(promptText, 'codellama', expressHttpRes);
+          let llmFullResponse = await generateFromLocal(promptText, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes);
 
           if (llmFullResponse.startsWith('// LLM_ERROR:') || llmFullResponse.startsWith('// LLM_WARNING:')) {
             triggerStepFailure(`LLM generation failed.`, llmFullResponse, currentStep.type, stepNumber, {i});
@@ -948,7 +1027,7 @@ async function executeStepsInternal(
         } else if (prompt) {
           contentSource = 'llm_prompt';
           sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): Sending prompt to LLM for file content: "${prompt.substring(0, 100)}..."` }, expressHttpRes);
-          fileContent = await generateFromLocal(prompt, 'codellama', expressHttpRes);
+          fileContent = await generateFromLocal(prompt, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes);
           sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): LLM stream completed.` }, expressHttpRes);
 
           if (fileContent.startsWith('// LLM_ERROR:') || fileContent.startsWith('// LLM_WARNING:')) {
@@ -1190,7 +1269,7 @@ async function executeStepsInternal(
         sendSseMessage('log_entry', { message: `Workspace tree (${rootName}):\n\`\`\`\n${treeString}\n\`\`\`` }, expressHttpRes);
       } else if (currentStep.type === 'conference_task') {
         overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
-        const { prompt: userPrompt, model_a_role: modelARole, model_b_role: modelBRole, arbiter_model_role: arbiterModelRole, output_id, num_rounds: requested_num_rounds } = currentStep.details || {};
+        const { prompt: userPrompt, model_name: conferenceModelName, model_a_role: modelARole, model_b_role: modelBRole, arbiter_model_role: arbiterModelRole, output_id, num_rounds: requested_num_rounds } = currentStep.details || {};
 
         const num_rounds = (typeof requested_num_rounds === 'number' && requested_num_rounds > 0) ? requested_num_rounds : 1;
         overallExecutionLog.push(`  -> Conference Rounds: ${num_rounds}`);
@@ -1205,7 +1284,7 @@ async function executeStepsInternal(
         sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Starting conference task for prompt: "${userPrompt.substring(0,100)}..."`}, expressHttpRes);
         overallExecutionLog.push(`  -> [Conference ${conferenceId}] Starting conference for prompt: "${userPrompt.substring(0,100)}..."`);
 
-        const modelName = 'llama3'; // Default model for conference tasks, can be parameterized later
+        const modelName = conferenceModelName || backendSettings.defaultOllamaModel || 'llama3'; // Use specific, then settings default, then llama3
         const finalModelARole = modelARole || "Logical Reasoner";
         const finalModelBRole = modelBRole || "Creative Problem Solver";
         const finalArbiterModelRole = arbiterModelRole || "Arbiter";
@@ -2745,21 +2824,31 @@ app.post('/execute-conference-task', async (req, res) => {
       console.log('[Server Startup] Ollama reported as operational.');
     }
 
-    app.listen(PORT, () => {
-      console.log(`Roadrunner backend server listening on port ${PORT}`);
-      // BEGIN PRESERVE EXISTING LOGS IF ANY
-      // If the original app.listen callback had other console.log lines, they should be kept here.
-      // (Assuming there were none based on the placeholder comment)
-      // END PRESERVE EXISTING LOGS
-      console.log(`[Config] Ollama URL target: ${OLLAMA_BASE_URL}`);
-      console.log(`[Config] LOG_DIR configured to: ${LOG_DIR}`);
-      console.log(`[Config] WORKSPACE_DIR configured to: ${WORKSPACE_DIR}`);
-      // console.log(`[Paths] Generated Components Directory: ${COMPONENT_DIR}`); // Removed COMPONENT_DIR logging
-      console.log(`[Paths] Conferences Log Directory: ${CONFERENCES_LOG_DIR}`);
-    });
+    // Start server only if this script is executed directly (not required by a test)
+    if (require.main === module) {
+      app.listen(PORT, () => {
+        console.log(`Roadrunner backend server listening on port ${PORT}`);
+        console.log(`[Config] Ollama URL target: ${OLLAMA_BASE_URL}`);
+        console.log(`[Config] LOG_DIR configured to: ${LOG_DIR}`);
+        console.log(`[Config] WORKSPACE_DIR configured to: ${WORKSPACE_DIR}`);
+        console.log(`[Paths] Conferences Log Directory: ${CONFERENCES_LOG_DIR}`);
+      });
+    }
   } catch (err) {
     console.error('[Server Startup IIFE] Error during server startup:', err);
-    process.exit(1); // Exit if the IIFE startup fails critically
+    if (require.main === module) { // Only exit if run directly
+        process.exit(1);
+    } else {
+        throw err; // Re-throw for test runner to catch, allowing tests to see startup errors
+    }
   }
 })();
-module.exports = { handleExecuteAutonomousTask };
+
+// Export for testing purposes and potentially for other modules if needed
+module.exports = {
+  app, // The Express app instance
+  backendSettings, // The loaded backend settings
+  loadBackendConfig, // The function to load/reload settings
+  handleExecuteAutonomousTask, // Existing export
+  // Add any other functions or variables you might need to test or use externally
+};
