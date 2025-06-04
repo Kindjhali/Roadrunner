@@ -8,16 +8,18 @@ TokomakAI Desktop includes an integrated version via the `roadrunnercore` module
 Before starting the tests, ensure the following setup is complete:
 
 1.  **Build Frontend**:
-    *   The `roadrunner/frontend/` application needs to be built so that `roadrunner/frontend/dist/index.html` exists.
-    *   Navigate to the `roadrunner/frontend/` directory.
-    *   If a `package.json` exists with a build script (e.g., `npm run build`), run it.
+    *   The frontend application needs to be built so that `frontend/dist/index.html` exists (relative to the project root).
+    *   Navigate to the main project directory (e.g., `roadrunner/`).
+    *   Install dependencies and build the frontend from the project root.
         ```bash
-        cd roadrunner/frontend
-        # Check for build script in package.json, e.g., "build": "vite build"
-        # If it exists (it does in this project):
-        npm install # If not done already
+        # Navigate to the project root directory (e.g., 'roadrunner/')
+        # Install dependencies (if not done already or if package.json changed)
+        npm install
+
+        # Build the frontend
         npm run build
-        cd ../.. # Return to project root or roadrunner/ directory
+        # This command uses vite.config.mjs which is configured
+        # to build the frontend from ./frontend and output to ./frontend/dist/
         ```
 
 2.  **Start Backend Server**:
