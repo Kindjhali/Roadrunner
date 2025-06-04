@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs'); // fs.promises will be used via fs.promises
 const fsPromises = fs.promises;
 
+let currentBackendPort = 3030; // Default port
 let backendProcess = null;
 
 function startBackendServer() {
@@ -18,6 +19,19 @@ function startBackendServer() {
   backendProcess = spawn('node', [backendPath], {
     cwd: path.join(__dirname, 'backend'), // Set working directory for the backend
     stdio: ['pipe', 'pipe', 'pipe', 'ipc'] // Keep ipc for potential future use
+  });
+
+  backendProcess.on('message', (message) => {
+    if (message && message.type === 'backend-port') {
+      currentBackendPort = message.port;
+      console.log(`[Electron] Backend server started and listening on port: ${currentBackendPort}`);
+      // Notify frontend about the new port.
+      sendToAllWindows('backend-port-updated', { port: currentBackendPort });
+    } else if (message && message.type === 'backend-error') {
+      console.error(`[Electron] Received error from backend process: ${message.message}`);
+      dialog.showErrorBox('Backend Process Error', `The backend process reported an error: ${message.message}`);
+      // Optionally, decide if app should quit or try to restart backend
+    }
   });
 
   backendProcess.stdout.on('data', (data) => {
@@ -151,6 +165,10 @@ ipcMain.handle('get-ollama-models', async () => {
     }
     return { success: false, error: 'Failed to fetch models from Ollama. Check console for details.', models: [] };
   }
+});
+
+ipcMain.handle('get-backend-port', async () => {
+  return currentBackendPort;
 });
 
 app.on('quit', () => {

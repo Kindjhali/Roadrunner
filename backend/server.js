@@ -261,6 +261,46 @@ const simpleGit = require('simple-git');
 
 const app = express();
 
+const MAX_PORT_ATTEMPTS = 10;
+
+function attemptToListen(port, attempt = 1) {
+  if (attempt > MAX_PORT_ATTEMPTS) {
+    console.error(`[Server Startup] Failed to bind to any port after ${MAX_PORT_ATTEMPTS} attempts. Last tried: ${port -1}. Exiting.`);
+    if (process.send) {
+      process.send({ type: 'backend-error', message: 'Failed to find an available port.' });
+    }
+    process.exit(1);
+    return;
+  }
+
+  const serverInstance = app.listen(port, () => {
+    console.log(`[Server Startup] Roadrunner backend server listening on port ${port}`);
+    console.log(`[Config] Ollama URL target: ${OLLAMA_BASE_URL}`); // OLLAMA_BASE_URL needs to be in scope
+    console.log(`[Config] LOG_DIR configured to: ${LOG_DIR}`); // LOG_DIR needs to be in scope
+    console.log(`[Config] WORKSPACE_DIR configured to: ${WORKSPACE_DIR}`); // WORKSPACE_DIR needs to be in scope
+    console.log(`[Paths] Conferences Log Directory: ${CONFERENCES_LOG_DIR}`); // CONFERENCES_LOG_DIR needs to be in scope
+
+    // Send the actual port being used to the parent process (Electron main)
+    if (process.send) {
+      process.send({ type: 'backend-port', port: port });
+    }
+  });
+
+  serverInstance.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[Server Startup] Port ${port} is in use. Attempting port ${port + 1} (Attempt ${attempt}/${MAX_PORT_ATTEMPTS})`);
+      serverInstance.close(); // Ensure this server instance is closed before trying next
+      setTimeout(() => attemptToListen(port + 1, attempt + 1), 100); // Add a small delay
+    } else {
+      console.error('[Server Startup] Error during server listen:', err);
+      if (process.send) {
+        process.send({ type: 'backend-error', message: `Server listen error: ${err.message}` });
+      }
+      process.exit(1); // Exit on other errors
+    }
+  });
+}
+
 // Request Logger Middleware
 const requestLogger = (req, res, next) => {
   console.log(`[Request Logger] Received: ${req.method} ${req.url}`);
@@ -2929,13 +2969,8 @@ app.post('/execute-conference-task', async (req, res) => {
 
     // Start server only if this script is executed directly (not required by a test)
     if (require.main === module) {
-      app.listen(PORT, () => {
-        console.log(`Roadrunner backend server listening on port ${PORT}`);
-        console.log(`[Config] Ollama URL target: ${OLLAMA_BASE_URL}`);
-        console.log(`[Config] LOG_DIR configured to: ${LOG_DIR}`);
-        console.log(`[Config] WORKSPACE_DIR configured to: ${WORKSPACE_DIR}`);
-        console.log(`[Paths] Conferences Log Directory: ${CONFERENCES_LOG_DIR}`);
-      });
+      const initialPort = parseInt(process.env.PORT || '3030', 10);
+      attemptToListen(initialPort);
     }
   } catch (err) {
     console.error('[Server Startup IIFE] Error during server startup:', err);
