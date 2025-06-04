@@ -8,6 +8,7 @@ const store = createStore({
       apiKey: '',
       defaultOllamaModel: 'codellama', // Default Ollama model
     },
+    backendPort: 3030, // Default backend port
   },
   mutations: {
     SET_MODELS(state, models) {
@@ -19,8 +20,30 @@ const store = createStore({
       state.settings.apiKey = newSettings.apiKey !== undefined ? newSettings.apiKey : state.settings.apiKey;
       state.settings.defaultOllamaModel = newSettings.defaultOllamaModel !== undefined ? newSettings.defaultOllamaModel : state.settings.defaultOllamaModel;
     },
+    SET_BACKEND_PORT(state, port) {
+      state.backendPort = port;
+      console.log(`[Mutation] Backend port set to: ${port}`);
+    },
   },
   actions: {
+    async fetchBackendPort({ commit }) {
+      try {
+        if (window.electronAPI && window.electronAPI.getBackendPort) {
+          const port = await window.electronAPI.getBackendPort();
+          commit('SET_BACKEND_PORT', port);
+          // console.log(`[Action] Backend port fetched and set to: ${port}`); // Log in mutation for clarity
+          return port;
+        } else {
+          console.warn('[Action] electronAPI.getBackendPort not available. Using default port 3030.');
+          commit('SET_BACKEND_PORT', 3030);
+          return 3030;
+        }
+      } catch (e) {
+        console.error('[Action] Error fetching backend port:', e);
+        commit('SET_BACKEND_PORT', 3030); // Fallback on error
+        return 3030;
+      }
+    },
     updateModels({ commit }, models) {
       commit('SET_MODELS', models);
     },
@@ -28,7 +51,8 @@ const store = createStore({
       // Optimistically update local state
       commit('SET_SETTINGS', settingsPayload);
       try {
-        const response = await fetch('/api/settings', {
+        const port = state.backendPort;
+        const response = await fetch(`http://127.0.0.1:${port}/api/settings`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -39,22 +63,18 @@ const store = createStore({
           const errorData = await response.text();
           console.error('Failed to save settings to backend:', response.status, errorData);
           // Optionally revert optimistic update here or notify user
-          // For now, just log the error.
-          // To revert, you might need to store the old state before commit or re-fetch.
         } else {
           console.log('Settings saved to backend successfully.');
-          // Backend might return the saved settings, update state again if needed
-          // const savedData = await response.json();
-          // commit('SET_SETTINGS', savedData.settings);
         }
       } catch (e) {
         console.error('Error during saveSettings API call:', e);
         // Handle network error, potentially revert or notify
       }
     },
-    async loadSettings({ commit }) {
+    async loadSettings({ commit, state }) {
       try {
-        const response = await fetch('/api/settings');
+        const port = state.backendPort;
+        const response = await fetch(`http://127.0.0.1:${port}/api/settings`);
         if (!response.ok) {
           const errorData = await response.text();
           console.error('Failed to load settings from backend:', response.status, errorData);
@@ -73,10 +93,14 @@ const store = createStore({
   getters: {
     getCategorizedModels: (state) => state.models,
     getSettings: (state) => state.settings,
+    getBackendPort: (state) => state.backendPort,
   },
 });
 
-// Dispatch loadSettings when the store is initialized
-store.dispatch('loadSettings');
+// Dispatch fetchBackendPort then loadSettings when the store is initialized
+store.dispatch('fetchBackendPort').then((port) => {
+  console.log(`[Store Init] Backend port resolved to: ${port}. Initializing settings.`);
+  store.dispatch('loadSettings');
+});
 
 export default store;

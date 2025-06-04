@@ -1,7 +1,65 @@
 const { app, BrowserWindow, session, ipcMain, dialog } = require('electron');
+const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs'); // fs.promises will be used via fs.promises
 const fsPromises = fs.promises;
+
+let currentBackendPort = 3030; // Default port
+let backendProcess = null;
+
+function startBackendServer() {
+  const backendPath = path.join(__dirname, 'backend', 'server.js');
+  if (!fs.existsSync(backendPath)) {
+    console.error('[Backend] server.js not found at:', backendPath);
+    dialog.showErrorBox('Backend Error', 'Could not find server.js. The backend cannot be started.');
+    return;
+  }
+
+  console.log('[Backend] Starting backend server from:', backendPath);
+  backendProcess = spawn('node', [backendPath], {
+    cwd: path.join(__dirname, 'backend'), // Set working directory for the backend
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc'] // Keep ipc for potential future use
+  });
+
+  backendProcess.on('message', (message) => {
+    if (message && message.type === 'backend-port') {
+      currentBackendPort = message.port;
+      console.log(`[Electron] Backend server started and listening on port: ${currentBackendPort}`);
+      // Notify frontend about the new port.
+      sendToAllWindows('backend-port-updated', { port: currentBackendPort });
+    } else if (message && message.type === 'backend-error') {
+      console.error(`[Electron] Received error from backend process: ${message.message}`);
+      dialog.showErrorBox('Backend Process Error', `The backend process reported an error: ${message.message}`);
+      // Optionally, decide if app should quit or try to restart backend
+    }
+  });
+
+  backendProcess.stdout.on('data', (data) => {
+    console.log(`[Backend STDOUT] ${data.toString().trim()}`);
+  });
+
+  backendProcess.stderr.on('data', (data) => {
+    console.error(`[Backend STDERR] ${data.toString().trim()}`);
+  });
+
+  backendProcess.on('exit', (code, signal) => {
+    console.log(`[Backend] Process exited with code: ${code}, signal: ${signal}`);
+    backendProcess = null; // Clear the reference
+    // Optionally, notify the renderer or try to restart
+    sendToAllWindows('backend-status', { status: 'stopped', code, signal });
+  });
+
+  backendProcess.on('error', (err) => {
+    console.error('[Backend] Failed to start process:', err);
+    dialog.showErrorBox('Backend Error', `Failed to start backend server: ${err.message}`);
+    backendProcess = null;
+  });
+
+  // Add a small delay or a more robust check for backend readiness
+  // For now, just log that it's been started.
+  console.log('[Backend] Backend server process initiated.');
+  sendToAllWindows('backend-status', { status: 'started' });
+}
 
 function sendToAllWindows(channel, payload) {
   BrowserWindow.getAllWindows().forEach((win) => {
@@ -56,6 +114,7 @@ app.whenReady().then(() => {
     });
   });
 
+  startBackendServer(); // Add this call
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -105,6 +164,17 @@ ipcMain.handle('get-ollama-models', async () => {
       return { success: false, error: 'Failed to connect to Ollama. Ensure Ollama is running.', models: [] };
     }
     return { success: false, error: 'Failed to fetch models from Ollama. Check console for details.', models: [] };
+  }
+});
+
+ipcMain.handle('get-backend-port', async () => {
+  return currentBackendPort;
+});
+
+app.on('quit', () => {
+  if (backendProcess) {
+    console.log('[Backend] Terminating backend server process...');
+    backendProcess.kill();
   }
 });
 
