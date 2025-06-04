@@ -1,7 +1,5 @@
 <template>
-  <div class="corvidae-app-container">
-    <div class="tyrannidae-main-card glow-box">
-      <div class="furnariidae-inner-panel">
+  <div class="furnariidae-inner-panel">
         <div class="accipiter-header">
           <span class="accipiter-title">Roadrunner AI Executor</span>
           <button @click="closeWindow" class="fringilla-close-button">X</button>
@@ -157,10 +155,7 @@
                    :class="['whitespace-pre-wrap', item.type === 'error' ? 'text-red-400' : (item.type === 'success' ? 'text-green-400' : 'text-gray-300')]">
                 <span class="font-mono text-xs mr-2">{{ new Date(item.timestamp).toLocaleTimeString() }}</span>
                 <span>{{ item.message }}</span>
-              </div>
-            </div>
-          </div>
-          </div>
+        </div>
         </div>
 
         <!-- Brainstorming Tab Content -->
@@ -233,9 +228,7 @@
         <!-- Settings Panel (conditionally rendered) -->
 
       </div>
-    </div>
-  </div>
-</template>
+  </template>
 
 <script>
 import RoadmapParser from './RoadmapParser';
