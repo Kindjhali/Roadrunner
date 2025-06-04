@@ -126,7 +126,7 @@
                     <!-- Display Statistics -->
                     <div v-if="task.lastExecutionStats && task.lastExecutionStats.overallStatus !== 'not_run'" class="text-xs mt-1">
                       <span :class="['font-semibold', task.lastExecutionStats.overallStatus === 'success' ? 'text-green-400' : (task.lastExecutionStats.overallStatus === 'failure' ? 'text-red-400' : 'text-yellow-400')]">
-                        Status: {{ task.lastExecutionStats.overallStatus.replace('_', ' ') }}
+                        Status: {{ (task.lastExecutionStats.overallStatus || '').replace('_', ' ') }}
                       </span>
                       <span class="ml-2 text-gray-400">S: {{ task.lastExecutionStats.stepsSucceeded }}/{{ task.lastExecutionStats.stepsTotal }}</span>
                       <span v-if="task.lastExecutionStats.stepsFailed > 0" class="ml-1 text-red-400">F: {{ task.lastExecutionStats.stepsFailed }}</span>
@@ -427,7 +427,14 @@ export default {
             modelConfigId: this.defaultModelConfig.id,
             timestamp: new Date().toISOString(),
             status: 'defined',
-            lastExecutionStats: { /* ... initial stats ... */ },
+            lastExecutionStats: {
+                overallStatus: 'not_run',
+                stepsSucceeded: 0,
+                stepsTotal: (taskDetails.steps || []).length,
+                stepsFailed: 0,
+                stepsSkipped: 0,
+                logFile: null
+            },
         };
         this.initializeTaskProperties(newTask);
         this.sessionTasks.push(newTask);
