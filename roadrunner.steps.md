@@ -207,3 +207,5 @@ Target Version: v1.3.0
 44. Removed inline CSS from `RoadrunnerExecutor.vue` and `App.vue`. Added matching
     utility classes in `src/styles/roadrunner.css` to comply with the new
     `AGENTS.md` guidelines.
+45. Added conversation serializer module for chat history.
+
