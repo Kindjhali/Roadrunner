@@ -273,7 +273,6 @@ export default {
       isDraggingOver: false,
       uploadedTasksContent: null,
       modules: [],
-      tasks: [], // Legacy tasks, to be phased out or used for non-session tasks
       errorMessage: '',
       roadmapContentPlaceholder: `...`, // Placeholder content
       highlightKeywords: [ /* ... */ ],
@@ -351,6 +350,7 @@ export default {
   },
   methods: {
     // ... (closeWindow, handleRefresh, openDirectoryDialog, saveGeneralConfiguration, etc.)
+    // Ensures essential properties (like modelConfig, annotations, lastStatus) exist on a task object.
     initializeTaskProperties(task) {
       if (!task.modelConfig || !task.modelConfig.id) {
         this.$set(task, 'modelConfig', { ...this.defaultModelConfig });
@@ -381,6 +381,8 @@ export default {
       }
     },
 
+    // Adds a new task (e.g., from a file upload or future "new task" button) to the current session's task list.
+    // Initializes the task with default properties, including the currently selected default model.
     addTaskToSession(taskDetails) { // Generic method to add a task
         const newTask = {
             taskId: `task-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
@@ -397,6 +399,8 @@ export default {
         this.activeSessionTaskId = newTask.taskId;
     },
 
+    // Handles the event when a user uploads a task file.
+    // Reads the file, parses its content into steps using RoadmapParser, and adds it as a new task to the session.
     handleFileUpload(event) {
       const file = event.target.files[0];
       if (file) {
@@ -419,6 +423,7 @@ export default {
         reader.readAsText(file);
       }
     },
+    // Placeholder for potential future use if modules define tasks directly.
     async loadRoadmap() {
         // ... (existing logic to fetch roadmap content)
         // When steps are parsed:
@@ -426,6 +431,7 @@ export default {
         // this.addTaskToSession({ description: `Module: ${prettyModuleName}`, steps: parsedSteps });
         // ...
     },
+    // Loads tasks from a previously saved session file into the current session.
     async loadSelectedSession(sessionId) {
       if (!sessionId) return;
       // ... (fetch session data)
@@ -435,6 +441,7 @@ export default {
       // ...
     },
 
+    // Prepares the payload for the currently active task and sends it to the backend via SSE for execution.
     runExecutor() {
       // ... (existing logic to find activeSessionTaskDetails) ...
       const activeTask = this.activeSessionTaskDetails;
@@ -484,6 +491,8 @@ export default {
     },
     // ... (rest of methods: copyLog, exportLog, IPC handlers, etc.)
 
+    // Sends the user's message from the Brainstorming tab to the main Electron process via IPC for LLM interaction.
+    // Manages streaming state and adds placeholders for model responses.
     sendBrainstormingMessage() {
       if (!this.brainstormingInput.trim() || this.isStreamingResponse) return;
 
@@ -494,38 +503,37 @@ export default {
         timestamp: new Date().toISOString()
       });
       this.brainstormingInput = '';
+      this.scrollToBottom('brainstorming');
 
-      // Simulate model response (replace with actual API call)
       this.isStreamingResponse = true;
-      // Placeholder: In a real scenario, you'd call your backend API here.
-      // For now, just echo the message after a delay.
-      // Example structure for a model message with potential tool events
-      const modelResponseMessage = {
+      this.brainstormingModelError = ''; // Clear previous errors
+
+      // Add placeholder for model's response
+      this.brainstormingHistory.push({
         sender: 'model',
-        text: `Thinking about "${messageText}"...`,
-        modelName: this.selectedBrainstormingModelLabel || 'Default Brainstorming Model', // Use selected model's name
+        text: '', // Initially empty, will be filled by stream
+        modelName: this.selectedBrainstormingModelLabel || 'Model',
         timestamp: new Date().toISOString(),
-        toolEvents: [] // Placeholder for tool events
-      };
-      this.brainstormingHistory.push(modelResponseMessage);
-      this.scrollToBottom('brainstorming'); // Scroll after user message and initial model thinking message
+        toolEvents: []
+      });
 
-      setTimeout(() => {
-        // Find the "Thinking..." message and update it
-        const thinkingMessageIndex = this.brainstormingHistory.findIndex(m => m.text.startsWith("Thinking about") && m.sender === "model");
-        if (thinkingMessageIndex !== -1) {
-            this.$set(this.brainstormingHistory, thinkingMessageIndex, {
-                ...this.brainstormingHistory[thinkingMessageIndex],
-                text: `This is a simulated streamed response to: "${messageText}".\n\nHere's a list:\n- Point 1\n- Point 2`,
-                // Example: Simulate a tool event occurring
-                // toolEvents: [{ id: 'tool_123', toolName: 'example_tool', status: 'success', details: { info: "Tool executed successfully" } }]
-            });
-        }
+      if (window.electronAPI && window.electronAPI.sendBrainstormingChat) {
+        window.electronAPI.sendBrainstormingChat({
+          modelId: this.selectedBrainstormingModelId, // Ensure this holds the correct model ID like "ollama/mistral"
+          prompt: messageText
+        });
+      } else {
+        console.error("electronAPI or sendBrainstormingChat not available.");
+        this.brainstormingHistory.pop(); // Remove placeholder
+        this.brainstormingHistory.push({
+          sender: 'model',
+          text: 'Error: Brainstorming feature is not connected to the backend.',
+          modelName: 'System',
+          timestamp: new Date().toISOString(),
+          toolEvents: []
+        });
         this.isStreamingResponse = false;
-        this.$nextTick(() => { this.scrollToBottom('brainstorming'); });
-      }, 1500); // Simulate network delay
-
-      this.$nextTick(() => { this.scrollToBottom('brainstorming'); });
+      }
     },
 
     handleBrainstormingFileUpload(event) {
@@ -580,7 +588,60 @@ export default {
     // ...
     this.loadAvailableModels(); // Load models on mount
     // ...
+
+    // Setup IPC listeners for brainstorming chat responses from the main process.
+    if (window.electronAPI) {
+      // Handles incoming chunks of text from the LLM stream for brainstorming.
+      window.electronAPI.onBrainstormingChatStreamChunk((event, { text }) => {
+        if (this.brainstormingHistory.length > 0) {
+          const lastMessage = this.brainstormingHistory[this.brainstormingHistory.length - 1];
+          if (lastMessage.sender === 'model') {
+            lastMessage.text += text;
+            this.scrollToBottom('brainstorming');
+          }
+        }
+      });
+
+      // Handles errors reported from the LLM stream during brainstorming.
+      window.electronAPI.onBrainstormingChatStreamError((event, { error, details }) => {
+        this.isStreamingResponse = false;
+        this.brainstormingModelError = `Error from model: ${error}. Details: ${JSON.stringify(details)}`;
+        // Optionally add to history
+        const lastMessage = this.brainstormingHistory[this.brainstormingHistory.length - 1];
+        if (lastMessage && lastMessage.sender === 'model' && lastMessage.text === '') {
+            lastMessage.text = `Error: ${error}`;
+        } else {
+            this.brainstormingHistory.push({
+                sender: 'model',
+                text: `Error: ${error}`,
+                modelName: 'System Error',
+                timestamp: new Date().toISOString(),
+                toolEvents: []
+            });
+        }
+        this.scrollToBottom('brainstorming');
+      });
+
+      // Handles the end of an LLM stream for brainstorming.
+      window.electronAPI.onBrainstormingChatStreamEnd(() => {
+        this.isStreamingResponse = false;
+        this.scrollToBottom('brainstorming');
+      });
+    }
   },
+  beforeUnmount() {
+    // It's good practice to remove IPC listeners when the component is unmounted to prevent memory leaks.
+    // The exact method depends on how `electronAPI` is implemented in the preload script.
+    // For example, if each 'on' method returned a remover function:
+    // if (this.unsubscribeChunk) this.unsubscribeChunk();
+    // if (this.unsubscribeError) this.unsubscribeError();
+    // if (this.unsubscribeEnd) this.unsubscribeEnd();
+    // Or if a generic remover for all brainstorming listeners exists:
+    // if (window.electronAPI && window.electronAPI.removeAllBrainstormingListeners) {
+    //   window.electronAPI.removeAllBrainstormingListeners();
+    // }
+    // Since specific removal methods are not defined by this subtask, this serves as a placeholder.
+  }
 };
 </script>
 

@@ -25,11 +25,9 @@ The following steps are a quick guide for frontend/theme development, assuming b
 3. **Run the Electron app** (ensure the backend server is running if app functionality is required):
    From the `roadrunner` directory:
    ```bash
-   # Linux/macOS
    npm start
-   # Windows
-   npm run electron
    ```
+   This command is typically configured in `package.json` to build frontend assets (if necessary) and then launch the Electron application. It should work consistently across Linux, macOS, and Windows.
 
 ---
 

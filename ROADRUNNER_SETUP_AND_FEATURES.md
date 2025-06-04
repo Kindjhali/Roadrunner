@@ -18,8 +18,11 @@ Roadrunner is an experimental desktop application designed to function as an aut
   - Includes path traversal prevention and automatic `.bak` backups for overwritten/deleted files.
 - **Git Automation (`gitAgent.js`):**
   - Integrates Git commands (`add`, `commit`, `push`, `pull`) via the `git_operation` step.
+- **Session Management:** Supports saving and loading collections of tasks.
 - **Autonomous Execution:** Aims to carry out defined steps sequentially with minimal manual intervention.
 - **Error Handling & Logging:** Errors and logs are streamed to the UI.
+
+For the most detailed and current feature list, API endpoint definitions, and available task step types, please refer to the main [README.md](./README.md) file.
 
 ## Setup and Running the Application
 
@@ -43,21 +46,22 @@ To set up and run the Roadrunner application locally, follow these steps:
     - Run: `npm install`
     - _Note: You might encounter some warnings about vulnerabilities or deprecated packages, which generally don't prevent the app from running._
 
-4.  **Build Frontend Application:**
-
-    - Ensure you are in the `roadrunner` root directory.
-    - Run: `npm run build`
-    - This command uses Vite to build the frontend assets.
-
-5.  **Start the Backend Server:**
+4.  **Start the Backend Server:**
 
     - In the terminal, navigate to the `roadrunner/backend` directory.
     - Run: `npm start`
-    - This will start the Node.js server. Keep this terminal window open and the server running.
+    - This will start the Node.js server on `http://localhost:3030` by default. Keep this terminal window open and the server running.
 
-6.  **Start the Electron Application:**
+5.  **Start the Electron Application:**
     - In a new terminal window, navigate to the `roadrunner` root directory.
-    - Run: `npm start`
-    - This launches the Roadrunner Electron application. The command works on all operating systems and includes a build step if needed.
+    - Run:
+      ```bash
+      # Install dependencies (if first time or after changes to root/frontend package.json)
+      # npm install # This was step 3, usually done once.
 
-The application should now be running. The backend server (from step 5) needs to remain running for the Electron application to function correctly.
+      # Build the frontend and launch the Electron app
+      npm start
+      ```
+    - This `npm start` command in the root directory typically handles building the frontend (using Vite, as configured in `package.json`) and then launches the Electron application.
+
+The application should now be running. The backend server (from step 4) needs to remain running for the Electron application to function correctly.

@@ -22,7 +22,7 @@ The goal of Roadrunner is to automate various aspects of the software developmen
 Roadrunner's key features include:
 
 - **Task Definition:** Users define tasks by uploading a file containing a "Sequence of Steps" and an "Overall Task Goal" via the UI. These are then managed as part of a session.
-- **Session Management:** Roadrunner now supports saving and loading task sessions. Users can manage collections of tasks, save them with custom names, and reload them later. This allows for better organization and persistence of work. For details, see [HOW_TO_USE_ROADRUNNER.md](./HOW_TO_USE_ROADRUNNER.md).
+- **Session Management:** Roadrunner now supports saving and loading task sessions. Users can manage collections of tasks, save them with custom names, and reload them later. This allows for better organization and persistence of work. For details, see [Session Management](#session-management).
 - **LLM Integration:**
     - Connects to LLM services (e.g., Ollama) for natural language interpretation and content generation, with responses streamed to the UI.
     - Supports OpenAI models if an API key is provided via Owlcore secure storage (requires `useOpenAIFromStorage: true` in task request).
@@ -40,6 +40,36 @@ Roadrunner's key features include:
 - **Error Handling & Logging:** Streams errors and logs to the UI. If critical operations fail (e.g., directory creation for logs/workspace) the server will prevent startup. For task execution errors, the system can pause and provide options for retry/skip/manual intervention. Task execution logs are saved to disk.
 
 For a more detailed features list, see [ROADRUNNER_SETUP_AND_FEATURES.md](./ROADRUNNER_SETUP_AND_FEATURES.md).
+
+---
+
+## Session Management
+
+Roadrunner provides robust session management capabilities, allowing users to save, load, and manage their task collections effectively. This is crucial for preserving work, organizing different projects, and resuming tasks later.
+
+**Key Session Management Features:**
+
+*   **Saving Sessions:**
+    *   Users can input a custom name for their current session in the "Session Name" field on the "Coder" tab.
+    *   Clicking the "Save Session" button persists the current set of tasks (including their goals and step definitions) to a JSON file in the configured sessions directory (typically `roadrunner/output/sessions/`).
+    *   If no name is provided, a timestamp-based filename is automatically generated.
+*   **Loading Sessions:**
+    *   Previously saved sessions are listed in the "Load Session" dropdown menu on the "Coder" tab.
+    *   Selecting a session from this dropdown loads its tasks into the application, making them available in the "Session Tasks" list.
+*   **Managing Tasks within a Session:**
+    *   Tasks can be added to the current session by uploading a task file or selecting a predefined module.
+    *   The "Session Tasks" list displays all tasks in the currently active session.
+    *   Users can select an "active task" from this list, which is then the target for the "Run Active Task" command.
+
+**Workflow:**
+
+1.  **Start or Load:** Launch Roadrunner. Either start with a new, empty session or load an existing session using the "Load Session" dropdown.
+2.  **Define Tasks:** Add tasks by uploading task definition files or choosing predefined modules.
+3.  **Name Session (Optional but Recommended):** Enter a descriptive name in the "Session Name" input.
+4.  **Save Session:** Click "Save Session".
+5.  **Continue Work:** Select tasks, run them, and if you make changes to the task set (e.g., add new tasks from a file), remember to save the session again to include these changes.
+
+Session files are stored in a human-readable JSON format, which also allows for manual inspection or modification if necessary, though direct editing is generally not recommended during active use.
 
 ---
 
@@ -113,7 +143,7 @@ Interacting with Roadrunner typically follows these steps:
 **The `roadrunner/` application (frontend, Electron main process, and backend) is a standalone application. The `roadrunner/backend/` is being stabilized for this purpose, and its core components have informed the `TokomakCore/roadrunnercore` module, which provides Roadrunner functionalities within the modern `TokomakAI.Desktop` application.**
 
 - The vision of a fully autonomous AI agent is a work in progress.
-- **Core Features Implemented:** UI for task definition, backend for step-based execution, LLM integration with streaming, filesystem operations (within `roadrunner/output/` and configurable external roots) with safety guardrails and backups, Git integration for basic commands, step chaining, and a task interruption/confirmation flow (currently auto-denied by the UI).
+- **Core Features Implemented:** UI for task definition, backend for step-based execution, LLM integration with streaming, filesystem operations (within `roadrunner/output/` and configurable external roots) with safety guardrails and backups, Git integration for basic commands, step chaining, and a task interruption/confirmation flow (backend supports robust confirmation handling; UI interaction may vary).
 - **Areas for Future Development:** More advanced autonomous decision-making by the LLM, complex Git workflows, UI enhancements for specific step types and confirmation handling, robust error recovery, and user-configurable settings.
 - The application's UI and backend are evolving. While the `/execute-autonomous-task` endpoint is the focus, older endpoints like `/run` may not be fully functional with recent streaming-focused refactoring of LLM utilities.
 
@@ -130,10 +160,10 @@ Use with curiosity and for local development tasks. It is not yet a production-r
 
 ## Further Reading
 
-- [HOW_TO_USE_ROADRUNNER.md](./HOW_TO_USE_ROADRUNNER.md): Detailed instructions on how to operate Roadrunner and its features.
+- [HOW_TO_USE_ROADRUNNER.md](./HOW_TO_USE_ROADRUNNER.md): TODO: Create comprehensive user guide.
 - [ROADRUNNER_SETUP_AND_FEATURES.md](./ROADRUNNER_SETUP_AND_FEATURES.md): Information on setting up Roadrunner and an overview of its capabilities.
 - [BUILD_AND_THEME_GUIDE.md](./BUILD_AND_THEME_GUIDE.md): A guide for building Roadrunner and customizing its theme.
-- [roadrunner.steps.md](./roadrunner.steps.md): Details on the steps and processes involved in Roadrunner's operations.
+- [roadrunner.steps.md](./roadrunner.steps.md): Development phases and historical task tracking for the Roadrunner project.
 
 ---
 
@@ -263,5 +293,76 @@ This section details primary API endpoints available on the Roadrunner backend s
     *   **Response (200 OK):** Raw markdown content of the log file.
     *   **Errors:** 400 for invalid filename, 404 if log file not found.
 *   **Authentication:** None for any of these current endpoints.
+
+---
+
+## Available Task Step Types
+
+The `/execute-autonomous-task` endpoint processes a sequence of steps. Each step object must have a `type` and a `details` object. Here are some common step types:
+
+*   **`generic_step` / `execute_generic_task_with_llm`**
+    *   **Purpose:** General-purpose step to instruct an LLM.
+    *   **Key `details`:**
+        *   `prompt`: The instruction for the LLM.
+        *   `output_id` (optional): Variable name to store the LLM's output in the task context (e.g., `{{outputs.variable_name}}`).
+        *   `model` (optional): Specify LLM model (e.g., "ollama/mistral", "openai/gpt-4-turbo").
+        *   `evaluationModel` (optional): Model for evaluating the main output.
+        *   `evaluationPrompt` (optional): Prompt for LLM to evaluate the step's output. Can use `{{step_output}}` and `{{original_prompt}}`.
+        *   `onEvaluationFailure` (optional): Action if evaluation fails (e.g., "retry", "reprompt_step_llm", "fail_step").
+        *   `maxEvaluationRetries` (optional): Number of retries for evaluation.
+        *   `maxRepromptRetries` (optional): Number of retries for `reprompt_step_llm`.
+
+*   **`create_file_with_llm_content`**
+    *   **Purpose:** Generate content using an LLM and save it to a file.
+    *   **Key `details`:**
+        *   `filePath`: Path to the file to be created (e.g., "path/to/file.txt").
+        *   `prompt`: Prompt for the LLM to generate file content.
+        *   `model` (optional): Specify LLM model for content generation.
+        *   `output_id` (optional): Variable name to store the generated content.
+        *   (Supports evaluation fields similar to `generic_step`).
+
+*   **`loop_iterations`**
+    *   **Purpose:** Execute a sub-sequence of steps multiple times.
+    *   **Key `details`:**
+        *   `count`: Number of iterations.
+        *   `iterator_var` (optional): Variable name to store the current loop index (0-based) in task context (e.g., `{{outputs.idx}}`).
+        *   `loop_steps`: An array of step objects to be executed in each iteration. These steps can use the `iterator_var`.
+
+*   **`git_operation`**
+    *   **Purpose:** Perform Git operations.
+    *   **Key `details`:**
+        *   `operation`: The Git command to execute (e.g., "add", "commit", "push", "pull", "revert_last_commit").
+        *   `args`: Arguments for the Git command (e.g., for `add`: `["."]`, for `commit`: `["-m", "My commit message"]`).
+        *   `commit_message` (specific for `commit` operation if `args` are not used for message).
+
+*   **`show_workspace_tree`**
+    *   **Purpose:** Display the file and directory structure of the workspace.
+    *   **Key `details`:**
+        *   `path` (optional): Specific path within the workspace to list. Defaults to the workspace root.
+
+*   **`conference_task`** (Likely a higher-level step, might be used differently or invoke `/execute-conference-task` API)
+    *   **Purpose:** To facilitate a multi-model "conference" or debate on a given prompt to arrive at a synthesized answer.
+    *   **Key `details`:**
+        *   `prompt`: The topic or question for the conference.
+        *   (May include other parameters like roles for different models, number of rounds).
+
+*   **Filesystem Steps (via `fsAgent.js`):**
+    *   **`createDirectory`**:
+        *   `path`: Path of the directory to create.
+    *   **`createFile`**:
+        *   `filePath`: Full path of the file to create.
+        *   `content`: Content to write into the file.
+    *   **`readFile` / `read_file_to_output`**:
+        *   `filePath`: Path of the file to read.
+        *   `output_id`: Variable name to store the file content in task context.
+    *   **`updateFile`**:
+        *   `filePath`: Path of the file to update.
+        *   `content`: New content to overwrite the file or specific instructions for update (behavior might vary).
+    *   **`deleteFile`**:
+        *   `filePath`: Path of the file to delete.
+    *   **`deleteDirectory`**:
+        *   `path`: Path of the directory to delete (usually requires it to be empty).
+
+This list is not exhaustive but covers the primary step types used in task definitions. Refer to the backend server code (specifically `roadrunner/backend/agentController.js` and related agent files) for the most up-to-date details on step processing logic.
 
 <!-- Test modification for autonomous commit -->
