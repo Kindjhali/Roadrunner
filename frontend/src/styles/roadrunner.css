@@ -22,9 +22,10 @@
 }
 
 /* Global Element Styles */
-html {
-  background-color: black;
+html, body {
+  background-color: transparent !important;
 }
+
 
 body {
   margin: 0;
@@ -117,7 +118,6 @@ textarea:focus {
   max-width: 36rem;
   width: 100%;
   background-color: transparent;
-  border: 1px solid var(--theme-orange); /* subtle edge around card */
   height: 100%;
   max-height: calc(100vh - 2rem);
   display: flex; /* allow inner panel to stretch */
@@ -139,11 +139,40 @@ textarea:focus {
   border: 1px solid var(--theme-orange-light);
   border-radius: 1rem;
   box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
-  padding: 1.5rem; /* This padding is for the content *within* the inner panel */
+  padding: 1.5rem;
   width: 100%;
-  height: 100%; /* Takes full height of tyrannidae-main-card */
+  height: 100%;
   display: flex;
   flex-direction: column;
+
+  /* Scroll Behavior */
+  overflow: auto;
+  max-height: 100vh;
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-orange) var(--theme-orange-dark);
+  transition: scrollbar-width 0.3s ease, scrollbar-color 0.3s ease;
+}
+
+.furnariidae-inner-panel::-webkit-scrollbar {
+  width: 0.5rem;
+}
+
+.furnariidae-inner-panel::-webkit-scrollbar-track {
+  background: var(--theme-orange-dark);
+}
+
+.furnariidae-inner-panel::-webkit-scrollbar-thumb {
+  background-color: var(--theme-orange);
+  border-radius: 0.25rem;
+  border: 2px solid var(--theme-orange-dark);
+}
+
+.furnariidae-inner-panel:hover {
+  scrollbar-width: auto;
+}
+
+.furnariidae-inner-panel:hover::-webkit-scrollbar {
+  width: 0.75rem;
 }
 
 /* Headers & Titles */

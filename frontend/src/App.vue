@@ -1,5 +1,6 @@
 <template>
-  <div class="furnariidae-inner-panel">
+    <div class="tyrannidae-main-card">
+      <div class="furnariidae-inner-panel">
         <div class="accipiter-header">
           <span class="accipiter-title">Roadrunner AI Executor</span>
           <button @click="closeWindow" class="fringilla-close-button">X</button>
@@ -229,10 +230,9 @@
           <configuration-tab />
         </div>
 
-        <!-- Settings Panel (conditionally rendered) -->
-
-      </div>
-  </template>
+        <!-- Settings Panel (conditionally rendered) -->      </div>
+   </div>
+</template>
 
 <script>
 import RoadmapParser from './RoadmapParser';
