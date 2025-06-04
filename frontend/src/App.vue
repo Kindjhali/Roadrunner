@@ -4,7 +4,6 @@
       <div class="furnariidae-inner-panel">
         <div class="accipiter-header">
           <span class="accipiter-title">Roadrunner AI Executor</span>
-          <button @click="toggleSettingsPanel" class="pelecanus-button-action" style="margin-left: 10px;" title="Settings">⚙️</button>
           <button @click="closeWindow" class="fringilla-close-button">X</button>
         </div>
 
@@ -232,7 +231,6 @@
         </div>
 
         <!-- Settings Panel (conditionally rendered) -->
-        <settings-panel v-if="showSettingsPanel" class="settings-panel-container p-4 space-y-4 bg-gray-800 rounded-lg shadow-xl mt-4" />
 
       </div>
     </div>
@@ -243,18 +241,15 @@
 import RoadmapParser from './RoadmapParser';
 import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
-import SettingsPanel from './components/SettingsPanel.vue';
 
 export default {
   components: {
     ConfigurationTab,
-    SettingsPanel,
   },
   // ... (name, components)
   data() {
     const isIntegrated = !!(window.electronAPI && window.electronAPI.tokomakRoadrunner);
     return {
-      showSettingsPanel: false, // Added for controlling settings panel visibility
       isIntegratedMode: isIntegrated,
       activeTab: 'coder',
       selectedModule: '',
@@ -355,9 +350,6 @@ export default {
     }
   },
   methods: {
-    toggleSettingsPanel() {
-      this.showSettingsPanel = !this.showSettingsPanel;
-    },
     // ... (closeWindow, handleRefresh, openDirectoryDialog, saveGeneralConfiguration, etc.)
     initializeTaskProperties(task) {
       if (!task.modelConfig || !task.modelConfig.id) {
@@ -600,11 +592,4 @@ export default {
   /* Add other styling to make it less tall if needed, e.g., height or line-height */
 }
 
-.settings-panel-container {
-  /* Basic styling for the container if needed, can be adjusted */
-  border-top: 1px solid #4a5568; /* gray-700 */
-  margin-top: 1rem;
-  position: relative; /* Or absolute/fixed depending on desired layout */
-  z-index: 50; /* Ensure it can overlay other content if needed */
-}
 </style>
