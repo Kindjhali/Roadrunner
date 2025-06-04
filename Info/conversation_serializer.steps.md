@@ -1,0 +1,3 @@
+- Added `conversationSerializer.js` with `Conversation` class and serialize/deserialize helpers.
+- Created matching Jest test `conversationSerializer.test.js`.
+- Documented new module in `conversation_serializer.sniper.md`.
