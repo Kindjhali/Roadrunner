@@ -550,6 +550,13 @@ export default {
         this.$store.dispatch('updateOllamaStatus', { isConnected: false, message: 'Ollama Connection Failed. Many features will be disabled.' });
       }
     },
+
+    getActiveTaskDescription() {
+      if (this.activeSessionTaskDetails && this.activeSessionTaskDetails.task_description) {
+        return this.activeSessionTaskDetails.task_description;
+      }
+      return 'No active task';
+    },
     // ... (rest of methods: copyLog, exportLog, IPC handlers, etc.)
 
     // Sends the user's message from the Brainstorming tab to the main Electron process via IPC for LLM interaction.
