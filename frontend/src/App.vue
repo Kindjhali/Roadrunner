@@ -32,17 +32,9 @@
               </button>
             </div>
 
-            <div>
-              <label for="modeSelect" class="emberiza-label">Mode:</label>
-            <select id="modeSelect" v-model="selectedMode" class="turdus-select">
-              <option value="full">full</option>
-              <option value="partial">partial</option>
-            </select>
-          </div>
-
           <div class="piciformes-input-row">
             <div class="piciformes-input-group">
-              <label for="modelSelect" class="emberiza-label">Default Task Model:</label>
+              <label for="modelSelect" class="emberiza-label" title="This model is used for new tasks. You can override it for individual tasks in the session list below.">Default Task Model:</label>
               <select id="modelSelect" v-model="selectedModelId" class="turdus-select">
                 <option disabled value="">-- Select Default Model --</option>
                 <optgroup v-for="(group, category) in categorizedCoderModels" :key="category" :label="category.toUpperCase()">
@@ -63,6 +55,13 @@
           <div>
             <label for="taskFileUpload" class="emberiza-label">Custom Task File (.md, .txt):</label>
             <input type="file" id="taskFileUpload" @change="handleFileUpload" accept=".md,.txt" class="turdus-select">
+          </div>
+
+          <!-- Safety Mode Toggle -->
+          <div class="piciformes-input-row items-center my-2 py-2 border-t border-b border-gray-700">
+            <input type="checkbox" id="safetyModeToggle" v-model="safetyModeActive" class="mr-2 h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-offset-gray-800">
+            <label for="safetyModeToggle" class="emberiza-label">Enable Safety Mode</label>
+            <span class="text-xs text-gray-400 ml-2 cursor-help" title="When enabled, potentially destructive operations (like file writes or deletions) will require confirmation before executing.">(?)</span>
           </div>
 
           <!-- Session Management Section -->
@@ -126,7 +125,7 @@
                     <!-- Display Statistics -->
                     <div v-if="task.lastExecutionStats && task.lastExecutionStats.overallStatus !== 'not_run'" class="text-xs mt-1">
                       <span :class="['font-semibold', task.lastExecutionStats.overallStatus === 'success' ? 'text-green-400' : (task.lastExecutionStats.overallStatus === 'failure' ? 'text-red-400' : 'text-yellow-400')]">
-                        Status: {{ task.lastExecutionStats.overallStatus.replace('_', ' ') }}
+                        Status: {{ (task.lastExecutionStats.overallStatus || '').replace('_', ' ') }}
                       </span>
                       <span class="ml-2 text-gray-400">S: {{ task.lastExecutionStats.stepsSucceeded }}/{{ task.lastExecutionStats.stepsTotal }}</span>
                       <span v-if="task.lastExecutionStats.stepsFailed > 0" class="ml-1 text-red-400">F: {{ task.lastExecutionStats.stepsFailed }}</span>
@@ -262,7 +261,6 @@ export default {
       isIntegratedMode: isIntegrated,
       activeTab: 'coder',
       selectedModule: '',
-      selectedMode: 'full',
       selectedModelId: '', // ID of the globally selected default model for new tasks
       // categorizedModels: {}, // Will store models fetched from backend, structured by category
       // coderModels and languageModels are now derived from categorizedModels
@@ -289,6 +287,7 @@ export default {
       // ... other data properties
       useOpenAIFromStorageGlobal: false, // Keep this if it's a global setting
       selectedBrainstormingModelId: '',
+      safetyModeActive: true, // Add this line, defaulting to true now
     };
   },
   computed: {
@@ -384,6 +383,14 @@ export default {
         alert('Close operation is not available in this environment.');
       }
     },
+    setActiveSessionTask(taskId) {
+      this.activeSessionTaskId = taskId;
+      console.log(`[App.vue] Active session task set to: ${taskId}`);
+      // Ensure getActiveTaskDescription() is available or provide a fallback.
+      // The existing getActiveTaskDescription method seems suitable.
+      const description = this.getActiveTaskDescription ? this.getActiveTaskDescription() : (this.activeSessionTaskDetails ? this.activeSessionTaskDetails.task_description : 'selected task');
+      this.executorOutput.unshift({ message: `Selected task: ${description}. Ready to run.`, type: 'info', timestamp: new Date() });
+    },
     // ... (handleRefresh, openDirectoryDialog, saveGeneralConfiguration, etc.)
     // Ensures essential properties (like modelConfig, annotations, lastStatus) exist on a task object.
     initializeTaskProperties(task) {
@@ -427,7 +434,14 @@ export default {
             modelConfigId: this.defaultModelConfig.id,
             timestamp: new Date().toISOString(),
             status: 'defined',
-            lastExecutionStats: { /* ... initial stats ... */ },
+            lastExecutionStats: {
+                overallStatus: 'not_run',
+                stepsSucceeded: 0,
+                stepsTotal: (taskDetails.steps || []).length,
+                stepsFailed: 0,
+                stepsSkipped: 0,
+                logFile: null
+            },
         };
         this.initializeTaskProperties(newTask);
         this.sessionTasks.push(newTask);
@@ -615,9 +629,36 @@ export default {
 
       console.log('[App.vue] sendBrainstormingMessage: this.selectedBrainstormingModelId =', JSON.stringify(this.selectedBrainstormingModelId));
       console.log('[App.vue] sendBrainstormingMessage: this.selectedBrainstormingModelLabel =', this.selectedBrainstormingModelLabel);
+
+      let modelIdToSend = this.selectedBrainstormingModelId; // Default
+      let selectedModelObject = null;
+
+      // Find the selected model object to check its type
+      if (this.selectedBrainstormingModelId) {
+        for (const category in this.categorizedCoderModels) {
+          const model = this.categorizedCoderModels[category].find(m => m.id === this.selectedBrainstormingModelId);
+          if (model) {
+            selectedModelObject = model;
+            break;
+          }
+        }
+      }
+
+      if (selectedModelObject && selectedModelObject.type === 'ollama') {
+        // Check if it already has the prefix, to prevent "ollama:ollama/mistral"
+        if (!this.selectedBrainstormingModelId.startsWith('ollama:')) {
+             modelIdToSend = `ollama:${this.selectedBrainstormingModelId}`;
+        } else {
+             modelIdToSend = this.selectedBrainstormingModelId; // Already correctly prefixed
+        }
+      }
+      // Add other conditions if there are other types that need special prefixes.
+
+      console.log('[App.vue] sendBrainstormingMessage: Determined modelIdToSend:', modelIdToSend);
+
       if (window.electronAPI && window.electronAPI.sendBrainstormingChat) {
         window.electronAPI.sendBrainstormingChat({
-          modelId: this.selectedBrainstormingModelId, // Ensure this holds the correct model ID like "ollama/mistral"
+          modelId: modelIdToSend, // Use the adjusted modelId
           prompt: messageText
         });
       } else {
