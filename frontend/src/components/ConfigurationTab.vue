@@ -3,6 +3,33 @@
     <h2 class="text-xl font-semibold text-white">Configuration</h2>
 
     <!-- OpenAI Configuration Section -->
+    <!-- LLM Configuration Section -->
+    <section class="space-y-2 p-3 bg-gray-700 rounded-md">
+      <h3 class="text-lg font-medium text-gray-200">LLM Configuration</h3>
+      <div class="form-group">
+        <label for="llm-provider" class="emberiza-label">LLM Provider:</label>
+        <select id="llm-provider" v-model="computedLlmProvider" class="hirundo-text-input w-full">
+          <option value="ollama">Ollama</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="google">Google</option>
+          <!-- Add other providers as needed -->
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="api-key" class="emberiza-label">API Key (Optional for Ollama):</label>
+        <input type="password" id="api-key" v-model="computedApiKey" class="hirundo-text-input w-full" />
+      </div>
+      <div class="form-group">
+        <label for="default-ollama-model" class="emberiza-label">Default Ollama Model (if Ollama is provider):</label>
+        <input type="text" id="default-ollama-model" v-model="computedDefaultOllamaModel" class="hirundo-text-input w-full" />
+      </div>
+      <div class="form-group">
+        <button @click="refreshSettings" class="cardinalis-button-action mt-2">Refresh Settings</button>
+      </div>
+    </section>
+
+    <!-- OpenAI Configuration Section -->
     <section class="space-y-2 p-3 bg-gray-700 rounded-md">
       <h3 class="text-lg font-medium text-gray-200">OpenAI Configuration</h3>
       <div>
@@ -44,6 +71,8 @@
 </template>
 
 <script>
+import { mapGetters, mapActions } from 'vuex';
+
 export default {
   name: 'ConfigurationTab',
   data() {
@@ -57,10 +86,53 @@ export default {
       configStatusIsSuccess: false, // To control the color of the status message
     };
   },
+  computed: {
+    ...mapGetters({
+      currentSettings: 'getSettings', // Assuming 'getSettings' is your getter for the settings object
+    }),
+    computedLlmProvider: {
+      get() {
+        return this.currentSettings.llmProvider;
+      },
+      set(value) {
+        this.saveSettings({
+          ...this.currentSettings,
+          llmProvider: value,
+        });
+      },
+    },
+    computedApiKey: {
+      get() {
+        return this.currentSettings.apiKey;
+      },
+      set(value) {
+        this.saveSettings({
+          ...this.currentSettings,
+          apiKey: value,
+        });
+      },
+    },
+    computedDefaultOllamaModel: {
+      get() {
+        return this.currentSettings.defaultOllamaModel;
+      },
+      set(value) {
+        this.saveSettings({
+          ...this.currentSettings,
+          defaultOllamaModel: value,
+        });
+      },
+    },
+  },
   mounted() {
     this.loadOpenAIConfig();
+    this.loadSettings(); // Load general LLM settings
   },
   methods: {
+    ...mapActions(['saveSettings', 'loadSettings']),
+    refreshSettings() {
+      this.loadSettings(); // This will dispatch the loadSettings action from Vuex
+    },
     async openDirectoryDialog() {
       this.selectionError = ''; // Clear previous errors
       if (window.electron && window.electron.ipcRenderer) {
@@ -154,3 +226,30 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+/* Copied from SettingsPanel.vue for form-group margin and input focus styling */
+.form-group {
+  margin-bottom: 20px;
+}
+
+/* Assuming hirundo-text-input provides base styling, add focus behavior */
+.hirundo-text-input:focus,
+select.hirundo-text-input:focus { /* Target select specifically if needed */
+  outline: none;
+  border-color: #4299e1; /* blue-500 */
+  box-shadow: 0 0 0 2px #4299e1; /* Focus ring */
+}
+
+/* Ensure labels in the new section have consistent styling if emberiza-label is not sufficient */
+.form-group label.emberiza-label {
+  display: block; /* Or other styling as needed if not covered by Tailwind utility */
+  margin-bottom: 8px; /* Tailwind class equivalent: mb-2 */
+  font-weight: bold; /* Tailwind class equivalent: font-bold */
+}
+
+/* The action button .cardinalis-button-action should be styled by existing global/Tailwind styles.
+   If specific overrides from .action-button of SettingsPanel are needed, they can be added here,
+   but it's generally better to adapt to the existing style system.
+*/
+</style>
