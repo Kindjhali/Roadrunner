@@ -227,29 +227,4 @@ export default {
 };
 </script>
 
-<style scoped>
-/* Copied from SettingsPanel.vue for form-group margin and input focus styling */
-.form-group {
-  margin-bottom: 20px;
-}
 
-/* Assuming hirundo-text-input provides base styling, add focus behavior */
-.hirundo-text-input:focus,
-select.hirundo-text-input:focus { /* Target select specifically if needed */
-  outline: none;
-  border-color: #4299e1; /* blue-500 */
-  box-shadow: 0 0 0 2px #4299e1; /* Focus ring */
-}
-
-/* Ensure labels in the new section have consistent styling if emberiza-label is not sufficient */
-.form-group label.emberiza-label {
-  display: block; /* Or other styling as needed if not covered by Tailwind utility */
-  margin-bottom: 8px; /* Tailwind class equivalent: mb-2 */
-  font-weight: bold; /* Tailwind class equivalent: font-bold */
-}
-
-/* The action button .cardinalis-button-action should be styled by existing global/Tailwind styles.
-   If specific overrides from .action-button of SettingsPanel are needed, they can be added here,
-   but it's generally better to adapt to the existing style system.
-*/
-</style>
