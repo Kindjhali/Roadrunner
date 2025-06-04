@@ -135,6 +135,29 @@ Use with curiosity and for local development tasks. It is not yet a production-r
 - [BUILD_AND_THEME_GUIDE.md](./BUILD_AND_THEME_GUIDE.md): A guide for building Roadrunner and customizing its theme.
 - [roadrunner.steps.md](./roadrunner.steps.md): Details on the steps and processes involved in Roadrunner's operations.
 
+---
+
+## Suggested Enhancements
+
+*   **1. Resolve Build/Environment Issues:**
+    *   Investigate and fix the root cause of `npm install` failures that prevent the Vite frontend from building. This is critical for any further development.
+*   **2. Application and Model Update Mechanism (User Feedback):**
+    *   Implement robust in-app update capabilities for the Electron application itself.
+    *   Provide a user interface or automated process for updating local LLM models (e.g., those managed by Ollama).
+*   **3. Improved Error Handling and Reporting in UI:**
+    *   Enhance the user interface to more clearly display errors from backend processes, Ollama interactions, or file operations, rather than relying solely on console logs.
+*   **4. Refine UI/UX:**
+    *   Consider modernizing the user interface and improving user experience with features like progress indicators for long-running tasks.
+*   **5. Comprehensive Test Suite:**
+    *   Develop unit and integration tests for both frontend and backend components to ensure stability and facilitate future development.
+*   **6. Enhanced Configuration Management:**
+    *   Allow users to manage backend configurations (paths, default models, etc.) more easily from the application's UI.
+*   **7. Clarify/Refactor Legacy Endpoints:**
+    *   Fully refactor and test the legacy `/run` backend endpoint if its functionality is still desired, or remove it to prevent confusion.
+*   **8. Security Review:**
+    *   Conduct a thorough security review, especially concerning filesystem access and the execution of LLM-generated content or commands.
+
+---
 
 ## API Endpoints
 
