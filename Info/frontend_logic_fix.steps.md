@@ -1,0 +1,5 @@
+- Added Git operation handler and SSE wiring
+- Implemented confirmation, retry, skip and manual mode requests
+- Added Ollama model download streaming parser
+- Enabled Sniper file parsing and scaffolding step generation
+- Hooked up brainstorming chat file upload and message send helpers

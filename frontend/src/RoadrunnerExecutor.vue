@@ -492,21 +492,239 @@ export default {
       } catch (error) { this.addLogEntry(`💥 Network error declining plan: ${error.message}`, 'error', error); }
       this.isAwaitingPlanApproval = false; this.proposedPlanId = null; this.proposedSteps = [];
     },
-    triggerGitOperation(command) { /* ... (method largely same, but ensure it uses addLogEntry) ... */ },
-    async sendConfirmationResponse(confirmationId, confirmed) { /* ... (method largely same, but ensure it uses addLogEntry) ... */ },
-    async requestModelDownload() { /* ... (method largely same, but ensure it uses addLogEntry for all messages) ... */ },
-    handleModelDownloadMessage(message, modelName) { /* ... (method largely same, but ensure it uses addLogEntry) ... */ },
-    handleRevertCommit() { /* ... */ },
-    async handleRetryStep() { /* ... (method largely same, ensure it uses addLogEntry) ... */ },
-    async handleSkipStep() { /* ... (method largely same, ensure it uses addLogEntry) ... */ },
-    async handleConvertToManual() { /* ... (method largely same, ensure it uses addLogEntry) ... */ },
-    async fetchOllamaModels() { /* ... (method largely same, ensure it uses addLogEntry) ... */ },
-    handleSniperFileUpload(event) { /* ... (method largely same, ensure it uses addLogEntry) ... */ },
-    handleGenerateCode() { /* ... (method largely same, ensure it uses addLogEntry) ... */ },
-    handleBrainstormingFileUpload(event) { /* ... (method largely same, ensure it uses addLogEntry) ... */ },
-    clearBrainstormingFileContext() { /* ... (method largely same, ensure it uses addLogEntry) ... */ },
-    sendBrainstormingMessage() { /* ... (method largely same, ensure it uses addLogEntry and new chat history structure) ... */ },
-    handleBrainstormingSseMessage(message) { /* ... (method largely same, ensure it uses addLogEntry and new chat history structure) ... */ },
+    triggerGitOperation(command) {
+      if (!this.backendHealthy) {
+        this.addLogEntry('Error: Backend is not healthy. Cannot perform Git operation.', 'error');
+        return;
+      }
+      if (this.isAutonomousMode) {
+        this.addLogEntry('Git operations via direct buttons are not available in Autonomous Mode.', 'error');
+        return;
+      }
+      const descriptions = {
+        revert_last_commit: 'Revert the last Git commit',
+        commit: 'Commit changes',
+        push: 'Push commits to remote',
+        pull: 'Pull latest changes',
+      };
+      const taskDescription = descriptions[command] || `Run git ${command}`;
+      const steps = [{ type: 'git_operation', details: { command } }];
+      this.addLogEntry(`Triggering Git operation: ${command}`, 'info');
+      if (this.eventSource) { this.eventSource.close(); this.eventSource = null; }
+      const params = new URLSearchParams();
+      params.append('task_description', taskDescription);
+      params.append('steps', JSON.stringify(steps));
+      params.append('safetyMode', this.safetyModeActive);
+      params.append('isAutonomousMode', false);
+      this.eventSource = new EventSource(`http://localhost:3030/execute-autonomous-task?${params.toString()}`);
+      this.eventSource.onopen = () => this.addLogEntry(`Connecting to backend for Git operation: ${command}`, 'info');
+      this.eventSource.onmessage = this.handleSseMessage;
+      this.eventSource.onerror = (error) => {
+        this.addLogEntry('Connection error during Git operation.', 'error', error);
+        if (this.eventSource) { this.eventSource.close(); this.eventSource = null; }
+      };
+    },
+    async sendConfirmationResponse(confirmationId, confirmed) {
+      try {
+        const response = await fetch(`http://localhost:3030/api/confirm-action/${confirmationId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirmed }),
+        });
+        const result = await response.json();
+        if (response.ok) this.addLogEntry(`Confirmation sent: ${confirmed}. ${result.message}`, 'info');
+        else this.addLogEntry(`Error sending confirmation: ${response.status} ${result.message || ''}`, 'error', result);
+      } catch (e) {
+        this.addLogEntry(`Network error sending confirmation: ${e.message}`, 'error', e);
+      }
+    },
+    async requestModelDownload() {
+      const modelName = this.modelToDownload.trim();
+      if (!modelName) {
+        this.addLogEntry('Model name required to download.', 'error');
+        return;
+      }
+      this.addLogEntry(`Requesting download for model: ${modelName}`, 'info');
+      this.isDownloadingModel = true;
+      try {
+        const response = await fetch('http://localhost:3030/api/ollama/pull-model', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ modelName }),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          this.addLogEntry(`Download request failed: ${response.status} ${text}`, 'error');
+          this.isDownloadingModel = false;
+          return;
+        }
+        this.modelDownloadReader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        const readChunk = async () => {
+          const { done, value } = await this.modelDownloadReader.read();
+          if (done) { this.isDownloadingModel = false; return; }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            const trimmed = line.replace(/^data:\s*/, '').trim();
+            if (!trimmed) continue;
+            try {
+              const msg = JSON.parse(trimmed);
+              this.handleModelDownloadMessage(msg, modelName);
+            } catch (err) {
+              console.error('Failed to parse model download message:', line, err);
+            }
+          }
+          readChunk();
+        };
+        readChunk();
+      } catch (err) {
+        this.addLogEntry(`Download request error: ${err.message}`, 'error', err);
+        this.isDownloadingModel = false;
+      }
+    },
+    handleModelDownloadMessage(message, modelName) {
+      if (message.type === 'model_pull_status') {
+        const status = message.payload.status || JSON.stringify(message.payload);
+        this.addLogEntry(`[${modelName}] ${status}`, 'info');
+        if (message.payload.final) this.isDownloadingModel = false;
+      } else if (message.type === 'model_pull_error') {
+        this.addLogEntry(`Model download error for ${modelName}: ${message.message}`, 'error', message);
+        this.isDownloadingModel = false;
+      }
+    },
+    handleRevertCommit() {
+      this.triggerGitOperation('revert_last_commit');
+    },
+    async handleRetryStep() {
+      if (!this.currentFailureId) return;
+      try {
+        const response = await fetch(`http://localhost:3030/api/retry-step/${this.currentFailureId}`, { method: 'POST' });
+        const result = await response.json();
+        if (response.ok) this.addLogEntry(`Retrying step. ${result.message}`, 'info');
+        else this.addLogEntry(`Retry request failed: ${response.status} ${result.message || ''}`, 'error', result);
+        this.showFailureOptions = false;
+      } catch (err) {
+        this.addLogEntry(`Network error retrying step: ${err.message}`, 'error', err);
+      }
+    },
+    async handleSkipStep() {
+      if (!this.currentFailureId) return;
+      try {
+        const response = await fetch(`http://localhost:3030/api/skip-step/${this.currentFailureId}`, { method: 'POST' });
+        const result = await response.json();
+        if (response.ok) this.addLogEntry(`Skipped step. ${result.message}`, 'info');
+        else this.addLogEntry(`Skip request failed: ${response.status} ${result.message || ''}`, 'error', result);
+        this.showFailureOptions = false;
+      } catch (err) {
+        this.addLogEntry(`Network error skipping step: ${err.message}`, 'error', err);
+      }
+    },
+    async handleConvertToManual() {
+      if (!this.currentFailureId) return;
+      try {
+        const response = await fetch(`http://localhost:3030/api/convert-to-manual/${this.currentFailureId}`, { method: 'POST' });
+        const result = await response.json();
+        if (response.ok) this.addLogEntry(`Converted to manual mode. ${result.message}`, 'info');
+        else this.addLogEntry(`Convert request failed: ${response.status} ${result.message || ''}`, 'error', result);
+        this.showFailureOptions = false;
+      } catch (err) {
+        this.addLogEntry(`Network error converting to manual: ${err.message}`, 'error', err);
+      }
+    },
+    async fetchOllamaModels() {
+      try {
+        const response = await fetch('http://localhost:3030/api/ollama-models/categorized');
+        if (!response.ok) {
+          const text = await response.text();
+          this.addLogEntry(`Model fetch failed: ${response.status} ${text}`, 'error');
+          return;
+        }
+        const data = await response.json();
+        this.categorizedModels = data;
+        if (!this.brainstormingSelectedModel) {
+          const firstCat = Object.keys(data)[0];
+          if (firstCat && data[firstCat].length > 0) {
+            this.brainstormingSelectedModel = data[firstCat][0].id || data[firstCat][0].name;
+          }
+        }
+        this.addLogEntry('Ollama models loaded.', 'info');
+      } catch (err) {
+        this.addLogEntry(`Error fetching models: ${err.message}`, 'error', err);
+      }
+    },
+    handleSniperFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        this.sniperFileContent = e.target.result;
+        this.addLogEntry(`Sniper file loaded: ${file.name}`, 'info');
+      };
+      reader.onerror = (e) => {
+        this.addLogEntry(`Error reading file ${file.name}: ${e.target.error.message}`, 'error');
+      };
+      reader.readAsText(file);
+      event.target.value = null;
+    },
+    handleGenerateCode() {
+      if (!this.sniperFileContent) {
+        this.addLogEntry('No Sniper file loaded.', 'error');
+        return;
+      }
+      const parser = new RoadmapParser(this.sniperFileContent);
+      const parsed = parser.parse();
+      this.parsedSniperJSON = parsed;
+      const moduleName = parsed.metadata?.ModuleName || 'module';
+      const baseDir = this.targetBaseDir.replace(/\/$/, '');
+      this.generatedScaffoldingSteps = [
+        { type: 'createDirectory', details: { dirPath: `${baseDir}/${moduleName}` } },
+        { type: 'create_file_with_llm_content', details: { filePath: `${baseDir}/${moduleName}/README.md`, prompt: `Write a README for ${moduleName}. Summary: ${parsed.summary}` } },
+      ];
+      this.addLogEntry(`Generated ${this.generatedScaffoldingSteps.length} scaffolding steps from Sniper file.`, 'info');
+    },
+    handleBrainstormingFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        this.brainstormingFileContent = e.target.result;
+        this.brainstormingFileName = file.name;
+        this.addLogEntry(`Brainstorming context file loaded: ${file.name}`, 'info');
+      };
+      reader.onerror = (e) => {
+        this.addLogEntry(`Error reading brainstorming file ${file.name}: ${e.target.error.message}`, 'error');
+      };
+      reader.readAsText(file);
+      event.target.value = null;
+    },
+    clearBrainstormingFileContext() {
+      this.brainstormingFileContent = null;
+      this.brainstormingFileName = null;
+      this.addLogEntry('Cleared brainstorming file context.', 'info');
+    },
+    sendBrainstormingMessage() {
+      if (!this.brainstormingCurrentInput.trim()) return;
+      const message = this.brainstormingCurrentInput.trim();
+      this.brainstormingChatHistory.push({ role: 'user', content: message });
+      this.brainstormingCurrentInput = '';
+      if (window.electronAPI && window.electronAPI.sendBrainstormingChat) {
+        window.electronAPI.sendBrainstormingChat({
+          modelId: this.brainstormingSelectedModel,
+          prompt: message,
+          fileContent: this.brainstormingFileContent || undefined,
+        });
+      } else {
+        this.addLogEntry('Brainstorming IPC not available.', 'error');
+      }
+    },
+    handleBrainstormingSseMessage(message) {
+      if (message.role === 'assistant') {
+        this.brainstormingChatHistory.push({ role: 'assistant', content: message.content });
+      }
+    },
     async copyLogToClipboard() {
       if (!this.logEntries.length) return;
       const logText = this.logEntries.map(entry => `[${new Date(entry.timestamp).toLocaleTimeString()}] [${entry.type.toUpperCase()}] ${entry.text}${entry.details ? '\nDetails: ' + JSON.stringify(entry.details, null, 2) : ''}`).join('\n');
