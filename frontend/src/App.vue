@@ -469,8 +469,18 @@ export default {
     async loadAvailableModels() {
       this.executorOutput.unshift({ message: 'ℹ️ Fetching available LLM models...', type: 'info', timestamp: new Date() });
       try {
-        const response = await fetch('http://127.0.0.1:3030/api/ollama-models/categorized');
-        if (!response.ok) { /* ... error handling ... */ throw new Error('Backend model fetch failed'); }
+        const backendPort = this.$store.state.backendPort;
+        if (!backendPort || backendPort === 0) {
+            console.error("[App.vue] Backend port not available or invalid in store for loadAvailableModels. Cannot fetch models.");
+            this.executorOutput.unshift({ message: `❌ Error: Backend port not configured. Cannot fetch models. Check console.`, type: 'error', timestamp: new Date() });
+            return;
+        }
+        const response = await fetch(`http://127.0.0.1:${backendPort}/api/ollama-models/categorized`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          this.executorOutput.unshift({ message: `❌ Error fetching models: ${response.status} ${errorText}`, type: 'error', timestamp: new Date() });
+          throw new Error(`Backend model fetch failed: ${response.status} ${errorText}`);
+        }
 
         const categorizedData = await response.json();
         this.$store.dispatch('updateModels', categorizedData); // Dispatch to Vuex store
@@ -484,7 +494,14 @@ export default {
         }
         this.executorOutput.unshift({ message: `✅ Models loaded: ${this.allAvailableModelsForTasks.length} total. Default task model: ${this.defaultModelConfig.name}`, type: 'success', timestamp: new Date() });
 
-      } catch (error) { /* ... error handling ... */ }
+      } catch (error) {
+        console.error('Error in loadAvailableModels:', error);
+        // The error message is already added to executorOutput if it's a fetch response issue
+        // If it's another type of error, add it here.
+        if (!error.message.includes('Backend model fetch failed')) { // Avoid duplicate generic messages
+             this.executorOutput.unshift({ message: `❌ Exception during model load: ${error.message}`, type: 'error', timestamp: new Date() });
+        }
+      }
     },
     // ... (rest of methods: copyLog, exportLog, IPC handlers, etc.)
 
@@ -641,5 +658,3 @@ export default {
   }
 };
 </script>
-
-
