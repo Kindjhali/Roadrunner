@@ -642,12 +642,4 @@ export default {
 };
 </script>
 
-<style scoped>
-/* ... (existing styles) ... */
-.turdus-select-xs {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem; /* Smaller font size */
-  /* Add other styling to make it less tall if needed, e.g., height or line-height */
-}
 
-</style>

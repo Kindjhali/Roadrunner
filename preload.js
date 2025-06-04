@@ -26,6 +26,15 @@ contextBridge.exposeInMainWorld('electron', {
   }
 });
 
+// Alias API for legacy code expecting `window.electronAPI`
+contextBridge.exposeInMainWorld('electronAPI', {
+  sendBrainstormingChat: (payload) => ipcRenderer.send('send-brainstorming-chat', payload),
+  onBrainstormingChatStreamChunk: (callback) => ipcRenderer.on('brainstorming-chat-stream-chunk', callback),
+  onBrainstormingChatStreamError: (callback) => ipcRenderer.on('brainstorming-chat-stream-error', callback),
+  onBrainstormingChatStreamEnd: (callback) => ipcRenderer.on('brainstorming-chat-stream-end', callback),
+  closeApp: () => ipcRenderer.send('close-window')
+});
+
 // Override global console methods
 const _log = console.log;
 const _warn = console.warn;

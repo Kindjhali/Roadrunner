@@ -308,6 +308,11 @@ textarea:focus {
   box-shadow: 0 0 0 2px var(--theme-orange);
 }
 
+.turdus-select-xs {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
 .hirundo-text-input { /* RoadrunnerExecutor.vue text input/textarea */
   width: 100%; /* Uses global input/textarea styles for other properties */
 }
@@ -852,4 +857,21 @@ input#brainstormingFileUpload.turdus-select {
 
 .brainstorming-log-area {
   border-radius: 0.25rem;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.hirundo-text-input:focus,
+select.hirundo-text-input:focus {
+  outline: none;
+  border-color: #4299e1;
+  box-shadow: 0 0 0 2px #4299e1;
+}
+
+.form-group label.emberiza-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: bold;
 }
