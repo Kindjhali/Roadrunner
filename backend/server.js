@@ -547,7 +547,11 @@ async function generateFromLocal(prompt, modelName, expressRes) {
           `[LLM Ollama] Error from Ollama API: ${ollamaRes.status} ${ollamaRes.statusText}`,
           errorBody
         );
-        const errorMessage = `Ollama API request failed: ${ollamaRes.status} ${ollamaRes.statusText} - ${errorBody.substring(0, 100)}`;
+        let errorMessage = `Ollama API request failed: ${ollamaRes.status} ${ollamaRes.statusText} - ${errorBody.substring(0, 100)}`;
+        const errorBodyLower = errorBody.toLowerCase();
+        if (errorBodyLower.includes("unknown model") || errorBodyLower.includes("model not found")) {
+          errorMessage = `Error: Model '${effectiveOllamaModel}' not found in your Ollama instance. Please ensure the model is pulled and available in Ollama. (Original Ollama error: ${errorBody.substring(0, 100)})`;
+        }
 
         if (expressRes && expressRes.writable) {
           expressRes.write(
@@ -586,6 +590,10 @@ async function generateFromLocal(prompt, modelName, expressRes) {
 
             if (parsedLine.error) {
               ollamaErrorDetected = `Ollama reported an error: ${parsedLine.error}`;
+              const parsedErrorLower = parsedLine.error.toLowerCase();
+              if (parsedErrorLower.includes("unknown model") || parsedErrorLower.includes("model not found")) {
+                ollamaErrorDetected = `Error: Model '${effectiveOllamaModel}' not found in your Ollama instance during streaming. Please ensure the model is pulled and available. (Original Ollama error: ${parsedLine.error})`;
+              }
               console.error(`[LLM Ollama] ${ollamaErrorDetected}`);
               if (expressRes && expressRes.writable) {
                 expressRes.write(
