@@ -132,6 +132,16 @@ Use with curiosity and for local development tasks. It is not yet a production-r
 
 ---
 
+## Known Issues / Non-Functioning Features
+
+*   **Project Build Failure:**
+    *   The project currently fails to build due to issues with `npm install` and Node.js module resolution in the build environment. The Vite build process cannot locate its required dependencies (e.g., `vite`, `@vitejs/plugin-vue`) even after they are seemingly downloaded by `npm install`.
+    *   This prevents the frontend from being built (`frontend/dist/` is not generated) and therefore the standalone Electron application cannot be run or tested.
+*   **Legacy `/run` Endpoint:**
+    *   As noted in the 'Current Status & Disclaimer', the older `/run` backend endpoint (related to previous component generation functionality) may not be fully functional with recent refactoring of LLM utilities. The primary focus for task execution is the `/execute-autonomous-task` endpoint.
+
+---
+
 ## Further Reading
 
 - [HOW_TO_USE_ROADRUNNER.md](./HOW_TO_USE_ROADRUNNER.md): Detailed instructions on how to operate Roadrunner and its features.
@@ -139,17 +149,6 @@ Use with curiosity and for local development tasks. It is not yet a production-r
 - [BUILD_AND_THEME_GUIDE.md](./BUILD_AND_THEME_GUIDE.md): A guide for building Roadrunner and customizing its theme.
 - [roadrunner.steps.md](./roadrunner.steps.md): Details on the steps and processes involved in Roadrunner's operations.
 
----
-
-## पुरानी जानकारी (Outdated Information - For Reference During Transition)
-
-The information below regarding the "RoadrunnerExecutorApp" and its specific UI for scaffolding components refers to the ** `roadrunner/frontend/` application**. This functionality and UI approach have been superseded by the `TokomakAI.Desktop/` application and its more general Task Runner feature which interacts with the `roadrunner/backend/`.
-
-The previous version of Roadrunner (i.e., `roadrunner/frontend/` + `roadrunner/electron.js`) was focused more narrowly as a "RoadrunnerExecutorApp," a UI for scaffolding Vue.js components. This functionality is being expanded and integrated into the broader vision of an autonomous agent now primarily driven by `TokomakAI.Desktop/`. The UI in `TokomakAI.Desktop/` uses a new task definition approach (goal and steps) rather than the older module/mode/model selection for component generation.
-
-The backend endpoint (`/run`) for the previous component generation functionality still exists but is separate from the new `/execute-autonomous-task` endpoint and may require updates to work with refactored LLM utilities. It is NOT the primary way to interact with the current system.
-
----
 
 ## API Endpoints
 
