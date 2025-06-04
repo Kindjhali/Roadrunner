@@ -331,18 +331,22 @@ export default {
   },
   watch: {
     selectedModule(newModule, oldModule) { /* ... */ },
-    categorizedCoderModels: { // Watch for changes in models to set a default
+    categorizedCoderModels: {
+      // Watch for changes in available models to set sensible defaults
       handler(newModels) {
-        if (newModels && Object.keys(newModels).length > 0 && !this.selectedModelId) {
-          // Try to set a sensible default, e.g., the first model from the first category
+        if (newModels && Object.keys(newModels).length > 0) {
           const firstCategory = Object.keys(newModels)[0];
-          if (newModels[firstCategory] && newModels[firstCategory].length > 0) {
-            this.selectedModelId = newModels[firstCategory][0].id;
+          const firstModel = newModels[firstCategory]?.[0];
+          if (!this.selectedModelId && firstModel) {
+            this.selectedModelId = firstModel.id;
+          }
+          if (!this.selectedBrainstormingModelId && firstModel) {
+            this.selectedBrainstormingModelId = firstModel.id;
           }
         }
       },
       deep: true,
-      immediate: true // Run on component mount as well
+      immediate: true
     }
   },
   methods: {
@@ -605,6 +609,15 @@ export default {
 
     // Setup IPC listeners for brainstorming chat responses from the main process.
     if (window.electronAPI) {
+      // Update backend port if Electron notifies us of a change
+      if (window.electronAPI.onBackendPortUpdated) {
+        window.electronAPI.onBackendPortUpdated((event, { port }) => {
+          this.$store.commit('SET_BACKEND_PORT', port);
+          console.log(`[App.vue] Backend port updated to ${port}`);
+          this.$store.dispatch('loadSettings');
+        });
+      }
+
       // Handles incoming chunks of text from the LLM stream for brainstorming.
       window.electronAPI.onBrainstormingChatStreamChunk((event, { text }) => {
         if (this.brainstormingHistory.length > 0) {

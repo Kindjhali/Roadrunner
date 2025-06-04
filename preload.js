@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onBrainstormingChatStreamEnd: (callback) => ipcRenderer.on('brainstorming-chat-stream-end', callback),
   closeApp: () => ipcRenderer.send('close-window'),
   getBackendPort: () => ipcRenderer.invoke('get-backend-port'),
+  onBackendPortUpdated: (callback) => ipcRenderer.on('backend-port-updated', callback),
 });
 
 // Override global console methods
