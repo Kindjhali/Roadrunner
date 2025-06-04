@@ -374,7 +374,17 @@ export default {
     }
   },
   methods: {
-    // ... (closeWindow, handleRefresh, openDirectoryDialog, saveGeneralConfiguration, etc.)
+    closeWindow() {
+      if (window.electronAPI && window.electronAPI.closeWindow) {
+        console.log('[App.vue] closeWindow: Calling electronAPI.closeWindow()');
+        window.electronAPI.closeWindow();
+      } else {
+        console.warn('[App.vue] closeWindow: window.electronAPI.closeWindow is not available. Cannot close window.');
+        // Optionally, provide a fallback for non-Electron environments or display an error
+        alert('Close operation is not available in this environment.');
+      }
+    },
+    // ... (handleRefresh, openDirectoryDialog, saveGeneralConfiguration, etc.)
     // Ensures essential properties (like modelConfig, annotations, lastStatus) exist on a task object.
     initializeTaskProperties(task) {
       if (!task.modelConfig || !task.modelConfig.id) {
@@ -512,6 +522,18 @@ export default {
         }
 
         const categorizedData = await response.json();
+
+        for (const category in categorizedData) {
+          if (Array.isArray(categorizedData[category])) {
+            categorizedData[category].forEach(model => {
+              if (!model.id) {
+                model.id = model.model; // or model.name, but model.model seems more like a unique identifier
+                console.log(`[App.vue] loadAvailableModels: Added missing 'id' to model: ${model.name} -> ${model.id}`);
+              }
+            });
+          }
+        }
+
         this.$store.dispatch('updateModels', categorizedData); // Dispatch to Vuex store
 
         // Set a default selectedModelId if not already set and models are available
