@@ -9,8 +9,14 @@ const store = createStore({
       defaultOllamaModel: 'codellama', // Default Ollama model
     },
     backendPort: 3030, // Default backend port
+    ollamaStatus: { isConnected: false, message: 'Initializing...' },
   },
   mutations: {
+    SET_OLLAMA_STATUS(state, status) {
+      state.ollamaStatus.isConnected = status.isConnected;
+      state.ollamaStatus.message = status.message;
+      console.log(`[Mutation] Ollama status set to: ${status.isConnected ? 'Connected' : 'Disconnected'} - ${status.message}`);
+    },
     SET_MODELS(state, models) {
       state.models = models;
     },
@@ -94,6 +100,7 @@ const store = createStore({
     getCategorizedModels: (state) => state.models,
     getSettings: (state) => state.settings,
     getBackendPort: (state) => state.backendPort,
+    getOllamaStatus: (state) => state.ollamaStatus,
   },
 });
 

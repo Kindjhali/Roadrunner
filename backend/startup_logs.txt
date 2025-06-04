@@ -1,0 +1,22 @@
+[fsAgent-default] Loaded config from /app/backend/fsAgent.config.json. Allowed external paths:
+[ModularFsAgent] Workspace directory configured at: /app/output
+[ModularGitAgent] Initialized with working directory: /
+[Config] Loaded backend settings from /app/backend/config/backend_config.json
+[Config] Loaded path configuration from /app/backend/config/backend_config.json
+[Config] Loaded model categories from model_categories.json
+[Config] Resolved logDir: Final path is '/app/logs' (Source: JSON config (/app/backend/config/backend_config.json -> logDir)).
+[Config] Directory for logDir already exists at '/app/logs' (Source: JSON config (/app/backend/config/backend_config.json -> logDir))
+[Config] Resolved workspaceDir: Final path is '/app/output' (Source: JSON config (/app/backend/config/backend_config.json -> workspaceDir)).
+[Config] Directory for workspaceDir already exists at '/app/output' (Source: JSON config (/app/backend/config/backend_config.json -> workspaceDir))
+[Config] Resolved conferencesLogDir: Final path is '/app/output/roadrunner_workspace' (Source: default ('/app/output/roadrunner_workspace')).
+[Config] Created directory for conferencesLogDir at: '/app/output/roadrunner_workspace' (Source: default ('/app/output/roadrunner_workspace'))
+[Server Startup] Checking Ollama status...
+[Server Startup] Ollama not detected or not responsive. Attempting to start Ollama...
+[Ollama Startup] startOllama called. OLLAMA_BASE_URL is 'http://localhost:11434'. Docker Compose handles Ollama service.
+[Ollama Startup] Attempting to start Ollama server locally (original behavior)...
+[Server Startup] Roadrunner backend server listening on port 3030
+[Config] Ollama URL target: http://localhost:11434
+[Config] LOG_DIR configured to: /app/logs
+[Config] WORKSPACE_DIR configured to: /app/output
+[Paths] Conferences Log Directory: /app/output/roadrunner_workspace
+[Ollama Startup] Assuming ollama serve process started. Resolving after timeout.
