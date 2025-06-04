@@ -1,14 +1,13 @@
 # Roadrunner Project
 
 > **Important Note on Project Structure:**
-> The `roadrunner/` directory contains the components of a **standalone  Electron application (frontend in `roadrunner/frontend/`, main process in `roadrunner/electron.js`) and its backend server (`roadrunner/backend/`).** While the `TokomakAI.Desktop/` application is the primary focus for new development, the `roadrunner/backend/` is being stabilized to support this standalone  `roadrunner/` application. Its core logic and agents (fsAgent, gitAgent) have informed the `TokomakCore/roadrunnercore` module, which serves as the backend for Roadrunner features integrated within `TokomakAI.Desktop`.
-> Task definition for this  application is via UI inputs for a task goal and a sequence of steps.
-> The primary, actively developed user interface for this project is now **`TokomakAI.Desktop/`**, which is a separate Electron application.
-> Please refer to the main project `README.md` (in the root directory) for the overall architecture and instructions for running the current application.
+> The `roadrunner/` directory contains the components of a **standalone Electron application (frontend in `roadrunner/frontend/`, main process in `roadrunner/electron.js`) and its backend server (`roadrunner/backend/`).** The `roadrunner/backend/` is stabilized to support this standalone `roadrunner/` application, which is developed and maintained independently. Its core logic and agents (fsAgent, gitAgent) have informed the `TokomakCore/roadrunnercore` module, which serves as the backend for Roadrunner features integrated within `TokomakAI.Desktop`.
+> Task definition for this application is via UI inputs for a task goal and a sequence of steps.
+> This README focuses on the standalone Roadrunner application within the `roadrunner/` directory. (Information about `TokomakAI.Desktop` and `TokomakCore/roadrunnercore` is for context on shared lineage only).
 
 The newer `roadrunnercore` module within `TokomakCore/` repurposes this application's backend logic so that TokomakAI Desktop can offer the same Roadrunner features internally. When users open the Roadrunner panel from the Toko32 dashboard, the desktop app launches its own copy of this frontend in a modal while communicating with `roadrunnercore` rather than this standalone server. Despite sharing code, the standalone `roadrunner/` app and the integrated `roadrunnercore` setup are maintained as separate projects.
 
-**This README primarily concerns the standalone  application components within the `roadrunner/` directory (Electron main process, Vue.js frontend, and Node.js backend).**
+**This README primarily concerns the standalone application components within the `roadrunner/` directory (Electron main process, Vue.js frontend, and Node.js backend).**
 
 ---
 
@@ -80,8 +79,6 @@ Interacting with Roadrunner typically follows these steps:
 
 ## Installation & Setup
 
-The main components to set up from the `roadrunner/` directory perspective is the backend server. The `TokomakAI.Desktop/` application is run from its own directory.
-
 1.  **Backend Server Setup (`roadrunner/backend/`)**:
     ```bash
     cd roadrunner/backend
@@ -92,27 +89,19 @@ The main components to set up from the `roadrunner/` directory perspective is th
     # See roadrunner/backend/README.md for details.
     ```
 
-2.  **Desktop Application Setup (`TokomakAI.Desktop/`)**:
-    Refer to the main project `README.md` or `TokomakAI.Desktop/README.md` for instructions on running the main UI. Typically:
-    ```bash
-    cd ../TokomakAI.Desktop # (Assuming you are in roadrunner/)
-    npm install
-    npm run electron:dev 
-    ```
+2.  **Standalone Roadrunner App Setup (`roadrunner/`)**:
+    This refers to the Electron application defined by `roadrunner/electron.js` and its frontend in `roadrunner/frontend/`.
 
-    3.  **Standalone  Roadrunner App Setup (`roadrunner/`)**:
-        This refers to the Electron application defined by `roadrunner/electron.js` and its frontend in `roadrunner/frontend/`.
+    *   **Prerequisite:** Ensure the **Backend Server** (see point 1 above, `roadrunner/backend/server.js`) is running, as this standalone application relies on it (e.g., for loading AI models via `http://127.0.0.1:3030`).
+    *   **Running the app:**
+        Navigate to the `roadrunner` directory (i.e., the root of this project) and run:
+        ```bash
+        # Install dependencies (if first time or after changes)
+        npm install
 
-        *   **Prerequisite:** Ensure the **Backend Server** (see point 1 above, `roadrunner/backend/server.js`) is running, as this standalone application relies on it (e.g., for loading AI models via `http://127.0.0.1:3030`).
-        *   **Running the app:**
-            Navigate to the `roadrunner` directory and run:
-            ```bash
-            # Install dependencies (if first time or after changes)
-            npm install
-
-            # Build the frontend and launch the Electron app
-            npm start
-            ```
+        # Build the frontend and launch the Electron app
+        npm start
+        ```
 
 **Configuration**:
 *   **Backend**: Refer to the `roadrunner/backend/README.md` for detailed instructions on path configuration and other settings.
@@ -121,10 +110,10 @@ The main components to set up from the `roadrunner/` directory perspective is th
 
 ## ⚠️ Current Status & Disclaimer
 
-**The `roadrunner/` application (frontend, Electron main process, and backend) is a standalone  application. The `roadrunner/backend/` is being stabilized for this purpose, and its core components have informed the `TokomakCore/roadrunnercore` module, which provides Roadrunner functionalities within the modern `TokomakAI.Desktop` application.**
+**The `roadrunner/` application (frontend, Electron main process, and backend) is a standalone application. The `roadrunner/backend/` is being stabilized for this purpose, and its core components have informed the `TokomakCore/roadrunnercore` module, which provides Roadrunner functionalities within the modern `TokomakAI.Desktop` application.**
 
 - The vision of a fully autonomous AI agent is a work in progress.
-- **Core Features Implemented:** UI for task definition, backend for step-based execution, LLM integration with streaming, filesystem operations (within `roadrunner/output/` and configurable external roots) with safety guardrails and backups, Git integration for basic commands, step chaining, and a task interruption/confirmation flow (currently auto-denied by the  UI).
+- **Core Features Implemented:** UI for task definition, backend for step-based execution, LLM integration with streaming, filesystem operations (within `roadrunner/output/` and configurable external roots) with safety guardrails and backups, Git integration for basic commands, step chaining, and a task interruption/confirmation flow (currently auto-denied by the UI).
 - **Areas for Future Development:** More advanced autonomous decision-making by the LLM, complex Git workflows, UI enhancements for specific step types and confirmation handling, robust error recovery, and user-configurable settings.
 - The application's UI and backend are evolving. While the `/execute-autonomous-task` endpoint is the focus, older endpoints like `/run` may not be fully functional with recent streaming-focused refactoring of LLM utilities.
 
@@ -134,9 +123,6 @@ Use with curiosity and for local development tasks. It is not yet a production-r
 
 ## Known Issues / Non-Functioning Features
 
-*   **Project Build Failure:**
-    *   The project currently fails to build due to issues with `npm install` and Node.js module resolution in the build environment. The Vite build process cannot locate its required dependencies (e.g., `vite`, `@vitejs/plugin-vue`) even after they are seemingly downloaded by `npm install`.
-    *   This prevents the frontend from being built (`frontend/dist/` is not generated) and therefore the standalone Electron application cannot be run or tested.
 *   **Legacy `/run` Endpoint:**
     *   As noted in the 'Current Status & Disclaimer', the older `/run` backend endpoint (related to previous component generation functionality) may not be fully functional with recent refactoring of LLM utilities. The primary focus for task execution is the `/execute-autonomous-task` endpoint.
 
