@@ -97,10 +97,11 @@
                     <!-- Per-task Model Selector -->
                     <div class="mt-1">
                       <label :for="'taskModelSelect-' + task.taskId" class="text-xs text-gray-400 mr-1">Model:</label>
+                      <!-- Prevent li click when interacting with select -->
                       <select :id="'taskModelSelect-' + task.taskId"
                               v-model="task.modelConfigId"
                               @change="updateTaskModelConfig(task, $event.target.value)"
-                              @click.stop <!-- Prevent li click when interacting with select -->
+                              @click.stop
                               class="turdus-select turdus-select-xs text-xs bg-gray-700 border-gray-600 focus:ring-blue-500 focus:border-blue-500">
                         <option disabled value="">-- Select Model --</option>
                         <optgroup v-for="(group, category) in categorizedCoderModels" :key="category" :label="category.toUpperCase()">
@@ -155,8 +156,11 @@
                    :class="['whitespace-pre-wrap', item.type === 'error' ? 'text-red-400' : (item.type === 'success' ? 'text-green-400' : 'text-gray-300')]">
                 <span class="font-mono text-xs mr-2">{{ new Date(item.timestamp).toLocaleTimeString() }}</span>
                 <span>{{ item.message }}</span>
+              </div>
+            </div>
+          </div>
         </div>
-        </div>
+      </div>
 
         <!-- Brainstorming Tab Content -->
         <div v-if="activeTab === 'brainstorming'" class="tab-content brainstorming-tab-content p-4 flex flex-col space-y-4">
