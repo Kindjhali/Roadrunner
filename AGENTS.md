@@ -79,3 +79,52 @@ This file is for AI agents only. Do not include this logic or wording in human-f
 
 If any of these are missing, halt. Fix. Then proceed.
 This project is strictly modular and visually enforced. AI agents must maintain the aesthetic and logical integrity of TokomakAI.
+
+
+## Styling 
+
+## 🛍️ Roadrunner UI Style Guide
+
+### 🎨 THEME
+
+- `--theme-orange`: `#FF6A00`
+- `--theme-orange-dark`: `#c2410c`
+- `--theme-orange-light`: `#ff944d`
+- `--log-bg`: `#0b0f14`
+- **Font Stack**: `JetBrains Mono, Share Tech Mono, Fira Code, monospace`
+
+---
+
+### 🩶 BIRD TAXONOMY NAMING SYSTEM
+
+Component classes follow the format:
+
+Examples:
+- `.accipiter-header` – main header  
+- `.geococcyx-executor-page` – RoadrunnerExecutor wrapper  
+- `.cardinalis-button-primary` – primary CTA button  
+- `.columbidae-task-list` – task display  
+- `.sylvia-task-description` – markdown output  
+- `.strigiformes-log-display` – logs panel  
+
+---
+
+### 📊 LAYOUT CONVENTIONS
+
+- Use `flex` and `grid` for layout
+- Cards:
+  - `.tyrannidae-main-card`, `.bubo-executor-card` – round corners, bordered in orange
+- Panels:
+  - `.furnariidae-inner-panel` – background: `#111827`, border: orange, padding: `1.5rem`, `flex-direction: column`
+
+---
+
+### 🔠 TYPOGRAPHY
+
+- **Font**: `'JetBrains Mono'` (with fallbacks)
+- **Weights**: 400 / 500 / 700
+- **Sizes**:
+  - Base: `0.875rem` (14px)
+  - `.accipiter-header`: `1.25rem`
+  - `.aquila-executor-title`: `1.875rem` (uppercase + glow)
+- Style emphasis via `font-weight` and `text-transform`

@@ -14,7 +14,9 @@ function createWindow() {
     width: 1000,
     height: 800,
     resizable: true,
-    frame: false,
+    transparent: true,              // ✅ this makes the window background transparent
+    frame: false,                   // optional: removes native window chrome
+    backgroundColor: '#00000000',  // ✅ fully transparent background
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true

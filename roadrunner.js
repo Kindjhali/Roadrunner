@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 
+
 const DEFAULT_TIMEOUT_MS = 5000;
 const agentResponses = {};
 const activeTimers = {}; // To store active timer IDs or flags
@@ -13,24 +14,36 @@ const logDirectory = path.join(process.cwd(), 'logs', 'roadrunner');
  * @description Standalone module for collecting, ranking, and selecting actions from multiple sources.
  */
 
-/**
- * Stores agent responses grouped by inputID.
- * This is a module-scoped variable and is not exported.
- * @type {Object<string, Array<Object>>}
- */
-let agentResponsesByInputID = {};
+// In-memory store for agent responses
+// Each inputID maps to an object: { actualInputText: null, responses: [] }
+let agentResponses = {};
+
+const LOG_DIR = path.join(__dirname, 'logs', 'roadrunner');
+
 
 /**
- * Registers an agent's response for a given input ID.
- *
- * @param {string} inputID - A unique identifier for the input that triggered these agent responses.
- * @param {string} agentID - The unique name of the agent submitting the response.
- * @param {string} proposal - The proposed action or content from the agent.
- * @param {number} confidence - A confidence score for the proposal, ranging from 0.0 to 1.0.
- * @param {Array<string>} [flags] - Optional array of tags or conditions (e.g., "veto", "urgent").
+ * Initiates a new input session or overwrites an existing one.
+ * @param {string} inputID - The unique ID for this input.
+ * @param {string} actualInputText - The actual text of the input/query.
+ */
+function initiateInput(inputID, actualInputText) {
+  agentResponses[inputID] = {
+    actualInputText: actualInputText,
+    responses: []
+  };
+}
+
+/**
+ * Registers a response from an agent.
+ * @param {string} inputID - The ID of the input this response is for.
+ * @param {string} agentID - The unique ID of the agent.
+ * @param {string} proposal - The action proposed by the agent.
+ * @param {number} confidence - The agent's confidence in the proposal (0.0-1.0).
+ * @param {string[]} [flags] - Optional list of string markers.
  */
 
 function registerAgentResponse(inputID, agentID, proposal, confidence, flags) {
+
   const response = {
     agent: agentID,
     proposal: proposal,
@@ -196,89 +209,90 @@ module.exports = {
 
   if (!agentResponsesByInputID[inputID]) {
     agentResponsesByInputID[inputID] = [];
-  }
 
-  agentResponsesByInputID[inputID].push(response);
+  if (!agentResponses[inputID]) {
+    console.warn(`Warning: Response registered for uninitiated inputID: ${inputID}`);
+    agentResponses[inputID] = {
+      actualInputText: `Input ${inputID} received response(s) without formal initiation.`,
+      responses: []
+    };
+
+  }
+  agentResponses[inputID].responses.push({ agentID, proposal, confidence, flags });
 }
 
 /**
- * Evaluates agent responses for a given input ID and selects the best one based on flags and confidence scores.
- * Logs the evaluation process and outcome.
- *
- * @param {string} inputID - The unique identifier for the input whose agent responses are to be evaluated.
- * @returns {Object|null} The selected agent response object, or null if no suitable response is found.
+ * Evaluates agent responses for a given input ID and selects the best one.
+ * It also logs the evaluation details to a timestamped JSON file.
+ * @param {string} inputID - The ID of the input to evaluate responses for.
+ * @returns {{inputID: string, responses: Array<object>, selectedProposal: object|null, justification: string, error?: string, actualInputText?: string}}
+ *          An object containing the evaluation results, including the selected proposal, justification, and actual input text,
+ *          or an error message if no responses are found.
  */
 function evaluateResponses(inputID) {
-  const originalResponses = agentResponsesByInputID[inputID] ? JSON.parse(JSON.stringify(agentResponsesByInputID[inputID])) : [];
+  const inputEntry = agentResponses[inputID];
+  const currentActualInputText = inputEntry?.actualInputText || `Input text not available for ${inputID}`;
+  const currentResponses = inputEntry?.responses;
 
-  if (!originalResponses || originalResponses.length === 0) {
-    // Log attempt to evaluate non-existent or empty inputID if desired, though problem implies logging only on selection.
-    return null; // No responses for this inputID
-  }
-
-  // Filter out responses with a 'discard' flag
-  const activeResponses = originalResponses.filter(response =>
-    !response.flags || !response.flags.includes('discard')
-  );
-
-  if (activeResponses.length === 0) {
-    return null; // No responses remain after discarding
-  }
-
-  let selectedResponse = null;
-
-  // Check for responses with a 'veto' flag
-  const vetoResponses = activeResponses.filter(response =>
-    response.flags && response.flags.includes('veto')
-  );
-
-  if (vetoResponses.length > 0) {
-    // If veto responses exist, the one with the highest confidence among them is selected
-    selectedResponse = vetoResponses.reduce((maxConfidenceResponse, currentResponse) =>
-      currentResponse.confidence > maxConfidenceResponse.confidence ? currentResponse : maxConfidenceResponse
-    , vetoResponses[0]);
-  } else if (activeResponses.length > 0) {
-    // If no 'veto' flags, the response with the highest confidence among the remaining ones is selected
-    selectedResponse = activeResponses.reduce((maxConfidenceResponse, currentResponse) =>
-      currentResponse.confidence > maxConfidenceResponse.confidence ? currentResponse : maxConfidenceResponse
-    , activeResponses[0]);
-  }
-
-  // If a response is selected, log it (logging content to be updated in a subsequent step)
-  if (selectedResponse) {
-    const now = new Date();
-    const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-
-    const logsDir = path.join('.', 'logs', 'roadrunner');
-    fs.mkdirSync(logsDir, { recursive: true });
-
-    const logFilePath = path.join(logsDir, `${timestamp}.json`);
-
-    let justification = "";
-    if (selectedResponse.flags && selectedResponse.flags.includes('veto')) {
-      justification = "Selected due to veto flag from agent '" + selectedResponse.agent + "' with highest confidence.";
-    } else {
-      justification = "Selected due to highest confidence from agent '" + selectedResponse.agent + "'.";
+  const result = (() => {
+    if (!inputEntry || !currentResponses || currentResponses.length === 0) {
+      return {
+        inputID,
+        responses: [],
+        selectedProposal: null,
+        justification: 'No responses available.',
+        error: 'No responses found for this input ID',
+        actualInputText: currentActualInputText,
+      };
     }
 
-    const logObject = {
-      inputID: inputID,
-      // Ensure a deep copy of original responses for logging, if not already handled by originalResponses
-      responses: agentResponsesByInputID[inputID] ? JSON.parse(JSON.stringify(agentResponsesByInputID[inputID])) : [],
-      selectedResponse: selectedResponse,
-      justification: justification
+    let selectedProposal = currentResponses[0];
+    for (let i = 1; i < currentResponses.length; i++) {
+      if (currentResponses[i].confidence > selectedProposal.confidence) {
+        selectedProposal = currentResponses[i];
+      }
+    }
+
+    return {
+      inputID,
+      responses: currentResponses,
+      selectedProposal,
+      justification: 'Highest confidence score.',
+      actualInputText: currentActualInputText,
+    };
+  })();
+
+  // Logging
+  try {
+    if (!fs.existsSync(LOG_DIR)) {
+      fs.mkdirSync(LOG_DIR, { recursive: true });
+    }
+
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, ''); // HHMMSS
+    const logFileName = `${dateStr}_${timeStr}.json`;
+    const logFilePath = path.join(LOG_DIR, logFileName);
+
+    const logData = {
+      input: result.actualInputText, // Use actualInputText for the log
+      responses: result.responses,
+      selected: result.selectedProposal,
+      justification: result.justification,
     };
 
-    try {
-      fs.writeFileSync(logFilePath, JSON.stringify(logObject, null, 2));
-    } catch (err) {
-      console.error("Failed to write Roadrunner log:", err);
-      // Decide if this error should affect the return or be handled otherwise
+    if (result.error) {
+      logData.error = result.error;
     }
+
+    fs.writeFileSync(logFilePath, JSON.stringify(logData, null, 2));
+  } catch (error) {
+    console.error('Failed to write log file:', error);
   }
 
-  return selectedResponse;
+  return result;
 }
+
 
 // For potential future use and testing, we can export the functions.
 module.exports = {
@@ -286,3 +300,6 @@ module.exports = {
   evaluateResponses
 
 };
+
+module.exports = { registerAgentResponse, evaluateResponses, initiateInput };
+
