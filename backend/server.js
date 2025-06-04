@@ -2618,6 +2618,14 @@ app.get('/api/ollama-models/categorized', async (req, res) => {
     const models = ollamaData.models || [];
     console.log(`${logPrefix} Extracted models array:`, models);
 
+    // === Add this loop ===
+    models.forEach(model => {
+      model.type = 'ollama'; // Add the type property
+      // Optionally, ensure model.id exists, similar to frontend, though frontend also does this.
+      // if (!model.id && model.model) model.id = model.model;
+    });
+    // === End of loop ===
+
     const categorizedModels = categorizeOllamaModels(models, modelCategories);
     console.log(`${logPrefix} Final categorized models being sent:`, categorizedModels);
     res.json(categorizedModels);

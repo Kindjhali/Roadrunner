@@ -126,7 +126,7 @@
                     <!-- Display Statistics -->
                     <div v-if="task.lastExecutionStats && task.lastExecutionStats.overallStatus !== 'not_run'" class="text-xs mt-1">
                       <span :class="['font-semibold', task.lastExecutionStats.overallStatus === 'success' ? 'text-green-400' : (task.lastExecutionStats.overallStatus === 'failure' ? 'text-red-400' : 'text-yellow-400')]">
-                        Status: {{ task.lastExecutionStats.overallStatus.replace('_', ' ') }}
+                        Status: {{ (task.lastExecutionStats.overallStatus || '').replace('_', ' ') }}
                       </span>
                       <span class="ml-2 text-gray-400">S: {{ task.lastExecutionStats.stepsSucceeded }}/{{ task.lastExecutionStats.stepsTotal }}</span>
                       <span v-if="task.lastExecutionStats.stepsFailed > 0" class="ml-1 text-red-400">F: {{ task.lastExecutionStats.stepsFailed }}</span>
@@ -427,7 +427,14 @@ export default {
             modelConfigId: this.defaultModelConfig.id,
             timestamp: new Date().toISOString(),
             status: 'defined',
-            lastExecutionStats: { /* ... initial stats ... */ },
+            lastExecutionStats: {
+                overallStatus: 'not_run',
+                stepsSucceeded: 0,
+                stepsTotal: (taskDetails.steps || []).length,
+                stepsFailed: 0,
+                stepsSkipped: 0,
+                logFile: null
+            },
         };
         this.initializeTaskProperties(newTask);
         this.sessionTasks.push(newTask);
@@ -615,9 +622,36 @@ export default {
 
       console.log('[App.vue] sendBrainstormingMessage: this.selectedBrainstormingModelId =', JSON.stringify(this.selectedBrainstormingModelId));
       console.log('[App.vue] sendBrainstormingMessage: this.selectedBrainstormingModelLabel =', this.selectedBrainstormingModelLabel);
+
+      let modelIdToSend = this.selectedBrainstormingModelId; // Default
+      let selectedModelObject = null;
+
+      // Find the selected model object to check its type
+      if (this.selectedBrainstormingModelId) {
+        for (const category in this.categorizedCoderModels) {
+          const model = this.categorizedCoderModels[category].find(m => m.id === this.selectedBrainstormingModelId);
+          if (model) {
+            selectedModelObject = model;
+            break;
+          }
+        }
+      }
+
+      if (selectedModelObject && selectedModelObject.type === 'ollama') {
+        // Check if it already has the prefix, to prevent "ollama:ollama/mistral"
+        if (!this.selectedBrainstormingModelId.startsWith('ollama:')) {
+             modelIdToSend = `ollama:${this.selectedBrainstormingModelId}`;
+        } else {
+             modelIdToSend = this.selectedBrainstormingModelId; // Already correctly prefixed
+        }
+      }
+      // Add other conditions if there are other types that need special prefixes.
+
+      console.log('[App.vue] sendBrainstormingMessage: Determined modelIdToSend:', modelIdToSend);
+
       if (window.electronAPI && window.electronAPI.sendBrainstormingChat) {
         window.electronAPI.sendBrainstormingChat({
-          modelId: this.selectedBrainstormingModelId, // Ensure this holds the correct model ID like "ollama/mistral"
+          modelId: modelIdToSend, // Use the adjusted modelId
           prompt: messageText
         });
       } else {
