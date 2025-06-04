@@ -22,9 +22,13 @@
 }
 
 /* Global Element Styles */
+html {
+  background-color: black;
+}
+
 body {
   margin: 0;
-  background-color: black;
+  background-color: transparent;
   font-family: 'JetBrains Mono', monospace;
   min-height: 100vh;
   display: flex;
@@ -98,14 +102,6 @@ textarea:focus {
 /* === Bird Taxonomy Styles (App.vue & RoadrunnerExecutor.vue) === */
 
 /* Page & App Containers */
-.corvidae-app-container { /* App.vue main wrapper */
-  padding: 1rem;
-  font-family: 'JetBrains Mono', 'Share Tech Mono', 'Fira Code', monospace;
-  min-height: calc(100vh - 2rem); /* body is slightly larger */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 .geococcyx-executor-page { /* RoadrunnerExecutor.vue main wrapper */
   padding: 1.5rem;
   font-family: 'JetBrains Mono', 'Share Tech Mono', 'Fira Code', monospace;
