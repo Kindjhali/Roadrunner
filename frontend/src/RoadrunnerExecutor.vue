@@ -23,25 +23,23 @@
             />
           </div>
 
-          <div class="apodiformes-form-row" style="display: flex; align-items: center; margin-bottom: 1rem;">
+          <div class="apodiformes-form-row flex items-center mb-4">
             <input
               id="autonomousMode"
               v-model="isAutonomousMode"
               type="checkbox"
-              class="cuculus-checkbox-input"
-              style="margin-right: 0.5rem;"
+              class="cuculus-checkbox-input mr-2"
             />
-            <label for="autonomousMode" class="emberiza-label-checkbox" style="margin-bottom: 0;">Enable Autonomous Mode</label>
+            <label for="autonomousMode" class="emberiza-label-checkbox mb-0">Enable Autonomous Mode</label>
           </div>
 
-          <div class="apodiformes-form-row" style="display: flex; align-items: center; margin-bottom: 1rem;">
+          <div class="apodiformes-form-row flex items-center mb-4">
             <input
               id="safetyMode"
               v-model="safetyModeActive"
               type="checkbox"
-              class="cuculus-checkbox-input"
-              style="margin-right: 0.5rem;" />
-            <label for="safetyMode" class="emberiza-label-checkbox" style="margin-bottom: 0;">Safety Mode: Confirm potentially destructive actions</label>
+              class="cuculus-checkbox-input mr-2" />
+            <label for="safetyMode" class="emberiza-label-checkbox mb-0">Safety Mode: Confirm potentially destructive actions</label>
           </div>
 
           <div>
@@ -67,67 +65,67 @@
           </div>
 
 
-          <div v-if="isAwaitingPlanApproval" class="apodiformes-form-row" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
+          <div v-if="isAwaitingPlanApproval" class="apodiformes-form-row flex flex-col gap-4 mt-4">
             <div>
               <label class="emberiza-label">Proposed Plan (ID: {{ proposedPlanId }}):</label>
-              <div v-if="proposedSteps.length > 0" class="otus-log-area" style="max-height: 200px; overflow-y: auto; margin-top: 0.5rem;">
-                <pre class="tyto-log-preformatted" style="white-space: pre-wrap;">{{ JSON.stringify(proposedSteps, null, 2) }}</pre>
+              <div v-if="proposedSteps.length > 0" class="otus-log-area max-h-52 overflow-y-auto mt-2">
+                <pre class="tyto-log-preformatted">{{ JSON.stringify(proposedSteps, null, 2) }}</pre>
               </div>
               <p v-else class="emberiza-label-checkbox">No steps in the proposed plan.</p>
             </div>
-            <div style="display: flex; gap: 1rem;">
-              <button class="cardinalis-button-action" @click="approveProposedPlan" style="background-color: #4CAF50;">
+            <div class="flex gap-4">
+              <button class="cardinalis-button-action bg-green-600" @click="approveProposedPlan">
                 Approve Plan
               </button>
-              <button class="cardinalis-button-action" @click="declineProposedPlan" style="background-color: #f44336;">
+              <button class="cardinalis-button-action bg-red-600" @click="declineProposedPlan">
                 Decline Plan
               </button>
             </div>
           </div>
 
-          <hr class="coloeus-divider" style="margin-top: 1.5rem; margin-bottom: 1.5rem;">
+          <hr class="coloeus-divider my-6">
 
-          <div class="apodiformes-form-row" style="margin-bottom: 1rem;">
+          <div class="apodiformes-form-row mb-4">
             <label class="emberiza-label">Git Operations:</label>
-            <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+            <div class="flex gap-2 mt-2">
               <button class="cardinalis-button-action" @click="triggerGitOperation('revert_last_commit')">
                 Revert Last Commit
               </button>
             </div>
           </div>
 
-          <hr class="coloeus-divider" style="margin-top: 1.5rem; margin-bottom: 1.5rem;">
+          <hr class="coloeus-divider my-6">
 
           <div class="apodiformes-form-row">
-            <h2 class="emberiza-label" style="font-size: 1.25rem; margin-bottom: 1rem;">Coder Tools</h2>
+            <h2 class="emberiza-label text-xl mb-4">Coder Tools</h2>
             <div>
               <label for="sniperFileInput" class="emberiza-label">Upload Sniper.md File:</label>
-              <input type="file" id="sniperFileInput" @change="handleSniperFileUpload" accept=".md" class="hirundo-text-input" style="margin-bottom: 0.5rem;">
+              <input type="file" id="sniperFileInput" @change="handleSniperFileUpload" accept=".md" class="hirundo-text-input mb-2">
             </div>
             <div>
               <label for="targetBaseDir" class="emberiza-label">Target Base Directory:</label>
-              <input type="text" id="targetBaseDir" v-model="targetBaseDir" placeholder="e.g., roadrunner/output/generated_modules" class="hirundo-text-input" style="margin-bottom: 0.5rem;">
+              <input type="text" id="targetBaseDir" v-model="targetBaseDir" placeholder="e.g., roadrunner/output/generated_modules" class="hirundo-text-input mb-2">
             </div>
-            <button class="cardinalis-button-action" @click="handleGenerateCode" style="margin-top: 0.5rem;">
+            <button class="cardinalis-button-action mt-2" @click="handleGenerateCode">
               Generate Code from Sniper File
             </button>
           </div>
 
-          <hr class="coloeus-divider" style="margin-top: 1.5rem; margin-bottom: 1.5rem;">
+          <hr class="coloeus-divider my-6">
 
-          <div v-if="showFailureOptions" class="apodiformes-form-row" style="margin-top: 1rem; padding: 1rem; border: 1px solid #f56565; border-radius: 0.25rem; background-color: #fff5f5;">
-            <h3 style="color: #c53030; font-weight: bold;">Task Execution Failed</h3>
+          <div v-if="showFailureOptions" class="apodiformes-form-row mt-4 p-4 border border-red-400 rounded bg-red-50">
+            <h3 class="text-red-700 font-bold">Task Execution Failed</h3>
             <p v-if="currentErrorDetails"><strong>Error:</strong> {{ currentErrorDetails.message }}</p>
             <p v-if="currentFailedStep"><strong>Failed Step Type:</strong> {{ currentFailedStep.type }}</p>
             <p v-if="currentFailedStep && currentFailedStep.details"><strong>Failed Step Details:</strong> {{ JSON.stringify(currentFailedStep.details) }}</p>
-            <div style="margin-top: 1rem; display: flex; gap: 1rem;">
-              <button class="cardinalis-button-action" @click="handleRetryStep" style="background-color: #4CAF50;">
+            <div class="mt-4 flex gap-4">
+              <button class="cardinalis-button-action bg-green-600" @click="handleRetryStep">
                 Retry Step
               </button>
-              <button class="cardinalis-button-action" @click="handleSkipStep" style="background-color: #FFA500;">
+              <button class="cardinalis-button-action bg-orange-500" @click="handleSkipStep">
                 Skip Step
               </button>
-              <button class="cardinalis-button-action" @click="handleConvertToManual" style="background-color: #f44336;">
+              <button class="cardinalis-button-action bg-red-600" @click="handleConvertToManual">
                 Convert to Manual Mode
               </button>
             </div>
@@ -135,14 +133,13 @@
 
           <div>
             <label for="modelToDownload" class="emberiza-label">Download New Ollama Model:</label>
-            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+            <div class="flex items-center gap-2 mt-2">
               <input
                 id="modelToDownload"
                 v-model="modelToDownload"
                 type="text"
                 placeholder="Enter model name (e.g., llama3, phi3:medium)"
-                class="hirundo-text-input"
-                style="flex-grow: 1;"
+                class="hirundo-text-input flex-grow"
               />
               <button class="cardinalis-button-action" @click="requestModelDownload" :disabled="isDownloadingModel">
                 {{ isDownloadingModel ? 'Downloading...' : 'Download Model' }}
@@ -150,7 +147,7 @@
             </div>
           </div>
 
-          <div v-if="logEntries.length > 0" class="corvus-log-controls" style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem; justify-content: flex-end;">
+          <div v-if="logEntries.length > 0" class="corvus-log-controls mb-2 flex gap-2 justify-end">
             <button class="cardinalis-button-action" @click="copyLogToClipboard" :disabled="!logEntries.length">
               Copy Log
             </button>
@@ -158,7 +155,7 @@
               Export Log
             </button>
           </div>
-          <div v-if="logStatusMessage" class="phoenicurus-status-message" style="margin-bottom: 0.5rem; text-align: right; font-size: 0.875rem; color: #4a5568;">
+          <div v-if="logStatusMessage" class="phoenicurus-status-message mb-2 text-right text-sm text-gray-600">
             {{ logStatusMessage }}
           </div>
 
@@ -173,13 +170,13 @@
           </div>
 
 
-          <hr class="coloeus-divider" style="margin-top: 1.5rem; margin-bottom: 1.5rem;">
+          <hr class="coloeus-divider my-6">
 
           <div class="apodiformes-form-row">
-            <h2 class="emberiza-label" style="font-size: 1.25rem; margin-bottom: 1rem;">Brainstorming Chat</h2>
+            <h2 class="emberiza-label text-xl mb-4">Brainstorming Chat</h2>
             <div>
               <label for="brainstormingModelSelect" class="emberiza-label">Select Model for Chat:</label>
-              <select id="brainstormingModelSelect" v-model="brainstormingSelectedModel" class="hirundo-text-input" style="margin-bottom: 0.5rem; width: 100%;">
+              <select id="brainstormingModelSelect" v-model="brainstormingSelectedModel" class="hirundo-text-input mb-2 w-full">
                 <option disabled value="">Please select a model</option>
                 <optgroup v-for="(models, category) in categorizedModels" :key="category" :label="category.toUpperCase()">
                   <option v-for="model in models" :key="model.id || model.name" :value="model.id || model.name">
@@ -188,21 +185,21 @@
                 </optgroup>
               </select>
             </div>
-            <div style="margin-bottom: 0.5rem;">
+            <div class="mb-2">
               <label for="brainstormingFileInput" class="emberiza-label">Upload File for Context (Optional):</label>
-              <input type="file" id="brainstormingFileInput" ref="brainstormingFileRef" @change="handleBrainstormingFileUpload" accept=".txt,.md,.js,.py,.html,.css,.json" class="hirundo-text-input" style="margin-bottom: 0.25rem;">
-              <div v-if="brainstormingFileName" style="font-size: 0.875rem; color: #555; margin-top: 0.25rem;">
+              <input type="file" id="brainstormingFileInput" ref="brainstormingFileRef" @change="handleBrainstormingFileUpload" accept=".txt,.md,.js,.py,.html,.css,.json" class="hirundo-text-input mb-1">
+              <div v-if="brainstormingFileName" class="text-sm text-gray-700 mt-1">
                 Selected file: {{ brainstormingFileName }}
-                <button @click="clearBrainstormingFileContext" style="margin-left: 0.5rem; color: #f44336; background: none; border: none; cursor: pointer; font-size: 0.8rem;">Clear</button>
+                <button @click="clearBrainstormingFileContext" class="ml-2 text-red-600 bg-transparent border-0 cursor-pointer text-xs">Clear</button>
               </div>
             </div>
-            <div class="otus-log-area" style="height: 300px; overflow-y: auto; margin-bottom: 0.5rem; border: 1px solid #ccc; padding: 10px; background-color: #f9f9f9;">
-              <div v-for="(message, index) in brainstormingChatHistory" :key="index" :class="message.role === 'user' ? 'chat-user' : 'chat-assistant'" style="margin-bottom: 8px;">
-                <strong style="text-transform: capitalize;">{{ message.role }}:</strong>
-                <pre style="white-space: pre-wrap; margin-top: 4px; font-family: inherit;">{{ message.content }}</pre>
+            <div class="brainstorming-log-area h-72 overflow-y-auto mb-2 border border-gray-300 p-2.5 bg-gray-100 text-black">
+              <div v-for="(message, index) in brainstormingChatHistory" :key="index" :class="message.role === 'user' ? 'chat-user' : 'chat-assistant'" class="mb-2">
+                <strong class="capitalize">{{ message.role }}:</strong>
+                <pre class="whitespace-pre-wrap mt-1" style="font-family: inherit;">{{ message.content }}</pre>
               </div>
             </div>
-            <textarea v-model="brainstormingCurrentInput" placeholder="Type your message..." class="hirundo-text-input" rows="3" style="margin-bottom: 0.5rem;"></textarea>
+            <textarea v-model="brainstormingCurrentInput" placeholder="Type your message..." class="hirundo-text-input mb-2" rows="3"></textarea>
             <button class="cardinalis-button-action" @click="sendBrainstormingMessage">Send Message</button>
           </div>
         </div>

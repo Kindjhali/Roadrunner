@@ -216,7 +216,7 @@
             <label for="brainstormingFileUpload" class="chat-file-upload-button" title="Attach File">
               <!-- Icon is in CSS ::before, or can be text/SVG here -->
             </label>
-            <input type="file" id="brainstormingFileUpload" @change="handleBrainstormingFileUpload" style="display: none;">
+            <input type="file" id="brainstormingFileUpload" @change="handleBrainstormingFileUpload" class="hidden">
 
             <button @click="sendBrainstormingMessage" :disabled="isStreamingResponse || !brainstormingInput.trim()" class="pelecanus-button-action chat-send-button">
               Send
