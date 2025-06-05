@@ -19,8 +19,8 @@ To launch the application:
 The Roadrunner application interface is primarily organized into three tabs:
 
 *   **Coder Tab:** This is the main operational tab. Here you will define tasks, manage sessions, select active tasks, and initiate their execution. You'll also monitor the output in the executor panel.
-*   **Brainstorming Tab:** (TODO: Describe Brainstorming Tab functionality if significantly different from Coder or if it has unique uses. For now, it might share the executor panel or offer different ways to interact with LLMs).
-*   **Configuration Tab:** (TODO: Describe Configuration Tab. This likely involves settings for LLM connections, paths, or other application parameters).
+*   **Brainstorming Tab:** The Brainstorming Tab provides an interactive chat interface for direct conversations with selected Language Models. You can select an available Ollama model, type your questions or prompts, and receive answers. It's useful for quick Q&A, idea generation, or exploring a model's capabilities. Basic file upload functionality is present (it logs the uploaded file's name and notes it in the chat), but full contextual understanding of uploaded files, conversation management (saving/loading chats), and integration with remote models for chat are planned for future enhancements.
+*   **Configuration Tab:** The Configuration Tab is intended for managing application settings. This will include configurations for LLM connections (like API keys for remote models), defining default paths, and other application-level preferences. Currently, most of these configuration options are planned for future development. Please refer to [roadrunner.steps.md](./roadrunner.steps.md) for updates on feature implementation.
 
 ## Working with Tasks and Sessions
 
@@ -58,7 +58,7 @@ Roadrunner includes a "Safety Mode." When enabled (usually by default), it may r
 - The backend supports robust confirmation handling.
 - Confirmation prompts may appear in the executor output panel or via a UI dialog.
 - You will typically be given options to confirm, deny, or sometimes skip an operation.
-- (TODO: Detail how UI handles these confirmations if specific UI elements are known).
+- When Safety Mode is active (it is ON by default), Roadrunner will require your explicit approval before executing potentially destructive operations, such as modifying or deleting files, or making Git commits and pushes. This is handled through confirmation dialogs that appear in the UI (currently, these are standard browser confirmation pop-ups). You will be presented with the action to be performed and given the option to approve or deny it. Task execution pauses until you respond. For some operations, there's also a batch confirmation feature that might ask for approval after a certain number of operations.
 
 ## Using Autonomous Mode
 
@@ -66,7 +66,7 @@ Roadrunner has an "Autonomous Mode."
 - If this mode is selected (e.g., via a checkbox or option when starting a task), instead of executing a predefined sequence of steps from a file, you provide an "Overall Task Goal."
 - Roadrunner will then use the LLM to autonomously generate a sequence of steps it believes will achieve that goal and execute them.
 - This mode is more experimental and relies heavily on the LLM's planning capabilities.
-- (TODO: Detail how to enable/use autonomous mode if specific UI elements are known).
+- Autonomous Mode is typically initiated by providing an 'Overall Task Goal' in the Coder tab and using a dedicated 'Execute Autonomous Task' button or a similar UI option. Instead of following a predefined script, Roadrunner uses the selected LLM to interpret your goal, break it down into a sequence of executable steps, and then carries them out. This mode relies heavily on the LLM's planning capabilities and is best used for tasks where the path to the solution is not clearly defined beforehand. You should monitor the execution closely, as the generated steps might sometimes require adjustments or clarification. Future enhancements may include a plan validation step where the agent presents its proposed steps for your approval before execution.
 
 ---
 This guide provides a basic overview. For more advanced usage or troubleshooting, please refer to the [README.md](./README.md) and other documentation files.
