@@ -410,24 +410,6 @@ ipcMain.on('start-conference-stream', (event, payload) => {
       let channelToSend;
       let dataToSend;
 
-      // Apply defaults and determine channel and data based on msg.type
-      switch (msg.type) {
-        case 'llm_chunk':
-          msg.content = msg.content || '';
-          msg.speaker = msg.speaker || 'Unknown Speaker';
-          channelToSend = 'conference-stream-llm-chunk';
-          dataToSend = msg;
-          break;
-        case 'log_entry':
-          msg.message = msg.message || '';
-          msg.speaker = msg.speaker || 'System';
-          channelToSend = 'conference-stream-log-entry';
-          dataToSend = msg;
-          break;
-        case 'error':
-          msg.error = msg.error || 'An unknown error occurred';
-
-
       // Adapt message types based on expected backend output for conference tasks
       switch (msg.type) {
         case 'llm_chunk':
@@ -475,22 +457,6 @@ ipcMain.on('start-conference-stream', (event, payload) => {
       if (msg.type === 'execution_complete') {
         if (conferenceEventSource) conferenceEventSource.close();
         conferenceEventSource = null;
-
-        case 'execution_complete': // Or whatever the backend sends for completion
-          // Ensure msg (summaryData) and its nested properties are handled carefully.
-          // For now, we primarily ensure msg itself is an object (which JSON.parse does).
-          // Further checks might be needed if the backend could send non-object `msg` for this type,
-          // or if specific nested properties are critical and might be missing.
-          // The frontend will also add checks.
-          console.log('[Electron IPC] start-conference-stream: Execution complete event:', msg);
-          forwardEvent('conference-stream-complete', msg || {}); // Ensure msg is at least an empty object
-          if (conferenceEventSource) conferenceEventSource.close();
-          conferenceEventSource = null;
-          break;
-        default:
-          console.log('[Electron IPC] start-conference-stream: Unknown event type received:', msg.type, msg);
-          forwardEvent('conference-stream-log-entry', { type: 'log_entry', message: `Received event: ${msg.type || 'unknown'}`, data: msg });
-
       }
 
     } catch (err) {
