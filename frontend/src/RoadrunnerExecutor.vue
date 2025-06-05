@@ -710,7 +710,7 @@ export default {
       this.brainstormingFileName = null;
       this.addLogEntry('Cleared brainstorming file context.', 'info');
     },
-    sendBrainstormingMessage() {
+   sendBrainstormingMessage() {
       if (!this.brainstormingCurrentInput.trim()) return;
       const message = this.brainstormingCurrentInput.trim();
       this.brainstormingChatHistory.push({ role: 'user', content: message });
@@ -719,6 +719,7 @@ export default {
         window.electronAPI.sendBrainstormingChat({
           modelId: this.brainstormingSelectedModel,
           prompt: message,
+          history: this.brainstormingChatHistory,
           fileContent: this.brainstormingFileContent || undefined,
         });
       } else {

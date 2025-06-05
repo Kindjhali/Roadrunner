@@ -229,7 +229,7 @@ ipcMain.handle('select-directory', async () => {
 
 // The duplicated handlers below have been removed.
 
-ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt }) => {
+ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt, history }) => {
   // At the beginning of the handler
   if (!modelId || typeof modelId !== 'string' || modelId.trim() === '') {
     console.warn(`[Main] Brainstorming chat request rejected: modelId is invalid or empty. Received: '${modelId}'`);
@@ -253,7 +253,7 @@ ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: ollamaModelName,
-          messages: [{ role: 'user', content: prompt }],
+          messages: Array.isArray(history) && history.length > 0 ? history : [{ role: 'user', content: prompt }],
           stream: true, // Enable streaming
         }),
       });
@@ -336,7 +336,7 @@ ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt }) => {
 });
 
 ipcMain.on('start-conference-stream', async (event, payload) => {
-  const { prompt, model_a_id, model_b_id, arbiter_model_id } = payload || {};
+  const { prompt, model_a_id, model_b_id, arbiter_model_id, history } = payload || {};
   if (!prompt) {
     event.sender.send('conference-stream-error', { error: 'Prompt cannot be empty.' });
     return;
@@ -347,7 +347,8 @@ ipcMain.on('start-conference-stream', async (event, payload) => {
     modelName: model_a_id || model_b_id || arbiter_model_id,
     modelARole: 'Model A',
     modelBRole: 'Model B',
-    arbiterModelRole: 'Arbiter'
+    arbiterModelRole: 'Arbiter',
+    history
   };
 
   try {

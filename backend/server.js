@@ -2955,7 +2955,7 @@ app.post('/execute-conference-task', async (req, res) => {
   log(`[Conference ${conferenceId}] Received POST /execute-conference-task request.`);
 
   try {
-    const { prompt: userPrompt, modelName: requestedModelName, modelARole: requestedModelARole, modelBRole: requestedModelBRole, arbiterModelRole: requestedArbiterModelRole } = req.body;
+    const { prompt: userPrompt, modelName: requestedModelName, modelARole: requestedModelARole, modelBRole: requestedModelBRole, arbiterModelRole: requestedArbiterModelRole, history } = req.body;
 
     if (!userPrompt) {
       log(`[Conference ${conferenceId}] Error: Missing "prompt" in request body.`);
@@ -2970,8 +2970,10 @@ app.post('/execute-conference-task', async (req, res) => {
     const roleArbiter = requestedArbiterModelRole || 'Arbiter and Synthesizer';
     log(`[Conference ${conferenceId}] Model: ${currentModelName}, Role A: ${roleA}, Role B: ${roleB}, Arbiter: ${roleArbiter}`);
 
+    const historyText = Array.isArray(history) ? history.map(h => `${h.role}: ${h.content || h.message}`).join('\n') : '';
+
     // Model A Interaction
-    const promptA = `You are ${roleA}. The user's question is: "${userPrompt}". Provide your analysis and response.`;
+    const promptA = `You are ${roleA}.${historyText ? ` The conversation so far:\n${historyText}\n` : ' '}The user's question is: "${userPrompt}". Provide your analysis and response.`;
     log(`[Conference ${conferenceId}] Prompting Model A (${roleA})...`);
     const responseA = await generateFromLocal(promptA, currentModelName, null, { role: 'model_a' }); // null for expressRes as we need the full response
     if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
@@ -2981,7 +2983,7 @@ app.post('/execute-conference-task', async (req, res) => {
     log(`[Conference ${conferenceId}] Model A Response (first 100 chars): "${responseA.substring(0, 100)}..."`);
 
     // Model B Interaction
-    const promptB = `You are ${roleB}. The user's question is: "${userPrompt}". Provide your analysis and response.`;
+    const promptB = `You are ${roleB}.${historyText ? ` The conversation so far:\n${historyText}\n` : ' '}The user's question is: "${userPrompt}". Provide your analysis and response.`;
     log(`[Conference ${conferenceId}] Prompting Model B (${roleB})...`);
     const responseB = await generateFromLocal(promptB, currentModelName, null, { role: 'model_b' });
     if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
@@ -2991,7 +2993,7 @@ app.post('/execute-conference-task', async (req, res) => {
     log(`[Conference ${conferenceId}] Model B Response (first 100 chars): "${responseB.substring(0, 100)}..."`);
 
     // Arbiter Interaction
-    const promptArbiter = `You are ${roleArbiter}. The user's original question was: "${userPrompt}".\n\nModel A (${roleA}) responded: "${responseA}"\n\nModel B (${roleB}) responded: "${responseB}"\n\nBased on the user's question and both responses, provide a comprehensive synthesized answer.`;
+    const promptArbiter = `You are ${roleArbiter}. The conversation so far is as follows:${historyText ? `\n${historyText}` : ''}\nUser's latest question: "${userPrompt}"\n\nModel A (${roleA}) responded: "${responseA}"\n\nModel B (${roleB}) responded: "${responseB}"\n\nProvide a comprehensive synthesized answer.`;
     log(`[Conference ${conferenceId}] Prompting Arbiter Model (${roleArbiter})...`);
     const finalResponse = await generateFromLocal(promptArbiter, currentModelName, null, { role: 'arbiter' });
     if (finalResponse.startsWith('// LLM_ERROR:') || finalResponse.startsWith('// LLM_WARNING:')) {
@@ -3015,6 +3017,7 @@ app.post('/execute-conference-task', async (req, res) => {
       arbiter_model_role: roleArbiter,
       arbiter_model_prompt: promptArbiter,
       arbiter_model_response: finalResponse,
+      conversation_history: history || [],
       source: "direct_api_call_v2" // Indicate new version
     };
 

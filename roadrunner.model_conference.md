@@ -61,5 +61,5 @@ This system is ideal for tasks that benefit from multiple perspectives — such 
 The Multi-Model Conferencing Protocol enhances Roadrunner by injecting comparative intelligence — using multiple model perspectives and final synthesis for better results. It integrates cleanly into the existing LLM pipeline, and sets the foundation for future agent-based debates and arbitration layers.
 
 Status: **Partially Implemented**
-Implemented: **Backend Only (API endpoint available at `/execute-conference-task` on localhost:3030)**
-Required: **Roadrunner frontend UI for direct conference interaction (optional); Toko32 frontend integration for triggering conferences and displaying results (in progress/done). Full integration as a Roadrunner "step type" is pending.**
+Implemented: **Backend endpoint `/execute-conference-task`** now supports a `history` array for multi-turn follow-ups. A basic frontend tab triggers this endpoint.
+Required: **Full step-type integration and advanced debate visualisation remain pending.**

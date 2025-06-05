@@ -12,6 +12,7 @@ This document outlines the Inter-Process Communication (IPC) API expected by `fr
     *   `model_a_id` (String): The ID/name of the model selected for participant A.
     *   `model_b_id` (String): The ID/name of the model selected for participant B.
     *   `arbiter_model_id` (String): The ID/name of the model selected as the arbiter.
+    *   `history` (Array): Optional array of `{ role, content }` messages representing prior turns.
 
 ## Receiving Conference Events
 
