@@ -215,6 +215,24 @@ try {
   console.error('[Config] Error loading model_categories.json:', error);
 }
 
+// Load agent persona instructions
+let agentInstructions = { global_instructions: [], ollama_specific_instructions: { default: [] }, openai_specific_instructions: { default: [] }, conference_participant_instructions: {} }; // Default
+const instructionsPath = path.join(__dirname, 'config', 'agent_instructions_template.json');
+try {
+  if (fs.existsSync(instructionsPath)) {
+    const instructionsFileContent = fs.readFileSync(instructionsPath, 'utf-8');
+    agentInstructions = JSON.parse(instructionsFileContent);
+    console.log('[Config] Loaded agent instructions from agent_instructions_template.json');
+  } else {
+    console.warn('[Config] agent_instructions_template.json not found. Using default empty instructions.');
+    // Optionally, create a default one if it doesn't exist.
+    // fs.writeFileSync(instructionsPath, JSON.stringify(agentInstructions, null, 2));
+  }
+} catch (error) {
+  console.error('[Config] Error loading agent_instructions_template.json:', error);
+  // agentInstructions will retain its default value
+}
+
 // Helper function to categorize Ollama models
 function categorizeOllamaModels(ollamaModels, config) {
   const categorized = {};
@@ -435,15 +453,43 @@ app.post('/api/config/openai-key', (req, res) => {
 
 // --- LLM Interaction Functions ---
 
-async function generateFromLocal(prompt, modelName, expressRes) {
+async function generateFromLocal(originalPrompt, modelName, expressRes, options = {}) {
   const provider = backendSettings.llmProvider;
   let accumulatedResponse = '';
 
-  console.log(`[LLM Generation] Provider: ${provider || 'ollama (default)'}, Model: ${modelName}`);
+  let finalPrompt = originalPrompt;
+  const instructionsToApply = [];
+
+  if (agentInstructions.global_instructions && agentInstructions.global_instructions.length > 0) {
+    instructionsToApply.push(...agentInstructions.global_instructions);
+  }
+
+  // Determine provider for instructions (OpenAI or Ollama)
+  // Uses backendSettings.llmProvider which is loaded from backend_config.json
+  if (provider === 'openai' && agentInstructions.openai_specific_instructions && agentInstructions.openai_specific_instructions.default) {
+    instructionsToApply.push(...agentInstructions.openai_specific_instructions.default);
+  } else if (provider !== 'openai' && agentInstructions.ollama_specific_instructions && agentInstructions.ollama_specific_instructions.default) { // Default to ollama if not openai
+    instructionsToApply.push(...agentInstructions.ollama_specific_instructions.default);
+  }
+
+  if (options.role && agentInstructions.conference_participant_instructions && agentInstructions.conference_participant_instructions[options.role]) {
+    instructionsToApply.push(...agentInstructions.conference_participant_instructions[options.role]);
+  }
+  // TODO: Add more role types here if needed, e.g., for a 'coder' role based on options or step type
+
+  if (instructionsToApply.length > 0) {
+    const instructionsString = instructionsToApply.join('\n');
+    // Simple formatting: instructions, then a clear separator, then the user's original prompt.
+    finalPrompt = `${instructionsString}\n\n---\nUser Prompt:\n${originalPrompt}`;
+  }
+
+  console.log(`[LLM Generation] Provider: ${provider || 'ollama (default)'}, Model: ${modelName}, Role: ${options.role || 'N/A'}`);
+  console.log(`[LLM Generation] Final prompt (first 200 chars): "${finalPrompt.substring(0, 200)}..."`);
+
 
   if (provider === 'openai') {
-    console.log(`[LLM OpenAI] Initiating for prompt to model ${modelName || 'gpt-3.5-turbo'}: "${prompt.substring(0, 100)}..."`);
-    if (!backendSettings.apiKey) {
+    console.log(`[LLM OpenAI] Initiating for prompt to model ${modelName || 'gpt-3.5-turbo'}: "${finalPrompt.substring(0, 100)}..."`);
+    if (!backendSettings.apiKey && !(backendSettings.openaiApiKey)) { // Check both possible key locations
       const errorMessage = 'OpenAI API key is missing in backend settings.';
       console.error(`[LLM OpenAI] ${errorMessage}`);
       if (expressRes && expressRes.writable) {
@@ -452,6 +498,7 @@ async function generateFromLocal(prompt, modelName, expressRes) {
       return `// LLM_ERROR: ${errorMessage} //`;
     }
 
+    const effectiveOpenAIApiKey = backendSettings.apiKey || backendSettings.openaiApiKey; // Prefer generic apiKey, fallback to specific openaiApiKey
     const openAIModel = modelName || backendSettings.defaultOpenAIModel || 'gpt-3.5-turbo';
 
     try {
@@ -459,18 +506,24 @@ async function generateFromLocal(prompt, modelName, expressRes) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${backendSettings.apiKey}`,
+          'Authorization': `Bearer ${effectiveOpenAIApiKey}`,
         },
         body: JSON.stringify({
           model: openAIModel,
-          messages: [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content: finalPrompt }], // Use finalPrompt
           stream: true,
         }),
       });
 
       if (!openAIResponse.ok) {
-        const errorBody = await openAIResponse.json().catch(() => openAIResponse.text()); // Try to parse JSON, fallback to text
-        const errorDetails = typeof errorBody === 'object' ? errorBody.error?.message || JSON.stringify(errorBody) : errorBody;
+        const errorBodyText = await openAIResponse.text(); // Get raw text first
+        let errorDetails = errorBodyText;
+        try {
+            const parsedError = JSON.parse(errorBodyText); // Try to parse as JSON
+            errorDetails = parsedError.error?.message || JSON.stringify(parsedError);
+        } catch (e) {
+            // Not JSON, use the raw text, already assigned to errorDetails
+        }
         console.error(
           `[LLM OpenAI] Error from OpenAI API: ${openAIResponse.status} ${openAIResponse.statusText}`,
           errorDetails
@@ -532,13 +585,13 @@ async function generateFromLocal(prompt, modelName, expressRes) {
   } else { // Default to Ollama if provider is 'ollama' or null/undefined
     const effectiveOllamaModel = modelName || backendSettings.defaultOllamaModel || 'codellama';
     console.log(
-      `[LLM Ollama] Initiating for prompt to ${effectiveOllamaModel}: "${prompt.substring(0, 100)}..."`
+      `[LLM Ollama] Initiating for prompt to ${effectiveOllamaModel}: "${finalPrompt.substring(0, 100)}..."` // Use finalPrompt
     );
     try {
       const ollamaRes = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: effectiveOllamaModel, prompt: prompt, stream: true }),
+        body: JSON.stringify({ model: effectiveOllamaModel, prompt: finalPrompt, stream: true }), // Use finalPrompt
       });
       if (!ollamaRes.ok) {
         const errorBody = await ollamaRes.text();
@@ -1498,7 +1551,7 @@ async function executeStepsInternal(
             const fullPromptA = `${systemPromptA}\n\nUser Prompt: "${userPrompt}"`;
             model_a_prompt_for_log = fullPromptA;
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Model A (${modelName}) as ${finalModelARole}`}, expressHttpRes);
-            const responseA = await generateFromLocal(fullPromptA, modelName, expressHttpRes);
+            const responseA = await generateFromLocal(fullPromptA, modelName, expressHttpRes, { role: 'model_a' });
             if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
               // This throw will be caught by the main try-catch of the conference_task
               throw new Error(`Model A (${finalModelARole}) failed: ${responseA}`);
@@ -1512,7 +1565,7 @@ async function executeStepsInternal(
             const fullPromptB = `${systemPromptB}\n\nUser Prompt: "${userPrompt}"`;
             model_b_prompt_for_log = fullPromptB;
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Model B (${modelName}) as ${finalModelBRole}`}, expressHttpRes);
-            const responseB = await generateFromLocal(fullPromptB, modelName, expressHttpRes);
+            const responseB = await generateFromLocal(fullPromptB, modelName, expressHttpRes, { role: 'model_b' });
             if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
               throw new Error(`Model B (${finalModelBRole}) failed: ${responseB}`);
             }
@@ -1525,7 +1578,7 @@ async function executeStepsInternal(
             const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nResponse A (${finalModelARole}): "${responseA}"\n\nResponse B (${finalModelBRole}): "${responseB}"\n\nYour evaluation and synthesized answer:`;
             arbiter_prompt_for_log = arbiterFullPrompt;
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Arbiter Model (${modelName}) as ${finalArbiterModelRole}`}, expressHttpRes);
-            arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, expressHttpRes);
+            arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, expressHttpRes, { role: 'arbiter' });
             if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
               throw new Error(`Arbiter Model (${finalArbiterModelRole}) failed: ${arbiterResponse}`);
             }
@@ -1546,7 +1599,7 @@ async function executeStepsInternal(
               }
               model_a_prompt_for_log = promptA; // Log the last prompt for A
               sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Calling Model A (${finalModelARole})`}, expressHttpRes);
-              const currentResponseA = await generateFromLocal(promptA, modelName, expressHttpRes);
+              const currentResponseA = await generateFromLocal(promptA, modelName, expressHttpRes, { role: 'model_a' });
               if (currentResponseA.startsWith('// LLM_ERROR:') || currentResponseA.startsWith('// LLM_WARNING:')) {
                 throw new Error(`Model A (${finalModelARole}) failed in Round ${round}: ${currentResponseA}`);
               }
@@ -1563,7 +1616,7 @@ async function executeStepsInternal(
               }
               model_b_prompt_for_log = promptB; // Log the last prompt for B
               sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Calling Model B (${finalModelBRole})`}, expressHttpRes);
-              const currentResponseB = await generateFromLocal(promptB, modelName, expressHttpRes);
+              const currentResponseB = await generateFromLocal(promptB, modelName, expressHttpRes, { role: 'model_b' });
               if (currentResponseB.startsWith('// LLM_ERROR:') || currentResponseB.startsWith('// LLM_WARNING:')) {
                 throw new Error(`Model B (${finalModelBRole}) failed in Round ${round}: ${currentResponseB}`);
               }
@@ -1580,7 +1633,7 @@ async function executeStepsInternal(
             const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nFull Debate History:\n${formattedDebateHistory}\n\nBased on the entire debate, provide a comprehensive synthesized answer as ${finalArbiterModelRole}.`;
             arbiter_prompt_for_log = arbiterFullPrompt;
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Arbiter Model (${finalArbiterModelRole}) with full debate history.`}, expressHttpRes);
-            arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, expressHttpRes);
+            arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, expressHttpRes, { role: 'arbiter' });
             if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
               throw new Error(`Arbiter Model (${finalArbiterModelRole}) failed after debate: ${arbiterResponse}`);
             }
@@ -2920,7 +2973,7 @@ app.post('/execute-conference-task', async (req, res) => {
     // Model A Interaction
     const promptA = `You are ${roleA}. The user's question is: "${userPrompt}". Provide your analysis and response.`;
     log(`[Conference ${conferenceId}] Prompting Model A (${roleA})...`);
-    const responseA = await generateFromLocal(promptA, currentModelName, null); // null for expressRes as we need the full response
+    const responseA = await generateFromLocal(promptA, currentModelName, null, { role: 'model_a' }); // null for expressRes as we need the full response
     if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
       log(`[Conference ${conferenceId}] Error from Model A: ${responseA}`, 'error');
       return res.status(500).json({ error: 'Error in Model A response.', conference_id: conferenceId, details: responseA, log_messages: logMessages });
@@ -2930,7 +2983,7 @@ app.post('/execute-conference-task', async (req, res) => {
     // Model B Interaction
     const promptB = `You are ${roleB}. The user's question is: "${userPrompt}". Provide your analysis and response.`;
     log(`[Conference ${conferenceId}] Prompting Model B (${roleB})...`);
-    const responseB = await generateFromLocal(promptB, currentModelName, null);
+    const responseB = await generateFromLocal(promptB, currentModelName, null, { role: 'model_b' });
     if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
       log(`[Conference ${conferenceId}] Error from Model B: ${responseB}`, 'error');
       return res.status(500).json({ error: 'Error in Model B response.', conference_id: conferenceId, details: responseB, log_messages: logMessages });
@@ -2940,7 +2993,7 @@ app.post('/execute-conference-task', async (req, res) => {
     // Arbiter Interaction
     const promptArbiter = `You are ${roleArbiter}. The user's original question was: "${userPrompt}".\n\nModel A (${roleA}) responded: "${responseA}"\n\nModel B (${roleB}) responded: "${responseB}"\n\nBased on the user's question and both responses, provide a comprehensive synthesized answer.`;
     log(`[Conference ${conferenceId}] Prompting Arbiter Model (${roleArbiter})...`);
-    const finalResponse = await generateFromLocal(promptArbiter, currentModelName, null);
+    const finalResponse = await generateFromLocal(promptArbiter, currentModelName, null, { role: 'arbiter' });
     if (finalResponse.startsWith('// LLM_ERROR:') || finalResponse.startsWith('// LLM_WARNING:')) {
       log(`[Conference ${conferenceId}] Error from Arbiter Model: ${finalResponse}`, 'error');
       return res.status(500).json({ error: 'Error in Arbiter Model response.', conference_id: conferenceId, details: finalResponse, log_messages: logMessages });

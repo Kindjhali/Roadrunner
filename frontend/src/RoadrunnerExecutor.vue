@@ -12,6 +12,7 @@
         </h1>
 
         <div class="apodiformes-form-grid">
+        <section class="task-definition-section p-4 border rounded-md mb-6">
           <div>
             <label for="taskGoal" class="emberiza-label">Overall Task Goal:</label>
             <input
@@ -63,7 +64,7 @@
               {{ isAwaitingPlanApproval ? 'Awaiting Plan Approval...' : 'Execute Autonomous Task' }}
             </button>
           </div>
-
+        </section>
 
           <div v-if="isAwaitingPlanApproval" class="apodiformes-form-row flex flex-col gap-4 mt-4">
             <div>
@@ -85,6 +86,7 @@
 
           <hr class="coloeus-divider my-6">
 
+        <section class="utilities-section p-4 border rounded-md mb-6">
           <div class="apodiformes-form-row mb-4">
             <label class="emberiza-label">Git Operations:</label>
             <div class="flex gap-2 mt-2">
@@ -113,6 +115,7 @@
 
           <hr class="coloeus-divider my-6">
 
+        <section class="task-output-section p-4 border rounded-md mb-6">
           <div v-if="showFailureOptions" class="apodiformes-form-row mt-4 p-4 border border-red-400 rounded bg-red-50">
             <h3 class="text-red-700 font-bold">Task Execution Failed</h3>
             <p v-if="currentErrorDetails"><strong>Error:</strong> {{ currentErrorDetails.message }}</p>
@@ -146,6 +149,7 @@
               </button>
             </div>
           </div>
+        </section>
 
           <div v-if="logEntries.length > 0" class="corvus-log-controls mb-2 flex gap-2 justify-end">
             <button class="cardinalis-button-action" @click="copyLogToClipboard" :disabled="!logEntries.length">
@@ -159,16 +163,17 @@
             {{ logStatusMessage }}
           </div>
 
-          <div v-if="logEntries.length > 0" class="otus-log-area">
-            <div v-for="entry in logEntries" :key="entry.id" class="log-entry">
-              <span class="log-timestamp">[{{ new Date(entry.timestamp).toLocaleTimeString() }}]</span>
-              <span :class="getLogEntryClass(entry)" :title="getLogEntryTitle(entry)">
+          <div v-if="logEntries.length > 0" class="otus-log-area bg-gray-900 text-gray-200 p-3 rounded-md shadow-md min-h-[200px] font-mono text-sm">
+            <div v-for="entry in logEntries" :key="entry.id" class="log-entry whitespace-pre-wrap border-b border-gray-700 py-1">
+              <span class="log-timestamp text-gray-500">[{{ new Date(entry.timestamp).toLocaleTimeString() }}]</span>
+              <span :class="getLogEntryClass(entry)" :title="getLogEntryTitle(entry)" class="ml-2">
                 {{ entry.text }}
               </span>
-              <pre v-if="entry.type === 'llm_chunk'" class="log-llm-chunk-details">{{ entry.details }}</pre>
+              <pre v-if="entry.type === 'llm_chunk'" class="log-llm-chunk-details text-gray-400 ml-4">{{ entry.details }}</pre>
             </div>
           </div>
 
+        </section>
 
           <hr class="coloeus-divider my-6">
 
