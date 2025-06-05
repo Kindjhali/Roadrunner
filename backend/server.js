@@ -456,34 +456,38 @@ app.post('/api/config/openai-key', (req, res) => {
 async function generateFromLocal(originalPrompt, modelName, expressRes, options = {}) {
   const provider = backendSettings.llmProvider;
   let accumulatedResponse = '';
-
   let finalPrompt = originalPrompt;
   const instructionsToApply = [];
+  const { agentType, agentRole } = options; // Extract agentType and agentRole
 
+  // Start with global instructions
   if (agentInstructions.global_instructions && agentInstructions.global_instructions.length > 0) {
     instructionsToApply.push(...agentInstructions.global_instructions);
   }
 
-  // Determine provider for instructions (OpenAI or Ollama)
-  // Uses backendSettings.llmProvider which is loaded from backend_config.json
+  // Add provider-specific default instructions
   if (provider === 'openai' && agentInstructions.openai_specific_instructions && agentInstructions.openai_specific_instructions.default) {
     instructionsToApply.push(...agentInstructions.openai_specific_instructions.default);
   } else if (provider !== 'openai' && agentInstructions.ollama_specific_instructions && agentInstructions.ollama_specific_instructions.default) { // Default to ollama if not openai
     instructionsToApply.push(...agentInstructions.ollama_specific_instructions.default);
   }
 
-  if (options.role && agentInstructions.conference_participant_instructions && agentInstructions.conference_participant_instructions[options.role]) {
-    instructionsToApply.push(...agentInstructions.conference_participant_instructions[options.role]);
+  // Add agent-specific instructions
+  if (agentType === 'coder_agent' && agentInstructions.coder_agent) {
+    instructionsToApply.push(...agentInstructions.coder_agent);
+  } else if (agentType === 'brainstorming_agent' && agentInstructions.brainstorming_agent) {
+    instructionsToApply.push(...agentInstructions.brainstorming_agent);
+  } else if (agentType === 'conference_agent' && agentRole && agentInstructions.conference_agent && agentInstructions.conference_agent[agentRole]) {
+    instructionsToApply.push(...agentInstructions.conference_agent[agentRole]);
   }
-  // TODO: Add more role types here if needed, e.g., for a 'coder' role based on options or step type
+  // Note: The old options.role check for conference_participant_instructions is now covered by agentType/agentRole for conference_agent
 
   if (instructionsToApply.length > 0) {
     const instructionsString = instructionsToApply.join('\n');
-    // Simple formatting: instructions, then a clear separator, then the user's original prompt.
     finalPrompt = `${instructionsString}\n\n---\nUser Prompt:\n${originalPrompt}`;
   }
 
-  console.log(`[LLM Generation] Provider: ${provider || 'ollama (default)'}, Model: ${modelName}, Role: ${options.role || 'N/A'}`);
+  console.log(`[LLM Generation] Provider: ${provider || 'ollama (default)'}, Model: ${modelName}, AgentType: ${agentType || 'N/A'}, AgentRole: ${agentRole || 'N/A'}`);
   console.log(`[LLM Generation] Final prompt (first 200 chars): "${finalPrompt.substring(0, 200)}..."`);
 
 
@@ -837,7 +841,8 @@ async function executeLoopBody(
         if (!promptText) throw new Error("Missing prompt/description for step.");
 
         sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: LLM prompt: "${promptText.substring(0, 70)}..."` });
-        const llmFullResponse = await generateFromLocal(promptText, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes);
+        // Assuming generic steps in a loop are coder-like for now
+        const llmFullResponse = await generateFromLocal(promptText, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes, { agentType: 'coder_agent' });
         if (llmFullResponse.startsWith('// LLM_ERROR:') || llmFullResponse.startsWith('// LLM_WARNING:')) {
           throw new Error(`LLM generation failed: ${llmFullResponse}`);
         }
@@ -863,7 +868,8 @@ async function executeLoopBody(
         if (!filePath || !prompt) throw new Error("Missing filePath or prompt for create_file_with_llm_content.");
 
         sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: LLM for file content (path: ${filePath}) prompt: "${prompt.substring(0, 70)}..."` });
-        const fileContent = await generateFromLocal(prompt, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes);
+        // Assuming file content generation is coder-like for now
+        const fileContent = await generateFromLocal(prompt, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes, { agentType: 'coder_agent' });
         if (fileContent.startsWith('// LLM_ERROR:') || fileContent.startsWith('// LLM_WARNING:')) {
           throw new Error(`LLM generation for file content failed: ${fileContent}`);
         }
@@ -1210,7 +1216,8 @@ async function executeStepsInternal(
           sendSseMessage('log_entry', {
             message: `[SSE] Step ${stepNumber} (${currentStep.type}): Sending prompt to LLM: "${promptText.substring(0, 100)}..."`,
           }, expressHttpRes);
-          let llmFullResponse = await generateFromLocal(promptText, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes);
+          // Temporarily assume coder_agent for generic_step
+          let llmFullResponse = await generateFromLocal(promptText, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes, { agentType: 'coder_agent' });
 
           if (llmFullResponse.startsWith('// LLM_ERROR:') || llmFullResponse.startsWith('// LLM_WARNING:')) {
             triggerStepFailure(`LLM generation failed.`, llmFullResponse, currentStep.type, stepNumber, {i});
@@ -1273,7 +1280,8 @@ async function executeStepsInternal(
         } else if (prompt) {
           contentSource = 'llm_prompt';
           sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): Sending prompt to LLM for file content: "${prompt.substring(0, 100)}..."` }, expressHttpRes);
-          fileContent = await generateFromLocal(prompt, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes);
+          // Temporarily assume coder_agent for create_file_with_llm_content
+          fileContent = await generateFromLocal(prompt, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes, { agentType: 'coder_agent' });
           sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): LLM stream completed.` }, expressHttpRes);
 
           if (fileContent.startsWith('// LLM_ERROR:') || fileContent.startsWith('// LLM_WARNING:')) {
@@ -1551,7 +1559,7 @@ async function executeStepsInternal(
             const fullPromptA = `${systemPromptA}\n\nUser Prompt: "${userPrompt}"`;
             model_a_prompt_for_log = fullPromptA;
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Model A (${modelName}) as ${finalModelARole}`}, expressHttpRes);
-            const responseA = await generateFromLocal(fullPromptA, modelName, expressHttpRes, { role: 'model_a' });
+            const responseA = await generateFromLocal(fullPromptA, modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_a' });
             if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
               // This throw will be caught by the main try-catch of the conference_task
               throw new Error(`Model A (${finalModelARole}) failed: ${responseA}`);
@@ -1565,7 +1573,7 @@ async function executeStepsInternal(
             const fullPromptB = `${systemPromptB}\n\nUser Prompt: "${userPrompt}"`;
             model_b_prompt_for_log = fullPromptB;
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Model B (${modelName}) as ${finalModelBRole}`}, expressHttpRes);
-            const responseB = await generateFromLocal(fullPromptB, modelName, expressHttpRes, { role: 'model_b' });
+            const responseB = await generateFromLocal(fullPromptB, modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_b' });
             if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
               throw new Error(`Model B (${finalModelBRole}) failed: ${responseB}`);
             }
@@ -1578,7 +1586,7 @@ async function executeStepsInternal(
             const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nResponse A (${finalModelARole}): "${responseA}"\n\nResponse B (${finalModelBRole}): "${responseB}"\n\nYour evaluation and synthesized answer:`;
             arbiter_prompt_for_log = arbiterFullPrompt;
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Arbiter Model (${modelName}) as ${finalArbiterModelRole}`}, expressHttpRes);
-            arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, expressHttpRes, { role: 'arbiter' });
+            arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'arbiter' });
             if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
               throw new Error(`Arbiter Model (${finalArbiterModelRole}) failed: ${arbiterResponse}`);
             }
@@ -1599,7 +1607,7 @@ async function executeStepsInternal(
               }
               model_a_prompt_for_log = promptA; // Log the last prompt for A
               sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Calling Model A (${finalModelARole})`}, expressHttpRes);
-              const currentResponseA = await generateFromLocal(promptA, modelName, expressHttpRes, { role: 'model_a' });
+              const currentResponseA = await generateFromLocal(promptA, modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_a' });
               if (currentResponseA.startsWith('// LLM_ERROR:') || currentResponseA.startsWith('// LLM_WARNING:')) {
                 throw new Error(`Model A (${finalModelARole}) failed in Round ${round}: ${currentResponseA}`);
               }
@@ -1616,7 +1624,7 @@ async function executeStepsInternal(
               }
               model_b_prompt_for_log = promptB; // Log the last prompt for B
               sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Calling Model B (${finalModelBRole})`}, expressHttpRes);
-              const currentResponseB = await generateFromLocal(promptB, modelName, expressHttpRes, { role: 'model_b' });
+              const currentResponseB = await generateFromLocal(promptB, modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_b' });
               if (currentResponseB.startsWith('// LLM_ERROR:') || currentResponseB.startsWith('// LLM_WARNING:')) {
                 throw new Error(`Model B (${finalModelBRole}) failed in Round ${round}: ${currentResponseB}`);
               }
@@ -1633,7 +1641,7 @@ async function executeStepsInternal(
             const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nFull Debate History:\n${formattedDebateHistory}\n\nBased on the entire debate, provide a comprehensive synthesized answer as ${finalArbiterModelRole}.`;
             arbiter_prompt_for_log = arbiterFullPrompt;
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Arbiter Model (${finalArbiterModelRole}) with full debate history.`}, expressHttpRes);
-            arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, expressHttpRes, { role: 'arbiter' });
+            arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'arbiter' });
             if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
               throw new Error(`Arbiter Model (${finalArbiterModelRole}) failed after debate: ${arbiterResponse}`);
             }
@@ -2271,7 +2279,8 @@ Remember, output *only* the JSON array.
     overallExecutionLog.push(`[Autonomous Mode] Using model '${llmModelForPlanGeneration}' for plan generation.`);
     console.log(`[handleExecuteAutonomousTask] Autonomous Mode: Using model '${llmModelForPlanGeneration}' for plan generation.`);
 
-    const llmGeneratedStepsString = await generateFromLocal(autonomousPrompt, llmModelForPlanGeneration, expressHttpRes);
+    // For plan generation, no specific agentType/agentRole is passed, so it uses global/provider instructions.
+    const llmGeneratedStepsString = await generateFromLocal(autonomousPrompt, llmModelForPlanGeneration, expressHttpRes, {});
 
     // Log the raw output (or a significant portion) for debugging, regardless of success or failure after this point.
     console.log(`[handleExecuteAutonomousTask] Raw LLM output for steps (full): ${llmGeneratedStepsString}`);
@@ -2793,6 +2802,129 @@ app.get('/api/ollama-models/categorized', async (req, res) => {
   }
 });
 
+// --- Agent Instructions API Endpoints ---
+
+// GET /api/instructions/:agentType
+app.get('/api/instructions/:agentType', (req, res) => {
+  const { agentType } = req.params;
+  console.log(`[API GET /api/instructions/${agentType}] Request received.`);
+  try {
+    // Read the latest instructions from file for each request to ensure freshness
+    const currentAgentInstructions = JSON.parse(fs.readFileSync(instructionsPath, 'utf-8'));
+
+    if (agentType === 'coder_agent' && currentAgentInstructions.coder_agent) {
+      res.json(currentAgentInstructions.coder_agent);
+    } else if (agentType === 'brainstorming_agent' && currentAgentInstructions.brainstorming_agent) {
+      res.json(currentAgentInstructions.brainstorming_agent);
+    } else if (agentType === 'conference_agent' && currentAgentInstructions.conference_agent) {
+      // For /api/instructions/conference_agent, return the whole conference_agent object
+      res.json(currentAgentInstructions.conference_agent);
+    } else {
+      console.log(`[API GET /api/instructions/${agentType}] Agent type not found.`);
+      res.status(404).json({ message: `Agent type '${agentType}' not found.` });
+    }
+  } catch (error) {
+    console.error(`[API GET /api/instructions/${agentType}] Error reading instructions file:`, error);
+    res.status(500).json({ message: 'Error reading agent instructions file.', details: error.message });
+  }
+});
+
+// GET /api/instructions/conference_agent/:agentRole
+app.get('/api/instructions/conference_agent/:agentRole', (req, res) => {
+  const { agentRole } = req.params;
+  console.log(`[API GET /api/instructions/conference_agent/${agentRole}] Request received.`);
+  try {
+    const currentAgentInstructions = JSON.parse(fs.readFileSync(instructionsPath, 'utf-8'));
+
+    if (currentAgentInstructions.conference_agent && currentAgentInstructions.conference_agent[agentRole]) {
+      res.json(currentAgentInstructions.conference_agent[agentRole]);
+    } else {
+      console.log(`[API GET /api/instructions/conference_agent/${agentRole}] Conference agent role '${agentRole}' not found.`);
+      res.status(404).json({ message: `Conference agent role '${agentRole}' not found.` });
+    }
+  } catch (error) {
+    console.error(`[API GET /api/instructions/conference_agent/${agentRole}] Error reading instructions file:`, error);
+    res.status(500).json({ message: 'Error reading agent instructions file.', details: error.message });
+  }
+});
+
+// POST /api/instructions/:agentType
+app.post('/api/instructions/:agentType', (req, res) => {
+  const { agentType } = req.params;
+  const { instructions } = req.body;
+  console.log(`[API POST /api/instructions/${agentType}] Request received with instructions:`, instructions);
+
+  if (agentType === 'conference_agent') {
+    console.log(`[API POST /api/instructions/${agentType}] Invalid agentType for this endpoint. Use role-specific endpoint.`);
+    return res.status(400).json({ message: `To update conference_agent instructions, please use the /api/instructions/conference_agent/:agentRole endpoint.` });
+  }
+
+  if (!Array.isArray(instructions) || !instructions.every(item => typeof item === 'string')) {
+    console.log(`[API POST /api/instructions/${agentType}] Invalid payload: instructions must be an array of strings.`);
+    return res.status(400).json({ message: 'Invalid payload: instructions must be an array of strings.' });
+  }
+
+  try {
+    let currentAgentInstructions = JSON.parse(fs.readFileSync(instructionsPath, 'utf-8'));
+
+    if (agentType === 'coder_agent') {
+      currentAgentInstructions.coder_agent = instructions;
+    } else if (agentType === 'brainstorming_agent') {
+      currentAgentInstructions.brainstorming_agent = instructions;
+    } else {
+      // This case should ideally not be reached if conference_agent is handled above,
+      // but as a safeguard for other potential agent types not covered.
+      console.log(`[API POST /api/instructions/${agentType}] Agent type not found for update.`);
+      return res.status(404).json({ message: `Agent type '${agentType}' not found or cannot be updated via this endpoint.` });
+    }
+
+    fs.writeFileSync(instructionsPath, JSON.stringify(currentAgentInstructions, null, 2), 'utf-8');
+    agentInstructions = currentAgentInstructions; // Update in-memory instructions
+    console.log(`[API POST /api/instructions/${agentType}] Instructions updated successfully.`);
+    res.json({ message: `Instructions for '${agentType}' updated successfully.` });
+
+  } catch (error) {
+    console.error(`[API POST /api/instructions/${agentType}] Error processing request:`, error);
+    res.status(500).json({ message: 'Error updating agent instructions.', details: error.message });
+  }
+});
+
+// POST /api/instructions/conference_agent/:agentRole
+app.post('/api/instructions/conference_agent/:agentRole', (req, res) => {
+  const { agentRole } = req.params;
+  const { instructions } = req.body;
+  console.log(`[API POST /api/instructions/conference_agent/${agentRole}] Request received with instructions:`, instructions);
+
+  if (!Array.isArray(instructions) || !instructions.every(item => typeof item === 'string')) {
+    console.log(`[API POST /api/instructions/conference_agent/${agentRole}] Invalid payload: instructions must be an array of strings.`);
+    return res.status(400).json({ message: 'Invalid payload: instructions must be an array of strings.' });
+  }
+
+  try {
+    let currentAgentInstructions = JSON.parse(fs.readFileSync(instructionsPath, 'utf-8'));
+
+    if (!currentAgentInstructions.conference_agent) {
+      // This case might occur if the conference_agent key was deleted from the file manually.
+      // Initialize it to allow role creation.
+      console.warn(`[API POST /api/instructions/conference_agent/${agentRole}] 'conference_agent' object not found in instructions file. Initializing.`);
+      currentAgentInstructions.conference_agent = {};
+    }
+    // It's okay if the role doesn't exist yet; this will create it.
+    // A stricter version might check if agentRole is one of 'model_a', 'model_b', 'arbiter' only.
+    currentAgentInstructions.conference_agent[agentRole] = instructions;
+
+    fs.writeFileSync(instructionsPath, JSON.stringify(currentAgentInstructions, null, 2), 'utf-8');
+    agentInstructions = currentAgentInstructions; // Update in-memory instructions
+    console.log(`[API POST /api/instructions/conference_agent/${agentRole}] Instructions updated successfully for role '${agentRole}'.`);
+    res.json({ message: `Instructions for conference_agent role '${agentRole}' updated successfully.` });
+
+  } catch (error) {
+    console.error(`[API POST /api/instructions/conference_agent/${agentRole}] Error processing request:`, error);
+    res.status(500).json({ message: 'Error updating conference agent instructions.', details: error.message });
+  }
+});
+
+
 // Search logs via LogCore
 app.get('/api/logs/search', async (req, res) => {
   try {
@@ -2973,7 +3105,7 @@ app.post('/execute-conference-task', async (req, res) => {
     // Model A Interaction
     const promptA = `You are ${roleA}. The user's question is: "${userPrompt}". Provide your analysis and response.`;
     log(`[Conference ${conferenceId}] Prompting Model A (${roleA})...`);
-    const responseA = await generateFromLocal(promptA, currentModelName, null, { role: 'model_a' }); // null for expressRes as we need the full response
+    const responseA = await generateFromLocal(promptA, currentModelName, null, { agentType: 'conference_agent', agentRole: 'model_a' }); // null for expressRes
     if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
       log(`[Conference ${conferenceId}] Error from Model A: ${responseA}`, 'error');
       return res.status(500).json({ error: 'Error in Model A response.', conference_id: conferenceId, details: responseA, log_messages: logMessages });
@@ -2983,7 +3115,7 @@ app.post('/execute-conference-task', async (req, res) => {
     // Model B Interaction
     const promptB = `You are ${roleB}. The user's question is: "${userPrompt}". Provide your analysis and response.`;
     log(`[Conference ${conferenceId}] Prompting Model B (${roleB})...`);
-    const responseB = await generateFromLocal(promptB, currentModelName, null, { role: 'model_b' });
+    const responseB = await generateFromLocal(promptB, currentModelName, null, { agentType: 'conference_agent', agentRole: 'model_b' });
     if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
       log(`[Conference ${conferenceId}] Error from Model B: ${responseB}`, 'error');
       return res.status(500).json({ error: 'Error in Model B response.', conference_id: conferenceId, details: responseB, log_messages: logMessages });
@@ -2993,7 +3125,7 @@ app.post('/execute-conference-task', async (req, res) => {
     // Arbiter Interaction
     const promptArbiter = `You are ${roleArbiter}. The user's original question was: "${userPrompt}".\n\nModel A (${roleA}) responded: "${responseA}"\n\nModel B (${roleB}) responded: "${responseB}"\n\nBased on the user's question and both responses, provide a comprehensive synthesized answer.`;
     log(`[Conference ${conferenceId}] Prompting Arbiter Model (${roleArbiter})...`);
-    const finalResponse = await generateFromLocal(promptArbiter, currentModelName, null, { role: 'arbiter' });
+    const finalResponse = await generateFromLocal(promptArbiter, currentModelName, null, { agentType: 'conference_agent', agentRole: 'arbiter' });
     if (finalResponse.startsWith('// LLM_ERROR:') || finalResponse.startsWith('// LLM_WARNING:')) {
       log(`[Conference ${conferenceId}] Error from Arbiter Model: ${finalResponse}`, 'error');
       return res.status(500).json({ error: 'Error in Arbiter Model response.', conference_id: conferenceId, details: finalResponse, log_messages: logMessages });

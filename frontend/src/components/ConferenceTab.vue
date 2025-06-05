@@ -13,10 +13,10 @@
             </option>
           </optgroup>
         </select>
+        <button @click="openConferenceInstructions('model_a')" class="pelecanus-button-action text-xs ml-2">Edit Model A Instructions</button>
       </div>
       <div>
         <label for="modelB-select">Select Model B:</label>
-
         <select id="modelB-select" v-model="selectedModelB" class="conference-model-select">
           <option :value="null" disabled>-- Select Model B --</option>
           <optgroup v-for="(group, category) in categorizedModels" :key="category" :label="category.toUpperCase()">
@@ -25,6 +25,7 @@
             </option>
           </optgroup>
         </select>
+        <button @click="openConferenceInstructions('model_b')" class="pelecanus-button-action text-xs ml-2">Edit Model B Instructions</button>
       </div>
       <div>
         <label for="arbiter-select">Select Arbiter Model:</label>
@@ -36,6 +37,7 @@
             </option>
           </optgroup>
         </select>
+        <button @click="openConferenceInstructions('arbiter')" class="pelecanus-button-action text-xs ml-2">Edit Arbiter Instructions</button>
       </div>
     </div>
 
@@ -107,8 +109,13 @@
 </template>
 
 <script>
+import InstructionsModal from './InstructionsModal.vue'; // Import the modal
+
 export default {
   name: 'ConferenceTab',
+  components: {
+    InstructionsModal, // Register the modal
+  },
   data() {
     return {
       prompt: '',
@@ -122,6 +129,9 @@ export default {
       conferenceLog: [], // To store conversation turns { speaker, message }
       logMessages: [],
       generalBackendLogs: [], // Added for general backend logs
+      // For Instructions Modal
+      showInstructionsModal: false,
+      modalAgentRoleForConference: null,
     };
   },
   computed: {
@@ -229,8 +239,83 @@ export default {
           console.warn('[ConferenceTab] Received unknown conference event type:', eventData.type);
       }
     },
+    openConferenceInstructions(role) {
+      this.modalAgentRoleForConference = role;
+      this.showInstructionsModal = true;
+    },
+    setDefaultModels() {
+      console.log('[ConferenceTab setDefaultModels] Attempting to set default models.');
+      const models = this.allAvailableModels;
+      if (!models || models.length === 0) {
+        console.warn('[ConferenceTab setDefaultModels] No available models to set defaults.');
+        return;
+      }
+
+      // Only set defaults if current selections are null
+      if (this.selectedModelA === null && models.length > 0) {
+        this.selectedModelA = models[0].id;
+        console.log(`[ConferenceTab setDefaultModels] Set Model A to: ${models[0].name} (ID: ${this.selectedModelA})`);
+      }
+
+      if (this.selectedModelB === null && models.length > 1) {
+        // Try to find a different model for B
+        const modelB = models.find(m => m.id !== this.selectedModelA);
+        if (modelB) {
+          this.selectedModelB = modelB.id;
+          console.log(`[ConferenceTab setDefaultModels] Set Model B to: ${modelB.name} (ID: ${this.selectedModelB})`);
+        } else { // Fallback if only one unique model exists (e.g. models.length > 1 but all are same id)
+          this.selectedModelB = models[0].id; // or models[1].id if sure models[1] exists
+           console.log(`[ConferenceTab setDefaultModels] Set Model B (fallback) to: ${models[0].name} (ID: ${this.selectedModelB})`);
+        }
+      } else if (this.selectedModelB === null && models.length === 1) {
+        this.selectedModelB = models[0].id; // Only one model, use it for B too
+        console.log(`[ConferenceTab setDefaultModels] Set Model B (single model) to: ${models[0].name} (ID: ${this.selectedModelB})`);
+      }
+
+
+      if (this.selectedArbiter === null && models.length > 0) {
+        if (models.length > 2) {
+          // Try to find a model different from A and B
+          const modelArbiter = models.find(m => m.id !== this.selectedModelA && m.id !== this.selectedModelB);
+          if (modelArbiter) {
+            this.selectedArbiter = modelArbiter.id;
+            console.log(`[ConferenceTab setDefaultModels] Set Arbiter to: ${modelArbiter.name} (ID: ${this.selectedArbiter})`);
+          } else { // Fallback if only two unique models (A and B might be different or same)
+            // Prefer a model different from A if possible, or just the first one
+            const fallbackArbiter = models.find(m => m.id !== this.selectedModelA) || models[0];
+            this.selectedArbiter = fallbackArbiter.id;
+            console.log(`[ConferenceTab setDefaultModels] Set Arbiter (fallback from 2 unique) to: ${fallbackArbiter.name} (ID: ${this.selectedArbiter})`);
+          }
+        } else if (models.length > 1) { // Only two models available in total (could be unique or same)
+            // Try to pick one different from Model A for arbiter, if A and B ended up being the same
+            const fallbackArbiter = models.find(m => m.id !== this.selectedModelA) || models[0];
+            this.selectedArbiter = fallbackArbiter.id;
+            console.log(`[ConferenceTab setDefaultModels] Set Arbiter (fallback from 2 total) to: ${fallbackArbiter.name} (ID: ${this.selectedArbiter})`);
+        }
+         else { // Only one model available
+          this.selectedArbiter = models[0].id;
+          console.log(`[ConferenceTab setDefaultModels] Set Arbiter (single model) to: ${models[0].name} (ID: ${this.selectedArbiter})`);
+        }
+      }
+    },
+  },
+  watch: {
+    categorizedModels: {
+      handler(newModels) {
+        if (newModels && Object.keys(newModels).length > 0) {
+          // Check if defaults are already set by user or previous runs to avoid override
+          if (this.selectedModelA === null || this.selectedModelB === null || this.selectedArbiter === null) {
+            console.log('[ConferenceTab Watcher categorizedModels] Models loaded, attempting to set defaults.');
+            this.setDefaultModels();
+          }
+        }
+      },
+      deep: true,
+      immediate: true, // Call handler immediately when component is created, if models are already in store
+    }
   },
   mounted() {
+    this.setDefaultModels(); // Attempt to set defaults on mount
     if (window.electronAPI) {
 
       // Setup listeners
