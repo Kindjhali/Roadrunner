@@ -47,10 +47,6 @@
       </button>
     </div>
 
-    <div v-if="isLoading || isStreaming" class="loading-section">
-      <p><i>{{ isStreaming ? 'Live conference in progress...' : 'Initiating conference... Please wait.' }}</i></p>
-    </div>
-
     <div v-if="conferenceLog.length > 0" class="conversation-log-section">
       <h3>Conversation Log:</h3>
       <div v-for="(turn, index) in conferenceLog" :key="index" class="turn">
@@ -65,22 +61,47 @@
       <div v-if="result.model_a_response">
         <h4>Model A's Response:</h4>
         <pre>{{ result.model_a_response }}</pre>
-        <div v-if="logMessages.length" class="conference-log-terminal">
-          <pre v-for="(line, idx) in logMessages" :key="'a-' + idx">{{ line }}</pre>
-        </div>
       </div>
+
       <div v-if="result.model_b_response">
         <h4>Model B's Response:</h4>
         <pre>{{ result.model_b_response }}</pre>
-        <div v-if="logMessages.length" class="conference-log-terminal">
-          <pre v-for="(line, idx) in logMessages" :key="'b-' + idx">{{ line }}</pre>
+      </div>
+
+      <!-- Consolidated Conference Log Messages Display -->
+      <div v-if="logMessages.length > 0" class="conference-summary-log-terminal mt-3 p-2 bg-gray-750 rounded">
+        <h4 class="text-md font-semibold text-gray-300 mb-1">Conference Detail Log:</h4>
+        <div class="max-h-40 overflow-y-auto text-xs">
+            <pre v-for="(line, idx) in logMessages" :key="'conf-log-' + idx">{{ line }}</pre>
         </div>
       </div>
-      </div>
+    </div>
 
     <div v-if="error" class="error-section">
       <h3>Error:</h3>
       <pre>{{ error }}</pre>
+    </div>
+
+    <!-- Enhanced System Logs / Conference Status Area -->
+    <div class="system-and-conference-status-log-terminal mt-4 p-3 bg-gray-800 rounded-md">
+      <div v-if="isLoading && !isStreaming">
+        <p class="text-yellow-400 italic mb-2">Initiating conference... Please wait. Background activity:</p>
+      </div>
+      <div v-if="isStreaming">
+        <p class="text-green-400 italic mb-2">Live conference in progress... Background activity:</p>
+      </div>
+
+      <!-- Always show generalBackendLogs if they exist, or a placeholder if loading and no logs yet -->
+      <div v-if="generalBackendLogs.length > 0" class="max-h-60 overflow-y-auto text-xs">
+        <pre v-for="(log, index) in generalBackendLogs" :key="`general-log-${index}`">{{ log }}</pre>
+      </div>
+      <div v-else-if="isLoading || isStreaming">
+        <p class="text-gray-500 text-xs italic">(Waiting for background activity...)</p>
+      </div>
+      <div v-else-if="!generalBackendLogs.length">
+         <!-- Optional: Message if no logs and not loading/streaming -->
+         <!-- <p class="text-gray-500 text-xs italic">(No system logs to display at the moment.)</p> -->
+      </div>
     </div>
   </div>
 </template>
@@ -100,6 +121,7 @@ export default {
       selectedArbiter: null,
       conferenceLog: [], // To store conversation turns { speaker, message }
       logMessages: [],
+      generalBackendLogs: [], // Added for general backend logs
     };
   },
   computed: {
@@ -235,17 +257,41 @@ export default {
       } else {
         console.warn('[ConferenceTab] onConferenceStreamEnd API is not available.');
       }
+
+      // Listener for general backend logs
+      if (window.electronAPI && window.electronAPI.onBackendLogEvent) {
+        window.electronAPI.onBackendLogEvent((event, logEntry) => {
+          const formattedLog = `[${new Date(logEntry.timestamp).toLocaleTimeString()}] [${logEntry.stream}] ${logEntry.line}`;
+          this.generalBackendLogs.push(formattedLog);
+          if (this.generalBackendLogs.length > 200) { // Keep last 200 lines
+            this.generalBackendLogs.splice(0, this.generalBackendLogs.length - 200);
+          }
+        });
+      } else {
+        console.warn('[ConferenceTab] Backend log event API (onBackendLogEvent) not available.');
+        // this.generalBackendLogs.push('[Mock] Backend log API not available in this environment.');
+      }
+
     } else {
       console.warn('[ConferenceTab] Electron API (window.electronAPI) not available for mounting conference listeners.');
       this.error = "Conference Tab functionality is currently unavailable. The required backend integration (Electron API) is missing. Please ensure the application is running in the correct Electron environment and all preload scripts are loaded.";
     }
   },
   beforeUnmount() {
-    if (window.electronAPI && window.electronAPI.removeAllConferenceListeners) {
-      console.log('[ConferenceTab] Removing all conference listeners.');
-      window.electronAPI.removeAllConferenceListeners();
-    } else {
-      console.warn('[ConferenceTab] removeAllConferenceListeners API is not available.');
+    if (window.electronAPI) {
+      if (window.electronAPI.removeAllConferenceListeners) {
+        console.log('[ConferenceTab] Removing all conference listeners.');
+        window.electronAPI.removeAllConferenceListeners();
+      } else {
+        console.warn('[ConferenceTab] removeAllConferenceListeners API is not available.');
+      }
+      // Cleanup for general backend logs listener
+      if (window.electronAPI.removeBackendLogEventListener) {
+        console.log('[ConferenceTab] Removing backend log event listener.');
+        window.electronAPI.removeBackendLogEventListener();
+      } else {
+        console.warn('[ConferenceTab] removeBackendLogEventListener API is not available.');
+      }
     }
   }
 };

@@ -92,41 +92,43 @@ export default {
     }),
     computedLlmProvider: {
       get() {
-        return this.currentSettings.llmProvider;
+        return this.currentSettings ? this.currentSettings.llmProvider : null;
       },
       set(value) {
-        this.saveSettings({
-          ...this.currentSettings,
-          llmProvider: value,
-        });
+        const newSettings = { ...(this.currentSettings || {}) };
+        newSettings.llmProvider = value;
+        this.saveSettings(newSettings);
       },
     },
     computedApiKey: {
       get() {
-        return this.currentSettings.apiKey;
+        return this.currentSettings ? this.currentSettings.apiKey : ''; // Return empty string as default for input field
       },
       set(value) {
-        this.saveSettings({
-          ...this.currentSettings,
-          apiKey: value,
-        });
+        const newSettings = { ...(this.currentSettings || {}) };
+        newSettings.apiKey = value;
+        this.saveSettings(newSettings);
       },
     },
     computedDefaultOllamaModel: {
       get() {
-        return this.currentSettings.defaultOllamaModel;
+        return this.currentSettings ? this.currentSettings.defaultOllamaModel : ''; // Return empty string as default
       },
       set(value) {
-        this.saveSettings({
-          ...this.currentSettings,
-          defaultOllamaModel: value,
-        });
+        const newSettings = { ...(this.currentSettings || {}) };
+        newSettings.defaultOllamaModel = value;
+        this.saveSettings(newSettings);
       },
     },
   },
   mounted() {
+    console.log('[ConfigurationTab] Mounted. Initial currentSettings:', JSON.stringify(this.currentSettings));
     this.loadOpenAIConfig();
-    this.loadSettings(); // Load general LLM settings
+    this.loadSettings().then(() => {
+      console.log('[ConfigurationTab] After loadSettings(). currentSettings:', JSON.stringify(this.currentSettings));
+    }).catch(error => {
+      console.error('[ConfigurationTab] Error during loadSettings:', error);
+    });
   },
   methods: {
     ...mapActions(['saveSettings', 'loadSettings']),
@@ -166,36 +168,54 @@ export default {
         this.setConfigStatusMessage('OpenAI API Key cannot be empty.', false);
         return;
       }
-      this.setConfigStatusMessage('Saving OpenAI API Key...', false, true); // Persistent message while saving
-      let responseText = ''; // Variable to hold response text for logging in catch
+      this.setConfigStatusMessage('Saving OpenAI API Key...', false, true);
+      let responseText = '';
+
       try {
-        console.log('[ConfigurationTab.vue] saveOpenAIKey: Attempting to POST /api/config/openai-key with key:', this.openaiApiKey ? '******' : 'EMPTY_KEY');
-        const response = await fetch('http://localhost:3030/api/config/openai-key', { // Corrected URL
+        const response = await fetch('http://localhost:3030/api/config/openai-key', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ apiKey: this.openaiApiKey }),
         });
 
-        console.log('[ConfigurationTab.vue] saveOpenAIKey: Received response for /api/config/openai-key. Status:', response.status, 'Ok:', response.ok);
-        responseText = await response.clone().text(); // Clone to read text without consuming body for json()
-        console.log('[ConfigurationTab.vue] saveOpenAIKey: Response text (first 200 chars):', responseText.substring(0, 200));
+        responseText = await response.text(); // Get raw response text first
 
-        const result = await response.json(); // Always try to parse JSON
+        if (!response.ok) {
+          // Attempt to parse JSON error if possible, otherwise use responseText
+          let serverMessage = `Server returned status ${response.status}.`;
+          try {
+            const errorResult = JSON.parse(responseText);
+            serverMessage = errorResult.message || serverMessage;
+          } catch (e) {
+            // Not a JSON response, use a snippet of the raw text if it's short, or a generic message
+            serverMessage = responseText.length < 100 ? responseText : serverMessage;
+          }
+          this.setConfigStatusMessage(`Failed to save: ${serverMessage}`, false);
+          console.error(`[ConfigurationTab.vue] saveOpenAIKey: Server error. Status: ${response.status}. Response: ${responseText.substring(0,200)}`);
+          return;
+        }
 
-        if (response.ok && result.success) {
+        // If response.ok, try to parse JSON
+        const result = JSON.parse(responseText);
+        if (result.success) {
           this.setConfigStatusMessage(result.message || 'OpenAI API Key saved successfully!', true);
-          this.openaiApiKey = ''; // Clear the input field after successful save
+          this.openaiApiKey = '';
         } else {
-          this.setConfigStatusMessage(result.message || `Failed to save OpenAI API Key: ${response.status}`, false);
+          // This case might occur if response.ok is true but backend explicitly signals failure
+          this.setConfigStatusMessage(result.message || 'Failed to save OpenAI API Key due to a server issue.', false);
         }
+
       } catch (error) {
-        console.error('[ConfigurationTab.vue] saveOpenAIKey: CATCH block. Error during fetch or JSON parsing for /api/config/openai-key:', error);
-        if (responseText) { // If responseText was captured before a JSON.parse error
-            console.error('[ConfigurationTab.vue] saveOpenAIKey: CATCH block. Response text that may have caused JSON parse error (first 200 chars):', responseText.substring(0, 200));
+        // This catch block now primarily handles network errors or unexpected issues
+        console.error('[ConfigurationTab.vue] saveOpenAIKey: CATCH block. Error during fetch or processing:', error);
+        let userMessage = `Error saving OpenAI API Key: ${error.message}`;
+        if (error.message.toLowerCase().includes('failed to fetch')) {
+            userMessage = 'Network error: Could not connect to the server. Please ensure it is running and accessible.';
+        } else if (responseText) {
+            // If responseText was captured but another error occurred (e.g. JSON.parse on an OK response that wasn't JSON)
+            userMessage = `Unexpected response from server. Content: ${responseText.substring(0,100)}...`;
         }
-        this.setConfigStatusMessage(`Error saving OpenAI API Key: ${error.message}`, false);
+        this.setConfigStatusMessage(userMessage, false);
       }
     },
 
