@@ -219,63 +219,61 @@ export default {
     },
 
     handleLLMChunk(data) {
+      console.log('[ConferenceTab] Raw data for handleLLMChunk:', JSON.stringify(data));
       console.log('[ConferenceTab] handleLLMChunk:', data);
       this.isStreaming = true;
       this.isLoading = false;
-      if (data && data.content) {
-        this.conferenceLog.push({
-          speaker: data.speaker || (data.role || 'Model'), // Use speaker, fallback to role, then 'Model'
-          message: data.content,
-        });
-        // Optionally add to conversationHistory if llm_chunks are considered part of history
-        // this.conversationHistory.push({ role: data.speaker || 'assistant', content: data.content });
-      } else {
-        console.warn('[ConferenceTab] Received LLM chunk without content:', data);
+      // Ensure data itself is an object before accessing properties
+      const currentData = data || {};
+      this.conferenceLog.push({
+        speaker: currentData.speaker || currentData.role || 'Model',
+        message: currentData.content || '', // Default content to empty string
+      });
+      if (!currentData.content) {
+        console.warn('[ConferenceTab] Received LLM chunk without content:', currentData);
       }
     },
 
     handleLogEntry(data) {
+      console.log('[ConferenceTab] Raw data for handleLogEntry:', JSON.stringify(data));
       console.log('[ConferenceTab] handleLogEntry:', data);
-      if (!this.isStreaming && !this.isLoading) { // If this is the first event after start
-        // This might not be strictly necessary if LLM chunks arrive first
-      }
-      // An early log entry might arrive before the first LLM chunk.
-      // Set streaming to true and loading to false if this is the first sign of activity.
       if (this.isLoading && !this.isStreaming) {
         this.isStreaming = true;
         this.isLoading = false;
       }
-      if (data && data.message) {
-        this.conferenceLog.push({
-          speaker: data.speaker || 'System',
-          message: `[SYS-LOG] ${data.message}`, // Prepend to distinguish from model messages
-        });
-      } else {
-        console.warn('[ConferenceTab] Received log entry without message:', data);
+      // Ensure data itself is an object before accessing properties
+      const currentData = data || {};
+      this.conferenceLog.push({
+        speaker: (currentData.speaker || 'System') || 'Default System Speaker',
+        message: `[SYS-LOG] ${currentData.message || ''}`, // Default message to empty string
+      });
+      if (!currentData.message) {
+        console.warn('[ConferenceTab] Received log entry without message:', currentData);
       }
     },
 
     handleError(errorDetails) {
+      console.log('[ConferenceTab] Raw data for handleError:', JSON.stringify(errorDetails));
       console.error('[ConferenceTab] handleError:', errorDetails);
-      let errorMessage = 'An unexpected error occurred during the conference.';
-      if (errorDetails) {
-        if (typeof errorDetails === 'string') {
-          errorMessage = errorDetails;
-        } else if (errorDetails.error) {
-          errorMessage = errorDetails.error;
-          if (errorDetails.details) {
-            errorMessage += ` (Details: ${errorDetails.details})`;
-          }
-        } else if (errorDetails.message) { // Fallback for generic error objects
-            errorMessage = errorDetails.message;
+      let errorMessage;
+      if (typeof errorDetails === 'string') {
+        errorMessage = errorDetails;
+      } else if (errorDetails && (errorDetails.error || errorDetails.message)) {
+        errorMessage = errorDetails.error || errorDetails.message || 'An error occurred.';
+        if (errorDetails.details) {
+          errorMessage += ` (Details: ${errorDetails.details})`;
         }
+      } else {
+        errorMessage = 'An unexpected error occurred during the conference.';
       }
       this.error = errorMessage;
       this.isLoading = false;
       this.isStreaming = false;
+      console.log(`[ConferenceTab] handleError: Set isLoading to ${this.isLoading}, isStreaming to ${this.isStreaming}. Error displayed: ${errorMessage}`);
     },
 
     handleComplete(summaryData) {
+      console.log('[ConferenceTab] Raw data for handleComplete:', JSON.stringify(summaryData));
       console.log('[ConferenceTab] handleComplete:', summaryData);
       this.isLoading = false;
       this.isStreaming = false;
@@ -283,11 +281,17 @@ export default {
       if (!summaryData) {
         this.error = "Conference completed, but no summary data was received.";
         this.conferenceLog.push({ speaker: 'System', message: 'Conference complete. No summary data.' });
+        this.result = { // Ensure result object is initialized
+            final_response: "No final response provided.",
+            model_a_response: "No response from Model A recorded.",
+            model_b_response: "No response from Model B recorded."
+        };
+        this.logMessages = [];
         return;
       }
 
-      // Attempt to extract results, potentially from a nested structure
-      const conferenceResult = summaryData.taskContext?.outputs?.conference_result || summaryData;
+      // Provide an empty object as a fallback for conferenceResult
+      const conferenceResult = summaryData?.taskContext?.outputs?.conference_result || summaryData || {};
 
       this.result = {
         final_response: conferenceResult.final_response || "No final response provided.",
@@ -295,11 +299,9 @@ export default {
         model_b_response: conferenceResult.model_b_response || "No response from Model B recorded."
       };
 
-      if (conferenceResult.log_messages && Array.isArray(conferenceResult.log_messages)) {
-        this.logMessages = conferenceResult.log_messages;
-      } else if (summaryData.log_messages && Array.isArray(summaryData.log_messages)) { // fallback to top level
-        this.logMessages = summaryData.log_messages;
-      }
+      // Ensure logMessages is an array, defaulting to empty if not found or not an array
+      const rawLogMessages = conferenceResult.log_messages || summaryData.log_messages;
+      this.logMessages = Array.isArray(rawLogMessages) ? rawLogMessages : [];
 
 
       // Add final responses to logs if they aren't already there (e.g., if not streamed chunk by chunk)
@@ -434,14 +436,15 @@ export default {
     }
   },
   beforeUnmount() {
+    console.log('[ConferenceTab] beforeUnmount hook called. Preparing to emit remove-conference-listeners.');
     if (window.electronAPI) {
       // The main process's remove-conference-listeners now handles EventSource closure.
       // This call ensures frontend listeners are cleaned up if the preload script's removeAllConferenceListeners
       // maps to specific removeListener calls for each new event type, or if it's a generic one.
       if (window.electronAPI.removeAllConferenceListeners) {
-        console.log('[ConferenceTab] Requesting removal of all conference listeners.');
+        console.log('[ConferenceTab] Requesting removal of all conference listeners via electronAPI.removeAllConferenceListeners.');
         window.electronAPI.removeAllConferenceListeners([
-          'conference-stream-llm-chunk', // Explicitly listing, though the main process might not need it
+          'conference-stream-llm-chunk',
           'conference-stream-log-entry',
           'conference-stream-error',
           'conference-stream-complete'
