@@ -5,6 +5,9 @@
   flex-direction: column;
   gap: 1rem;
   color: #e2e8f0; /* Light text for the tab content */
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  margin: 10px;
 }
 
 .conference-tab h2 {
@@ -98,4 +101,111 @@
   background-color: rgba(255, 106, 0, 0.1); /* Transparent orange background */
   color: #ffccaa; /* Lighter orange/yellow text for errors */
   font-weight: 500; /* Slightly less bold */
+}
+
+/* Additional styles migrated from ConferenceTab.vue */
+
+.conference-tab .model-selection-section {
+  margin-bottom: 15px;
+  display: flex;
+  gap: 15px;
+}
+
+.conference-tab .model-selection-section > div {
+  flex: 1;
+}
+
+.conference-tab .model-selection-section label {
+  display: block;
+  margin-bottom: 5px;
+  color: #D1D5DB;
+}
+
+.conference-model-select {
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: #D1D5DB;
+  background-color: #374151;
+  border: 1px solid #4B5563;
+  border-radius: 0.25rem;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%239CA3AF' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 1.25em 1.25em;
+}
+
+.conference-model-select optgroup,
+.conference-model-select option {
+  background-color: #374151;
+  color: #D1D5DB;
+}
+
+.conference-model-select option:hover {
+  background-color: #4B5563;
+}
+
+.conference-model-select:focus {
+  outline: none;
+  border-color: #60A5FA;
+  box-shadow: 0 0 0 2px #3B82F660;
+}
+
+.conference-tab .loading-section,
+.conference-tab .result-section,
+.conference-tab .error-section {
+  margin-top: 20px;
+  padding: 10px;
+  border-radius: 4px;
+}
+
+.conference-tab .conversation-log-section {
+  margin-top: 20px;
+  padding: 10px;
+  border: 1px solid #4B5563;
+  border-radius: 4px;
+  background-color: #1F2937;
+}
+
+.conference-tab .conversation-log-section h3 {
+  color: #E5E7EB;
+}
+
+.conference-tab .conversation-log-section .turn {
+  margin-bottom: 10px;
+  padding: 8px;
+  border: 1px solid #374151;
+  border-radius: 4px;
+  background-color: #374151;
+}
+
+.conference-tab .conversation-log-section .turn strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #9CA3AF;
+}
+
+.conference-tab pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background-color: #1F2937;
+  color: #D1D5DB;
+  padding: 10px;
+  border: 1px solid #374151;
+  border-radius: 4px;
+}
+
+.conference-tab h2 {
+  color: #E5E7EB;
+}
+
+.conference-tab h3,
+.conference-tab h4 {
+  margin-top: 0;
+  color: #D1D5DB;
 }
