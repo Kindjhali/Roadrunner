@@ -219,6 +219,7 @@ export default {
     },
 
     handleLLMChunk(data) {
+      console.log('[ConferenceTab] Raw data for handleLLMChunk:', JSON.stringify(data));
       console.log('[ConferenceTab] handleLLMChunk:', data);
       this.isStreaming = true;
       this.isLoading = false;
@@ -234,6 +235,7 @@ export default {
     },
 
     handleLogEntry(data) {
+      console.log('[ConferenceTab] Raw data for handleLogEntry:', JSON.stringify(data));
       console.log('[ConferenceTab] handleLogEntry:', data);
       if (this.isLoading && !this.isStreaming) {
         this.isStreaming = true;
@@ -251,6 +253,7 @@ export default {
     },
 
     handleError(errorDetails) {
+      console.log('[ConferenceTab] Raw data for handleError:', JSON.stringify(errorDetails));
       console.error('[ConferenceTab] handleError:', errorDetails);
       let errorMessage;
       if (typeof errorDetails === 'string') {
@@ -269,6 +272,7 @@ export default {
     },
 
     handleComplete(summaryData) {
+      console.log('[ConferenceTab] Raw data for handleComplete:', JSON.stringify(summaryData));
       console.log('[ConferenceTab] handleComplete:', summaryData);
       this.isLoading = false;
       this.isStreaming = false;
