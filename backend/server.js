@@ -744,121 +744,134 @@ async function executeLoopBody(
   loopIterationNumber, // For logging context
   initialOperationCount // Current operation count from parent
 ) {
-  let operationCount = initialOperationCount;
-  sendSseMessage('log_entry', { message: `[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}) - Starting execution of ${loopSteps.length} steps.` });
+  let operationCount = initialOperationCount; // This will track operations *within this loop body execution*
+  const loopBodyLogPrefix = `[Loop Body in Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}]`;
 
-  // Iterate through each step defined within the loop body.
-  for (let i = 0; i < loopSteps.length; i++) {
-    let currentLoopStep = JSON.parse(JSON.stringify(loopSteps[i])); // Deep clone
-    const loopStepNumber = i + 1;
+  sendSseMessage('log_entry', { message: `[SSE] ${loopBodyLogPrefix} Starting execution of ${loopSteps.length} inner steps. Initial op count for this iteration: ${operationCount}` });
+  console.log(`${loopBodyLogPrefix} Starting with ${loopSteps.length} inner steps. Initial op count for this iteration: ${operationCount}`);
 
-    // Resolve templates in loop step details
+  for (let idx = 0; idx < loopSteps.length; idx++) {
+    let currentLoopStep = JSON.parse(JSON.stringify(loopSteps[idx])); // Deep clone for modification
+    const innerStepNumber = idx + 1;
+    const innerStepLogPrefix = `${loopBodyLogPrefix} Inner Step ${innerStepNumber}/${loopSteps.length} (Type: ${currentLoopStep.type})`;
+
+    // Resolve templates in currentLoopStep.details
     if (currentLoopStep.details) {
       for (const key in currentLoopStep.details) {
         if (typeof currentLoopStep.details[key] === 'string') {
           currentLoopStep.details[key] = resolveTemplates(
             currentLoopStep.details[key],
-            taskContext.outputs,
-            sendSseMessage // Pass the SSE function for template warnings
+            taskContext.outputs, // taskContext.outputs includes the iterator_var
+            sendSseMessage
           );
         }
       }
     }
 
-    const processingMessage = `\n[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}, Inner Step ${loopStepNumber}): Type: ${currentLoopStep.type}, Resolved Details: ${JSON.stringify(currentLoopStep.details)}`;
+    const processingMessage = `[SSE] ${innerStepLogPrefix}: Processing with details: ${JSON.stringify(currentLoopStep.details)}`;
     sendSseMessage('log_entry', { message: processingMessage });
-    overallExecutionLog.push(processingMessage.replace('[SSE] ', ''));
-    console.log(`[executeLoopBody] ${processingMessage.replace('\n[SSE] ', '')}`);
+    overallExecutionLog.push(processingMessage.replace('[SSE] ', '').trim()); // Add to main log
+    console.log(`${innerStepLogPrefix}: Processing with details: ${JSON.stringify(currentLoopStep.details)}`);
 
-    // Simplified execution logic for loop body steps.
-    // This part needs to mirror the relevant parts of executeStepsInternal's main switch/if-else block.
-    // For brevity in this example, I'll include a few key types.
-    // A more robust solution would refactor the step execution logic into a shared function.
     try {
-      const isConfirmedAction = currentLoopStep.details?.isConfirmedAction || false; // Assuming steps can be pre-confirmed
+      // IMPORTANT: Operations inside executeLoopBody are considered non-interactive for confirmation purposes *for now*.
+      // They increment the operationCount, and batch confirmation is handled by executeStepsInternal *after* an iteration.
+      // Individual step confirmations (e.g., a createFile requiring its own confirmation) are NOT handled by pausing inside executeLoopBody.
+      // Such steps will execute as if safety mode is off or they are pre-confirmed for the purpose of this loop body.
+      const isConfirmedActionWithinLoop = true; // Effectively, all actions inside a loop iteration are treated as confirmed in batch.
 
       if (currentLoopStep.type === 'generic_step' || currentLoopStep.type === 'execute_generic_task_with_llm') {
         const promptText = currentLoopStep.details?.prompt || currentLoopStep.details?.description;
-        if (!promptText) {
-            throw new Error("Missing prompt/description for generic_step in loop.");
-        }
-        sendSseMessage('log_entry', { message: `[SSE] Loop Step ${loopStepNumber}: LLM prompt: "${promptText.substring(0,50)}..."`});
+        if (!promptText) throw new Error("Missing prompt/description for step.");
+
+        sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: LLM prompt: "${promptText.substring(0, 70)}..."` });
         const llmFullResponse = await generateFromLocal(promptText, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes);
         if (llmFullResponse.startsWith('// LLM_ERROR:') || llmFullResponse.startsWith('// LLM_WARNING:')) {
-            throw new Error(`LLM generation failed in loop: ${llmFullResponse}`);
+          throw new Error(`LLM generation failed: ${llmFullResponse}`);
         }
         if (currentLoopStep.details.output_id) {
           taskContext.outputs[currentLoopStep.details.output_id] = llmFullResponse;
-          sendSseMessage('log_entry', { message: `[SSE] Loop Step ${loopStepNumber}: Stored LLM output to ${currentLoopStep.details.output_id}`});
+          sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: Stored LLM output to '${currentLoopStep.details.output_id}'.` });
         }
         operationCount++;
+        overallExecutionLog.push(`  ${innerStepLogPrefix}: LLM call completed. Operation count: ${operationCount}`);
       } else if (currentLoopStep.type === 'createFile') {
         const { filePath, content } = currentLoopStep.details || {};
-        if (!filePath || content === undefined) {
-            throw new Error("Missing filePath or content for createFile in loop.");
-        }
+        if (!filePath || content === undefined) throw new Error("Missing filePath or content for createFile.");
+
+        // Inside loop, requireConfirmation is false, isConfirmedAction is true for fsAgent purposes
+        const createFileResult = fsAgent.createFile(filePath, content, { requireConfirmation: false, isConfirmedAction: isConfirmedActionWithinLoop });
+        if (!createFileResult.success) throw new Error(`Failed to create file: ${createFileResult.message}`);
+
+        sendSseMessage('file_written', { path: createFileResult.fullPath, message: `[SSE] ${innerStepLogPrefix}: File created: ${createFileResult.fullPath}` });
         operationCount++;
-        const fsOptions = { requireConfirmation: false, isConfirmedAction: true }; // Loop operations assume pre-confirmation or batch
-        const createFileResult = fsAgent.createFile(filePath, content, fsOptions);
-        if (createFileResult.success) {
-          sendSseMessage('file_written', { path: createFileResult.fullPath, message: `  -> ✅ [Loop] File created: ${createFileResult.fullPath}` });
-        } else {
-          // This error will be caught by the outer try-catch in executeLoopBody
-          throw new Error(`[Loop] Failed to create file: ${createFileResult.message}`);
-        }
+        overallExecutionLog.push(`  ${innerStepLogPrefix}: File created. Path: ${createFileResult.fullPath}. Operation count: ${operationCount}`);
       } else if (currentLoopStep.type === 'create_file_with_llm_content') {
         const { filePath, prompt, output_id } = currentLoopStep.details || {};
-        if (!filePath || !prompt) {
-            throw new Error("Missing filePath or prompt for create_file_with_llm_content in loop.");
-        }
-        sendSseMessage('log_entry', { message: `[SSE] Loop Step ${loopStepNumber}: LLM for file ${filePath} prompt: "${prompt.substring(0,50)}..."`});
+        if (!filePath || !prompt) throw new Error("Missing filePath or prompt for create_file_with_llm_content.");
+
+        sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: LLM for file content (path: ${filePath}) prompt: "${prompt.substring(0, 70)}..."` });
         const fileContent = await generateFromLocal(prompt, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes);
         if (fileContent.startsWith('// LLM_ERROR:') || fileContent.startsWith('// LLM_WARNING:')) {
-            throw new Error(`LLM generation for file content failed in loop: ${fileContent}`);
+          throw new Error(`LLM generation for file content failed: ${fileContent}`);
         }
         if (output_id) {
           taskContext.outputs[output_id] = fileContent;
+           sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: Stored generated file content to '${output_id}'.` });
         }
+
+        const createFileResult = fsAgent.createFile(filePath, fileContent, { requireConfirmation: false, isConfirmedAction: isConfirmedActionWithinLoop });
+        if (!createFileResult.success) throw new Error(`Failed to create file with LLM content: ${createFileResult.message}`);
+
+        sendSseMessage('file_written', { path: createFileResult.fullPath, message: `[SSE] ${innerStepLogPrefix}: File created with LLM content: ${createFileResult.fullPath}` });
         operationCount++;
-        const fsOptions = { requireConfirmation: false, isConfirmedAction: true }; // Loop operations assume pre-confirmation or batch
-        const createFileResult = fsAgent.createFile(filePath, fileContent, fsOptions);
-        if (createFileResult.success) {
-          sendSseMessage('file_written', { path: createFileResult.fullPath, message: `  -> ✅ [Loop] File created with LLM: ${createFileResult.fullPath}` });
-        } else {
-          throw new Error(`[Loop] Failed to create file with LLM: ${createFileResult.message}`);
-        }
+        overallExecutionLog.push(`  ${innerStepLogPrefix}: File with LLM content created. Path: ${createFileResult.fullPath}. Operation count: ${operationCount}`);
+      } else if (currentLoopStep.type === 'readFile' || currentLoopStep.type === 'read_file_to_output') {
+        const { filePath, output_id } = currentLoopStep.details || {};
+        if (!filePath || !output_id) throw new Error("Missing filePath or output_id for readFile.");
+        const readFileResult = fsAgent.readFile(filePath);
+        if (!readFileResult.success) throw new Error(`Failed to read file: ${readFileResult.message}`);
+        taskContext.outputs[output_id] = readFileResult.content;
+        sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: File read: ${readFileResult.fullPath}, content stored in '${output_id}'.`});
+        // Reading is not typically counted as a "modifying" operation for batch confirmation, so operationCount might not be incremented.
+        // If it should be, add operationCount++;
+        overallExecutionLog.push(`  ${innerStepLogPrefix}: File read. Path: ${readFileResult.fullPath}.`);
+      } else if (currentLoopStep.type === 'updateFile') {
+        const { filePath, content, append } = currentLoopStep.details || {};
+        if (!filePath || content === undefined) throw new Error("Missing filePath or content for updateFile.");
+        const updateFileResult = fsAgent.updateFile(filePath, content, { append, requireConfirmation: false, isConfirmedAction: isConfirmedActionWithinLoop });
+        if(!updateFileResult.success) throw new Error(`Failed to update file: ${updateFileResult.message}`);
+        sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: File updated: ${updateFileResult.fullPath}`});
+        operationCount++;
+        overallExecutionLog.push(`  ${innerStepLogPrefix}: File updated. Path: ${updateFileResult.fullPath}. Operation count: ${operationCount}`);
       }
-      // TODO: Add more step types as needed, mirroring executeStepsInternal logic, ensuring errors are thrown.
+      // Add other relevant, non-interactive step types here, mirroring their logic from executeStepsInternal
+      // Ensure they increment `operationCount` if they are modifying operations.
       else {
-        sendSseMessage('log_entry', { message: `[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}, Inner Step ${loopStepNumber}): Unknown step type '${currentLoopStep.type}' in loop. Skipping.` });
+        const unknownStepMsg = `[SSE] ${innerStepLogPrefix}: Unknown or unsupported step type '${currentLoopStep.type}' within loop body. Skipping.`;
+        sendSseMessage('log_entry', { message: unknownStepMsg });
+        overallExecutionLog.push(`  ${innerStepLogPrefix}: WARNING - ${unknownStepMsg.replace('[SSE] ', '')}`);
+        console.warn(`${innerStepLogPrefix}: Unknown step type '${currentLoopStep.type}' in loop. Skipping.`);
       }
-
-      // Check for batch confirmation WITHIN the loop (simplified)
-      // This is a placeholder for more complex confirmation logic.
-      // For now, if a step inside the loop *itself* requires confirmation, it would need to be handled
-      // by making executeLoopBody capable of returning a "paused" state.
-      // The current simplified approach assumes operations inside the loop just increment the count.
-      if (safetyMode && operationCount >= CONFIRM_AFTER_N_OPERATIONS && !isConfirmedAction) {
-        // This is where the loop would need to pause and signal back to executeStepsInternal
-        // For this first pass, we'll let it continue but log it.
-        // A full implementation would return a status object like:
-        // return { status: 'paused_for_confirmation', operationCount, pendingConfirmationDetails: { ... } };
-        sendSseMessage('log_entry', { message: `[SSE] Loop Info: Batch confirmation point reached within loop (Ops: ${operationCount}). True pause not yet implemented here.` });
-        // For now, we'll assume it's auto-confirmed or the responsibility of the outer loop's next check.
-        // operationCount = 0; // Or reset by the caller if paused
-      }
-
+      // No individual batch confirmation check *inside* executeLoopBody. It's handled by the caller after an iteration.
     } catch (loopStepError) {
-      const errorMsg = `[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}, Inner Step ${loopStepNumber}): Error - ${loopStepError.message}`;
-      sendSseMessage('error', { content: errorMsg });
-      overallExecutionLog.push(errorMsg.replace('[SSE] ', ''));
-      console.error(`[executeLoopBody] ${errorMsg.replace('[SSE] ', '')}`, loopStepError);
-      // Propagate the error to the main loop execution
-      return { status: 'failed', error: loopStepError, operationCount };
-    }
-  }
+      const errorMsg = `${innerStepLogPrefix}: Execution failed. Error: ${loopStepError.message}`;
+      sendSseMessage('error', { content: `[SSE] ${errorMsg}` }); // Send error via SSE
+      overallExecutionLog.push(`  ${innerStepLogPrefix}: ❌ ERROR - ${loopStepError.message}`); // Add to main log
+      console.error(`${errorMsg}`, loopStepError);
 
-  sendSseMessage('log_entry', { message: `[SSE] Loop (Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}) - Finished execution of ${loopSteps.length} steps.` });
+      return {
+        status: 'failed',
+        error: loopStepError,
+        operationCount, // Return the count of operations successfully completed *before* this failure
+        failingInnerStepType: currentLoopStep.type,
+        failingInnerStepDetails: currentLoopStep.details
+      };
+    }
+  } // End of for loop for inner steps
+
+  sendSseMessage('log_entry', { message: `[SSE] ${loopBodyLogPrefix} Finished all ${loopSteps.length} inner steps. Operation count for this iteration is now ${operationCount}.` });
+  console.log(`${loopBodyLogPrefix} Finished all inner steps. Operation count for this iteration: ${operationCount}`);
   return { status: 'completed', operationCount };
 }
 
@@ -1002,113 +1015,136 @@ async function executeStepsInternal(
         lastErrorForStep = null; // Clear last error before new attempt
 
         // --- Actual Step Execution Logic (moved inside the while loop) ---
-        // Handles 'loop_iterations' steps, executing a sub-sequence of steps multiple times.
-        // Handles 'loop_iterations' steps, executing a sub-sequence of steps multiple times.
-        // Handles 'loop_iterations' steps, executing a sub-sequence of steps multiple times.
         if (currentStep.type === 'loop_iterations') {
-        const { count, loop_steps, iterator_var } = currentStep.details || {};
-        const loopStepNumberForLog = stepNumber; // To refer to the loop_iterations step itself
+          const { count, loop_steps, iterator_var } = currentStep.details || {};
+          const loopStepNumberForLog = stepNumber; // To refer to the loop_iterations step itself
+          const logLoopPrefix = `[Step ${loopStepNumberForLog} (loop_iterations)]`;
 
-        if (typeof count !== 'number' || count <= 0) {
-          const errorMsg = `'count' must be a positive number. Found: ${count}`;
-          triggerStepFailure(errorMsg, null, currentStep.type, loopStepNumberForLog, {i});
-          return; // Pause execution
-        }
-
-        if (!Array.isArray(loop_steps) || loop_steps.length === 0) {
-          const errorMsg = `'loop_steps' must be a non-empty array.`;
-          triggerStepFailure(errorMsg, null, currentStep.type, loopStepNumberForLog, {i});
-          return; // Pause execution
-        }
-
-        sendSseMessage('log_entry', { message: `[SSE] Step ${loopStepNumberForLog} (loop_iterations): Starting loop for ${count} iterations.` });
-        overallExecutionLog.push(`  -> Step Type: ${currentStep.type}. Iterations: ${count}. Iterator Var: ${iterator_var || 'N/A'}`);
-
-        const originalIteratorValue = iterator_var ? taskContext.outputs[iterator_var] : undefined;
-
-        for (let iter = 0; iter < count; iter++) {
-          sendSseMessage('log_entry', { message: `[SSE] Step ${loopStepNumberForLog} (loop_iterations): Starting iteration ${iter + 1}/${count}.` });
-          overallExecutionLog.push(`    Iteration ${iter + 1}/${count}:`);
-
-          if (iterator_var) {
-            taskContext.outputs[iterator_var] = iter;
-            sendSseMessage('log_entry', { message: `[SSE] Set '${iterator_var}' to ${iter} for this iteration.` });
-          }
-
-          // Execute the body of the loop
-          const loopBodyResult = await executeLoopBody(
-            expressHttpRes,
-            task_description,
-            loop_steps,
-            taskContext, // Pass the main taskContext, potentially modified with iterator_var
-            overallExecutionLog,
-            sendSseMessage,
-            safetyMode,
-            loopStepNumberForLog, // Parent step number for logging
-            iter, // Current iteration number
-            operationCountSinceLastConfirmation // Pass current operation count
-          );
-
-          operationCountSinceLastConfirmation = loopBodyResult.operationCount; // Update operation count from loop body
-
-          if (loopBodyResult.status === 'failed') {
-            const errorMsg = `  -> ❌ Error: Step ${loopStepNumberForLog} (loop_iterations), Iteration ${iter + 1}: Loop body execution failed. Error: ${loopBodyResult.error?.message}`;
-            overallExecutionLog.push(errorMsg);
-            // The error message should have already been sent by executeLoopBody
-            // sendSseMessage('error', { content: errorMsg }, expressHttpRes); // Error message already sent by executeLoopBody
-            // console.error(`[executeStepsInternal] ${errorMsg}`); // Already logged by executeLoopBody
-
-            // Trigger failure mechanism for the main loop_iterations step
-            const failureMessage = `Loop body execution failed at Iteration ${iter + 1}. Error: ${loopBodyResult.error?.message}`;
-            const errorDetailsForFailure = {
-              message: failureMessage,
-              originalError: loopBodyResult.error, // Preserve original error from loop body
-              type: currentStep.type,
-              stepNumber: loopStepNumberForLog,
-              iteration: iter + 1
-            };
-            triggerStepFailure(failureMessage, errorDetailsForFailure, currentStep.type, loopStepNumberForLog, {i});
+          if (typeof count !== 'number' || count <= 0) {
+            const errorMsg = `${logLoopPrefix} 'count' must be a positive number. Found: ${count}`;
+            triggerStepFailure(errorMsg, { count }, currentStep.type, loopStepNumberForLog, {i});
             return; // Pause execution
           }
 
-          // If loopBodyResult.status === 'paused_for_confirmation_in_loop'
-          // then executeStepsInternal would need to store pendingConfirmations for the loop_iterations step
-          // and return, similar to other confirmation pauses.
-          // For now, this is not hit due to simplified executeLoopBody.
-
-          sendSseMessage('log_entry', { message: `[SSE] Step ${loopStepNumberForLog} (loop_iterations): Finished iteration ${iter + 1}/${count}.` });
-          overallExecutionLog.push(`    Finished Iteration ${iter + 1}/${count}. Current operation count: ${operationCountSinceLastConfirmation}`);
-
-          // Batch confirmation check AFTER each iteration of the loop body completes
-          // This is distinct from confirmations *within* the loop body.
-          if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && iter < count -1 /* No confirmation after last iteration */) {
-            const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
-            sendSseMessage('confirmation_required', {
-                confirmationId,
-                message: `After ${operationCountSinceLastConfirmation} operations (last in loop iteration ${iter + 1}), proceed with next iteration or step?`,
-                details: { type: 'batch_confirmation', nextOperationWillBe: `loop iteration ${iter + 2} or next main step`, operationCount: operationCountSinceLastConfirmation }
-            }, expressHttpRes);
-            pendingConfirmations[confirmationId] = {
-                expressHttpRes, task_description, steps, currentStepIndex: i, // Point to the loop_iterations step
-                taskContext, overallExecutionLog, currentStep, // currentStep here is the loop_iterations step
-                actionType: 'batch_confirmation_resume_step', confirmationType: 'batch', safetyMode,
-                operationCountSinceLastConfirmation: 0 // Reset for next batch if confirmed
-            };
-            console.log(`[executeStepsInternal] Batch confirmation required after loop iteration. Pausing task. ID: ${confirmationId}`);
-            return; // Pause for batch confirmation
+          if (!Array.isArray(loop_steps) || loop_steps.length === 0) {
+            const errorMsg = `${logLoopPrefix} 'loop_steps' must be a non-empty array.`;
+            triggerStepFailure(errorMsg, { loop_steps }, currentStep.type, loopStepNumberForLog, {i});
+            return; // Pause execution
           }
-        }
 
-        if (iterator_var) {
-          if (originalIteratorValue === undefined) {
-            delete taskContext.outputs[iterator_var]; // Clean up if it didn't exist
-          } else {
-            taskContext.outputs[iterator_var] = originalIteratorValue; // Restore original
+          sendSseMessage('log_entry', { message: `[SSE] ${logLoopPrefix} Starting loop for ${count} iterations.` });
+          overallExecutionLog.push(`  -> ${logLoopPrefix} Iterations: ${count}. Iterator Var: ${iterator_var || 'N/A'}`);
+          console.log(`${logLoopPrefix} Starting loop for ${count} iterations. Iterator: ${iterator_var || 'N/A'}`);
+
+          const originalIteratorValue = iterator_var ? taskContext.outputs[iterator_var] : undefined;
+
+          for (let iter = 0; iter < count; iter++) {
+            const iterationLogPrefix = `${logLoopPrefix} Iteration ${iter + 1}/${count}`;
+            sendSseMessage('log_entry', { message: `[SSE] ${iterationLogPrefix}: Starting.` });
+            overallExecutionLog.push(`    ${iterationLogPrefix}:`);
+            console.log(`${iterationLogPrefix}: Starting.`);
+
+            if (iterator_var) {
+              taskContext.outputs[iterator_var] = iter;
+              sendSseMessage('log_entry', { message: `[SSE] ${iterationLogPrefix}: Set '${iterator_var}' to ${iter}.` });
+              console.log(`${iterationLogPrefix}: Set '${iterator_var}' to ${iter}.`);
+            }
+
+            // Execute the body of the loop
+            const loopBodyResult = await executeLoopBody(
+              expressHttpRes,
+              task_description,
+              loop_steps, // These are the steps to execute *inside* the loop
+              taskContext,    // Pass the main taskContext, potentially modified with iterator_var
+              overallExecutionLog, // Pass the main log array
+              sendSseMessage, // Pass the main SSE sender
+              safetyMode,     // Pass the global safetyMode
+              loopStepNumberForLog, // Parent step number (the loop_iterations step itself)
+              iter,                 // Current iteration number (0-based)
+              operationCountSinceLastConfirmation // Pass current operation count from the main execution flow
+            );
+
+            // Update the main operation count with the count from the completed loop body execution
+            operationCountSinceLastConfirmation = loopBodyResult.operationCount;
+
+            if (loopBodyResult.status === 'failed') {
+              const failureMessage = `${iterationLogPrefix}: Loop body execution failed. Error: ${loopBodyResult.error?.message}`;
+              const errorDetailsForFailure = {
+                message: `Loop body execution failed at Iteration ${iter + 1}. Error: ${loopBodyResult.error?.message}`,
+                originalError: loopBodyResult.error, // Preserve original error from loop body
+                type: currentStep.type, // loop_iterations
+                stepNumber: loopStepNumberForLog, // The loop_iterations step number
+                iteration: iter + 1,
+                failingInnerStepType: loopBodyResult.failingInnerStepType, // If available from executeLoopBody
+                failingInnerStepDetails: loopBodyResult.failingInnerStepDetails // If available
+              };
+              // Error message already sent by executeLoopBody via SSE
+              overallExecutionLog.push(`  -> ❌ ${failureMessage}`);
+              console.error(failureMessage, loopBodyResult.error);
+              triggerStepFailure(failureMessage, errorDetailsForFailure, currentStep.type, loopStepNumberForLog, {i});
+              return; // Pause main execution
+            }
+
+            sendSseMessage('log_entry', { message: `[SSE] ${iterationLogPrefix}: Finished successfully.` });
+            overallExecutionLog.push(`    ${iterationLogPrefix}: Finished. Operation count now: ${operationCountSinceLastConfirmation}`);
+            console.log(`${iterationLogPrefix}: Finished successfully. Operation count now: ${operationCountSinceLastConfirmation}`);
+
+            // Batch confirmation check AFTER each full iteration of the loop body completes.
+            // No confirmation after the very last iteration of the loop.
+            if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && iter < count - 1) {
+              const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+              const confirmationMessage = `After ${operationCountSinceLastConfirmation} operations (last in loop iteration ${iter + 1} of ${count}), proceed with the next iteration?`;
+              sendSseMessage('confirmation_required', {
+                  confirmationId,
+                  message: confirmationMessage,
+                  details: {
+                    type: 'batch_confirmation',
+                    nextOperationWillBe: `loop iteration ${iter + 2}`,
+                    operationCount: operationCountSinceLastConfirmation,
+                    parentStep: loopStepNumberForLog
+                  }
+              }, expressHttpRes);
+
+              pendingConfirmations[confirmationId] = {
+                  expressHttpRes,
+                  task_description,
+                  steps,
+                  currentStepIndex: i, // currentStepIndex is the index of the 'loop_iterations' step itself
+                  taskContext,
+                  overallExecutionLog,
+                  currentStep, // currentStep is the 'loop_iterations' step object
+                  actionType: 'batch_confirmation_resume_step', // Re-evaluate if a more specific actionType is needed for loop resume
+                  confirmationType: 'batch',
+                  safetyMode,
+                  operationCountSinceLastConfirmation: 0, // Reset for the next batch if confirmed
+                  // It's important that if this confirmation is for a loop, the resume logic knows how to continue the loop.
+                  // The `currentStepIndex` points to the loop_iterations step. The resume logic for 'batch_confirmation_resume_step'
+                  // might need to be aware or a more specific actionType used.
+                  // For now, 'batch_confirmation_resume_step' will just re-enter executeStepsInternal at the loop_iterations step.
+                  // This means the loop_iterations step needs to be able to resume from a specific iteration.
+                  // This is NOT currently implemented. The loop will restart from iteration 0.
+                  // TODO: Enhance loop_iterations to support starting from a specific iteration if a batch confirmation occurs mid-loop.
+                  // For this pass, a batch confirmation mid-loop will cause the loop to restart if confirmed.
+              };
+              console.log(`${logLoopPrefix} Batch confirmation required after iteration ${iter + 1}. Pausing task. Confirmation ID: ${confirmationId}. NOTE: Loop will restart if confirmed.`);
+              return; // Pause main execution, wait for confirmation
+            }
+          } // End of for loop (iterations)
+
+          if (iterator_var) {
+            if (originalIteratorValue === undefined) {
+              delete taskContext.outputs[iterator_var]; // Clean up if it didn't exist before
+            } else {
+              taskContext.outputs[iterator_var] = originalIteratorValue; // Restore original value
+            }
+            sendSseMessage('log_entry', { message: `[SSE] ${logLoopPrefix} Restored/cleared '${iterator_var}' in context after loop completion.` });
+            console.log(`${logLoopPrefix} Restored/cleared '${iterator_var}' in context.`);
           }
-          sendSseMessage('log_entry', { message: `[SSE] Restored/cleared '${iterator_var}' in context after loop.` });
-        }
-        sendSseMessage('log_entry', { message: `[SSE] Step ${loopStepNumberForLog} (loop_iterations): Finished all ${count} iterations.` });
-        overallExecutionLog.push(`  -> Finished loop_iterations step. Final operation count: ${operationCountSinceLastConfirmation}`);
+          sendSseMessage('log_entry', { message: `[SSE] ${logLoopPrefix} Finished all ${count} iterations successfully.` });
+          overallExecutionLog.push(`  -> ${logLoopPrefix} Finished all iterations. Final operation count for this step: ${operationCountSinceLastConfirmation}`);
+          console.log(`${logLoopPrefix} Finished all ${count} iterations successfully.`);
+          // operationCountSinceLastConfirmation is carried forward
+
       // Handles 'generic_step' or 'execute_generic_task_with_llm' for general LLM interactions.
       } else if (
         currentStep.type === 'generic_step' ||
@@ -1868,133 +1904,133 @@ Do not output the entire step, only the 'details' object.
       triggerStepFailure(finalErrorMessage, lastErrorForStep, currentStep.type, stepNumber, {i});
       return; // Pause main execution, pass to user
     }
-    // If step was successful, reset its internal counters for any future manual retries by user
+    // If step was successful so far, reset its internal error-handling counters
+    // before proceeding to optional evaluation.
+    // We do this here because if evaluation fails and leads to a 'retry' or 'refine_and_retry',
+    // these counters should be fresh for the re-execution of the step's main logic.
     currentStep._internalRetryCount = 0;
     currentStep._internalRefineCount = 0;
-    currentStep._internalEvalRetryCount = 0; // Reset eval retry count
+    // currentStep._internalEvalRetryCount is managed separately below.
 
-
-    // --- LLM-based Result Evaluation ---
-      // If a step defines an 'evaluationPrompt', this block uses an LLM to evaluate the step's output.
-      // Based on the evaluation result, it may trigger retries, refinements, or mark the step as failed.
+    // --- LLM-based Result Evaluation (Part B) ---
     if (stepProcessedSuccessfully && currentStep.details?.evaluationPrompt) {
-      sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): Output produced. Evaluating with LLM...` }, expressHttpRes);
-      overallExecutionLog.push(`  -> Step ${stepNumber} (${currentStep.type}): Output produced. Evaluating with LLM.`);
+      const evalLogPrefix = `[Step ${stepNumber} (${currentStep.type}) Evaluation]`;
+      sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Output produced. Evaluating with LLM...` }, expressHttpRes);
+      overallExecutionLog.push(`  -> ${evalLogPrefix} Output produced. Evaluating with LLM.`);
+      console.log(`${evalLogPrefix} Starting evaluation.`);
 
       currentStep._internalEvalRetryCount = currentStep._internalEvalRetryCount || 0;
-      const maxEvaluationRetries = currentStep.details.maxEvaluationRetries || 1;
-
+      const maxEvaluationRetries = typeof currentStep.details.maxEvaluationRetries === 'number' ? currentStep.details.maxEvaluationRetries : 1;
       let evaluationPassed = false;
-      while (currentStep._internalEvalRetryCount < maxEvaluationRetries && !evaluationPassed) {
-        const stepOutputId = currentStep.details.output_id;
-        const stepOutput = stepOutputId ? taskContext.outputs[stepOutputId] : null;
 
-        if (stepOutput === null && stepOutputId) {
-          const evalErrorMsg = `[SSE] Step ${stepNumber} (${currentStep.type}): Cannot evaluate. Output variable '${stepOutputId}' not found in task context.`;
-          sendSseMessage('error', { content: evalErrorMsg });
-          overallExecutionLog.push(evalErrorMsg.replace('[SSE]', ''));
-          lastErrorForStep = new Error(evalErrorMsg); // Set this to trigger failure below
-          stepProcessedSuccessfully = false; // Mark as failed to go to triggerStepFailure
+      while (currentStep._internalEvalRetryCount < maxEvaluationRetries && !evaluationPassed) {
+        const attemptNum = currentStep._internalEvalRetryCount + 1;
+        sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Evaluation attempt ${attemptNum}/${maxEvaluationRetries}.`}, expressHttpRes);
+        console.log(`${evalLogPrefix} Attempt ${attemptNum}/${maxEvaluationRetries}.`);
+
+        const stepOutputId = currentStep.details.output_id;
+        const stepOutput = stepOutputId ? taskContext.outputs[stepOutputId] : "No output_id was specified for this step.";
+
+        if (stepOutputId && !taskContext.outputs.hasOwnProperty(stepOutputId)) {
+          const evalErrorMsg = `${evalLogPrefix} Cannot evaluate. Output variable '${stepOutputId}' not found in task context.`;
+          sendSseMessage('error', { content: `[SSE] ${evalErrorMsg}` });
+          overallExecutionLog.push(`  -> ❌ ${evalErrorMsg}`);
+          console.error(evalErrorMsg);
+          lastErrorForStep = new Error(evalErrorMsg);
+          stepProcessedSuccessfully = false; // Mark step as failed
           break; // Break from evaluation retry loop
         }
 
-        // Construct the evaluation prompt by resolving templates
         let finalEvaluationPrompt = currentStep.details.evaluationPrompt;
-        // Template for {{step_output}}
-        finalEvaluationPrompt = finalEvaluationPrompt.replace(/\{\{step_output\}\}/g, stepOutput || "N/A");
-        // Template for {{original_prompt}} (if the step had a prompt)
-        const originalPromptForEval = currentStep.details.prompt || currentStep.details.description || "N/A";
-        finalEvaluationPrompt = finalEvaluationPrompt.replace(/\{\{original_prompt\}\}/g, originalPromptForEval);
+        finalEvaluationPrompt = finalEvaluationPrompt.replace(/\{\{step_output\}\}/g, typeof stepOutput === 'string' ? stepOutput : JSON.stringify(stepOutput));
+        const originalStepPrompt = currentStep.details.prompt || currentStep.details.description || "N/A";
+        finalEvaluationPrompt = finalEvaluationPrompt.replace(/\{\{original_prompt\}\}/g, originalStepPrompt);
 
-        sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Sending evaluation prompt to LLM: "${finalEvaluationPrompt.substring(0, 100)}..."` }, expressHttpRes);
-        const evaluationResultString = await generateFromLocal(finalEvaluationPrompt, 'phi3', null); // Use phi3 or a model good at classification
+        sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Sending evaluation prompt to LLM: "${finalEvaluationPrompt.substring(0, 100)}..."` }, expressHttpRes);
+        // Using phi3 for potentially structured output, or a model specified in backendSettings.
+        const evalModel = backendSettings.defaultOllamaModel || 'phi3';
+        const evaluationResultString = await generateFromLocal(finalEvaluationPrompt, evalModel, null); // null for expressRes - internal call
 
         if (evaluationResultString.startsWith('// LLM_ERROR:') || evaluationResultString.startsWith('// LLM_WARNING:')) {
-          const llmErrorMsg = `[SSE] Step ${stepNumber}: LLM failed to provide evaluation. Error: ${evaluationResultString}`;
-          sendSseMessage('error', { content: llmErrorMsg }, expressHttpRes);
-          overallExecutionLog.push(llmErrorMsg.replace('[SSE]', ''));
+          const llmErrorMsg = `${evalLogPrefix} LLM failed to provide evaluation. Error: ${evaluationResultString}`;
+          sendSseMessage('error', { content: `[SSE] ${llmErrorMsg}` });
+          overallExecutionLog.push(`  -> ❌ ${llmErrorMsg}`);
+          console.error(llmErrorMsg);
           lastErrorForStep = new Error(llmErrorMsg);
-          stepProcessedSuccessfully = false; // Mark as failed
-          break; // Break from evaluation retry loop
+          stepProcessedSuccessfully = false; // Mark step as failed
+          // Potentially increment _internalEvalRetryCount here if we want LLM failure to count as an attempt.
+                          currentStep._internalEvalRetryCount++;
+                          if (currentStep._internalEvalRetryCount >= maxEvaluationRetries) {
+                              sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Max evaluation retries reached due to LLM error.` }, expressHttpRes);
+                              break; // Break from while, stepProcessedSuccessfully is false
+                          }
+                          sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Retrying evaluation due to LLM error. Attempt ${currentStep._internalEvalRetryCount +1}/${maxEvaluationRetries}` }, expressHttpRes);
+                          continue; // Try evaluation again if LLM fails and retries are left
         }
 
         const evaluationResult = evaluationResultString.trim().toLowerCase();
-        sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: LLM Evaluation Result: "${evaluationResult}"` }, expressHttpRes);
-        overallExecutionLog.push(`  -> Step ${stepNumber} (${currentStep.type}): LLM Evaluation Result: "${evaluationResult}"`);
+        sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} LLM Evaluation Result: "${evaluationResult}"` }, expressHttpRes);
+        overallExecutionLog.push(`  -> ${evalLogPrefix} LLM Evaluation Result: "${evaluationResult}"`);
+        console.log(`${evalLogPrefix} LLM Evaluation Result: "${evaluationResult}"`);
 
-        if (evaluationResult.includes('success')) {
+        if (evaluationResult.includes('success')) { // Define "success" criteria more robustly if needed
           evaluationPassed = true;
-          stepProcessedSuccessfully = true; // Confirm success
-          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Evaluation PASSED.` }, expressHttpRes);
+          // stepProcessedSuccessfully remains true
+          sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Evaluation PASSED.` }, expressHttpRes);
+          console.log(`${evalLogPrefix} Evaluation PASSED.`);
+          break; // Exit evaluation loop
         } else { // Evaluation failed
           currentStep._internalEvalRetryCount++;
-          stepProcessedSuccessfully = false; // Mark as not successful for this attempt
-          lastErrorForStep = new Error(`Evaluation failed. LLM response: ${evaluationResult}`); // Store this as the reason for failure
+          lastErrorForStep = new Error(`${evalLogPrefix} Evaluation failed. LLM response: ${evaluationResult}`);
+          stepProcessedSuccessfully = false; // Mark step as failed for this attempt cycle
 
-          const onEvalFailureAction = currentStep.details.onEvaluationFailure || 'fail_step'; // Default to fail_step
-          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Evaluation FAILED. Action: ${onEvalFailureAction}. Attempt ${currentStep._internalEvalRetryCount}/${maxEvaluationRetries}` }, expressHttpRes);
+          const onEvalFailureAction = currentStep.details.onEvaluationFailure || 'fail_step';
+          sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Evaluation FAILED (Attempt ${currentStep._internalEvalRetryCount}/${maxEvaluationRetries}). Action: ${onEvalFailureAction}.` }, expressHttpRes);
+          console.log(`${evalLogPrefix} Evaluation FAILED (Attempt ${currentStep._internalEvalRetryCount}/${maxEvaluationRetries}). Action: ${onEvalFailureAction}.`);
 
           if (currentStep._internalEvalRetryCount >= maxEvaluationRetries) {
-            sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Max evaluation retries reached.` }, expressHttpRes);
-            break; // Break from while, stepProcessedSuccessfully is false, will go to triggerStepFailure
+            sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Max evaluation retries reached. Step will be marked as failed.` }, expressHttpRes);
+            console.log(`${evalLogPrefix} Max evaluation retries reached.`);
+            break; // Exit evaluation loop, stepProcessedSuccessfully is false
           }
 
+          // If more evaluation retries are allowed, decide action
           if (onEvalFailureAction === 'retry') {
-            // Reset for the main `while` loop to re-run this step
-            currentStep._internalRetryCount = 0; // Reset simple retries for the re-evaluation attempt
-            currentStep._internalRefineCount = 0; // Reset refinement retries
-            // The outer `while` loop condition for retries needs to be re-evaluated for this step.
-            // To achieve this, we can effectively tell the main loop that this step needs to be retried due to evaluation.
-            // We can decrement 'i' and 'continue' the main for loop, but that's messy.
-            // A cleaner way is to modify the step's retry/refine counts to ensure the while loop runs again.
-            // For a simple 'retry' on evaluation failure, we effectively want to restart its error retry/refinement cycle.
-            // However, the existing while loop is for error retries. This is an evaluation retry.
-            // Let's make it simpler: if onEvaluationFailure is 'retry', we just loop again in *this* eval while loop.
-            // The step's core logic will be re-executed because stepProcessedSuccessfully is false.
-            // We need to ensure the main step execution logic is re-entered.
-            // This requires setting stepProcessedSuccessfully = false and ensuring the *outer* while loop continues.
-            // This means we need to adjust the logic so this evaluation failure can trigger the main retry/refine loop.
-            // For now, this 'retry' will just re-run the evaluation prompt if the step itself is not re-executed.
-            // This part needs careful thought. Let's assume for now 'retry' means retry the step execution.
-             sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Evaluation failed. Marked for re-execution attempt ${currentStep._internalEvalRetryCount}.` }, expressHttpRes);
-             // To force re-execution of the step, we set stepProcessedSuccessfully to false and break this inner while.
-             // Then the outer while loop's condition needs to be re-evaluated.
-             // This will be handled by the fact that stepProcessedSuccessfully is false when this inner loop exits.
-             // And we will need to ensure the main retry/refinement loop is re-entered.
-             // This is complex. For now, 'retry' on eval failure will just re-run the step.
-             // We need to reset the step's state to allow it to re-run through its normal retry/refine cycle.
-            currentStep._internalRetryCount = 0;
-            currentStep._internalRefineCount = 0;
-            // The outer while loop will re-process this step.
-            // We need to break this inner evaluation loop and let the outer loop re-evaluate its conditions.
-            // Setting stepProcessedSuccessfully = false and breaking is the right approach.
-            break; // Break evaluation loop, outer loop will see stepProcessedSuccessfully = false.
-
+            sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Evaluation failed. Marked for full step re-execution.` }, expressHttpRes);
+            console.log(`${evalLogPrefix} Marked for full step re-execution.`);
+            // stepProcessedSuccessfully is already false. The outer `while` loop for the step will handle re-execution.
+            // _internalRetryCount and _internalRefineCount were reset before evaluation block.
+            break; // Break evaluation loop; outer loop will re-run step.
           } else if (onEvalFailureAction === 'refine_and_retry') {
-            // Trigger refinement logic
-            sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber}: Evaluation failed. Attempting LLM refinement for step details.` }, expressHttpRes);
-            // Use the refinement logic from the main error handling.
-            // To do this, we can set up conditions to fall into that block.
-            currentStep.details.onError = 'refine_and_retry'; // Ensure this is set
-            currentStep._internalRetryCount = currentStep.details.maxRetries || 0; // Exhaust simple retries to force refinement path
-            // The outer while loop will pick this up.
-            break; // Break evaluation loop.
-
+            sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Evaluation failed. Marked for step refinement and re-execution.` }, expressHttpRes);
+            console.log(`${evalLogPrefix} Marked for step refinement and re-execution.`);
+            currentStep.details.onError = 'refine_and_retry'; // Ensure main refinement logic is triggered
+            // Exhaust simple retries to force refinement path in the main step loop
+            currentStep._internalRetryCount = currentStep.details.maxRetries || 0;
+            stepProcessedSuccessfully = false; // Ensure outer loop sees this as a failure requiring action
+            break; // Break evaluation loop; outer loop will go to refinement.
           } else { // 'fail_step' or default
-            // Do nothing here, the fact that stepProcessedSuccessfully is false and eval retries are exhausted will trigger failure.
-            break; // Break evaluation loop.
+            sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Evaluation failed. Step will be marked as failed. No more evaluation retries for this policy.` }, expressHttpRes);
+            console.log(`${evalLogPrefix} Step will be marked as failed. No more evaluation retries for this policy.`);
+            // stepProcessedSuccessfully is already false. lastErrorForStep is set.
+            // Let it proceed to exhaust evaluation retries or break if this was the last one.
+            // If fail_step is the policy, we might just break here as further eval retries are pointless.
+            break;
           }
         }
       } // End of while for evaluation retries
 
-      // If, after evaluation retries, the evaluation still hasn't passed, then the step is considered failed.
       if (!evaluationPassed) {
-        stepProcessedSuccessfully = false; // Ensure it's marked as failed overall
-        // lastErrorForStep should already be set from the last evaluation failure.
-        if (!lastErrorForStep) lastErrorForStep = new Error("Step failed LLM evaluation after all attempts.");
+        stepProcessedSuccessfully = false; // Ensure step is marked as failed if all eval retries are exhausted and it didn't pass
+        if (!lastErrorForStep) { // Should be set, but as a fallback
+             lastErrorForStep = new Error(`${evalLogPrefix} Step failed LLM evaluation after all attempts.`);
+        }
+        sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Step FAILED evaluation after all attempts.` }, expressHttpRes);
+        console.log(`${evalLogPrefix} Step FAILED evaluation after all attempts.`);
       }
     } // End of if currentStep.details.evaluationPrompt
 
+    // This existing block will now catch failures from main processing OR from evaluation.
     if (!stepProcessedSuccessfully) {
       // If loop finished and step was not successful (all retries/refinements/evaluations failed)
       const finalErrorMessage = lastErrorForStep ? lastErrorForStep.message : "Unknown error after retries/refinements/evaluation.";
@@ -2094,26 +2130,59 @@ You must generate a JSON array of step objects. Each object must have a "type" a
 Output *only* the JSON array of steps. Do not include any other text, explanations, or markdown (i.e. no \`\`\`json ... \`\`\` wrapper).
 
 Valid step "type"s are:
-- "generic_step": For general tasks or prompts that need further LLM processing during actual execution. details should include \`{"description": "textual description of the step"}\`. Can also include \`{"output_id": "some_var_name"}\` if the LLM response for this step should be stored.
-- "create_file_with_llm_content": Creates a file using an LLM to generate its content. details must include \`{"filePath": "path/to/file.ext", "prompt": "LLM prompt to generate file content"}\`. Can also include \`{"output_id": "some_var_name"}\` to store the generated content.
-- "createFile": Creates a file with specified static content. details must include \`{"filePath": "path/to/file.ext", "content": "Static content here"}\`.
-- "readFile": Reads a file and stores its content. details must include \`{"filePath": "path/to/file.ext", "output_id": "variable_name_for_content"}\`.
-- "updateFile": Updates an existing file or appends to it. details must include \`{"filePath": "path/to/file.ext", "content": "Content to write/append", "append": true_or_false}\`. 'append' is a boolean (true to append, false to overwrite).
-- "deleteFile": Deletes a file. details must include \`{"filePath": "path/to/file.ext"}\`.
-- "createDirectory": Creates a new directory. details must include \`{"dirPath": "path/to/directory"}\`.
-- "deleteDirectory": Deletes a directory. details must include \`{"dirPath": "path/to/directory"}\`.
-- "git_operation": Performs a git operation. details must include \`{"command": "add|commit|pull|push|revert_last_commit", ...other_git_params}\`.
+- "generic_step": For general tasks or prompts that need further LLM processing during actual execution. \`details\` should include \`{"description": "textual description of the step"}\`. Can also include \`{"output_id": "some_var_name"}\` if the LLM response for this step should be stored.
+- "create_file_with_llm_content": Creates a file using an LLM to generate its content. \`details\` must include \`{"filePath": "path/to/file.ext", "prompt": "LLM prompt to generate file content"}\`. Can also include \`{"output_id": "some_var_name"}\` to store the generated content.
+- "createFile": Creates a file with specified static content. \`details\` must include \`{"filePath": "path/to/file.ext", "content": "Static content here"}\`.
+- "readFile": Reads a file and stores its content. \`details\` must include \`{"filePath": "path/to/file.ext", "output_id": "variable_name_for_content"}\`. (Note: 'read_file_to_output' is also a valid type that does the same)
+- "updateFile": Updates an existing file or appends to it. \`details\` must include \`{"filePath": "path/to/file.ext", "content": "Content to write/append", "append": true_or_false}\`. 'append' is a boolean (true to append, false to overwrite).
+- "deleteFile": Deletes a file. \`details\` must include \`{"filePath": "path/to/file.ext"}\`.
+- "createDirectory": Creates a new directory. \`details\` must include \`{"dirPath": "path/to/directory"}\`.
+- "deleteDirectory": Deletes a directory. \`details\` must include \`{"dirPath": "path/to/directory"}\`.
+- "git_operation": Performs a git operation. \`details\` must include \`{"command": "add|commit|pull|push|revert_last_commit", ...other_git_params}\`.
     Examples:
     \`{"command": "add", "filePath": "path/to/file.ext"}\` (or use "." for all changes)
     \`{"command": "commit", "message": "Your commit message"}\`
     \`{"command": "pull", "remote": "origin", "branch": "main"}\` (optional remote/branch, defaults may apply)
     \`{"command": "push", "remote": "origin", "branch": "main"}\` (optional remote/branch)
     \`{"command": "revert_last_commit"}\`
-- "show_workspace_tree": Displays the directory structure of the workspace or a subfolder. details can optionally include \`{"path": "relative/path/to/show"}\` (defaults to workspace root).
-- "loop_iterations": Repeats a sequence of steps a specified number of times. details must include \`{"count": N, "loop_steps": [array_of_steps_for_loop_body]}\`. Optionally, \`{"iterator_var": "var_name"}\` can be provided to make the current loop index (0-based) available as \`{{outputs.var_name}}\` within the \`loop_steps\`.
+- "show_workspace_tree": Displays the directory structure of the workspace or a subfolder. \`details\` can optionally include \`{"path": "relative/path/to/show"}\` (defaults to workspace root).
+- "loop_iterations": Repeats a sequence of steps a specified number of times. \`details\` must include \`{"count": N, "loop_steps": [array_of_steps_for_loop_body]}\`. Optionally, \`{"iterator_var": "var_name"}\` can be provided to make the current loop index (0-based) available as \`{{outputs.var_name}}\` within the \`loop_steps\`.
+- "conference_task": Initiates a multi-model debate to generate a response. \`details\` must include \`{"prompt": "The user's core prompt/question for the conference"}\`. Optional fields include \`"model_name"\`, \`"model_a_role"\`, \`"model_b_role"\`, \`"arbiter_model_role"\`, \`"num_rounds"\`, and \`"output_id"\`.
+
+Step Result Evaluation (Optional):
+For steps that produce an output (e.g., using "output_id"), you can optionally add fields to their "details" for LLM-based evaluation:
+- "evaluationPrompt": An LLM prompt to evaluate the step's output. This prompt *must* include the template \`{{step_output}}\` which will be replaced with the actual output of the step. It can also use \`{{original_prompt}}\` if the step had a prompt. The evaluation LLM should respond with "success" if the output is good, or describe the failure.
+- "maxEvaluationRetries": (Optional, default 1) Number of times to retry evaluation if it fails.
+- "onEvaluationFailure": (Optional, default 'fail_step') Action if evaluation fails after all retries. Options:
+    - 'fail_step': The step is marked as failed.
+    - 'retry': The original step is re-executed from scratch.
+    - 'refine_and_retry': An LLM is used to refine the original step's details based on the evaluation failure, then the refined step is tried.
 
 Analyze the user's goal and decompose it into these structured steps. Ensure all paths are relative to the workspace root.
 Be careful with file paths, ensuring they are valid and make sense in the context of the steps.
+
+Example with Evaluation:
+Goal: "Write a short story about a brave knight to 'story.txt', then verify the story is at least 50 words long."
+[
+  {
+    "type": "create_file_with_llm_content",
+    "details": {
+      "filePath": "story.txt",
+      "prompt": "Write a very short story (around 70-100 words) about a brave knight saving a village from a mild inconvenience.",
+      "output_id": "knight_story_content",
+      "evaluationPrompt": "The following text is a story: '{{step_output}}'. Is this story at least 50 words long? Respond with 'success' if yes, or 'failure: too short' if no.",
+      "onEvaluationFailure": "retry",
+      "maxEvaluationRetries": 2
+    }
+  },
+  {
+    "type": "generic_step",
+    "details": {
+        "description": "The story 'story.txt' has been written and verified for length."
+    }
+  }
+]
+
 For example, if the goal is "Create a new project called 'my-app', add a README.md, and then commit it", the steps might be:
 [
   {"type": "createDirectory", "details": {"dirPath": "my-app"}},
@@ -2122,7 +2191,7 @@ For example, if the goal is "Create a new project called 'my-app', add a README.
   {"type": "git_operation", "details": {"command": "commit", "message": "Initial commit: Add README for my-app"}}
 ]
 
-Another example, for a goal "Create 3 numbered log files":
+Another example, for a goal "Create 3 numbered log files and then display the workspace tree":
 [
   {
     "type": "loop_iterations",
@@ -2139,51 +2208,59 @@ Another example, for a goal "Create 3 numbered log files":
         }
       ]
     }
-  }
+  },
+  {"type": "show_workspace_tree", "details": {}}
 ]
 Remember, output *only* the JSON array.
 `;
 
-    // Using 'phi3' as it's generally faster and good at structured output for such tasks.
-    // Fallback to 'codellama' or other preferred model if 'phi3' is not suitable or available.
-    // The generateFromLocal function streams LLM chunks via SSE if expressHttpRes is provided.
-    // However, for step generation, we need the full response before proceeding.
-    // We'll pass expressHttpRes for potential error streaming, but primarily await the full string.
-    const llmGeneratedStepsString = await generateFromLocal(autonomousPrompt, 'phi3', expressHttpRes); // Using phi3
-    console.log(`[handleExecuteAutonomousTask] Raw LLM output for steps (first 500 chars): ${llmGeneratedStepsString.substring(0, 500)}`);
-    overallExecutionLog.push(`[Autonomous Mode] Raw LLM output for steps: ${llmGeneratedStepsString.substring(0, 200)}...`);
+    const llmModelForPlanGeneration = backendSettings.defaultOllamaModel || 'phi3'; // Use settings or fallback
+    sendSseMessage('log_entry', { message: `[SSE] Using model '${llmModelForPlanGeneration}' for plan generation.` });
+    overallExecutionLog.push(`[Autonomous Mode] Using model '${llmModelForPlanGeneration}' for plan generation.`);
+    console.log(`[handleExecuteAutonomousTask] Autonomous Mode: Using model '${llmModelForPlanGeneration}' for plan generation.`);
 
-    if (!llmGeneratedStepsString || llmGeneratedStepsString.startsWith('// LLM_ERROR:') || llmGeneratedStepsString.startsWith('// LLM_WARNING:')) {
-      const errorMsg = `LLM failed to generate a valid plan. Output: ${llmGeneratedStepsString}`;
+    const llmGeneratedStepsString = await generateFromLocal(autonomousPrompt, llmModelForPlanGeneration, expressHttpRes);
+
+    // Log the raw output (or a significant portion) for debugging, regardless of success or failure after this point.
+    console.log(`[handleExecuteAutonomousTask] Raw LLM output for steps (full): ${llmGeneratedStepsString}`);
+    overallExecutionLog.push(`[Autonomous Mode] Raw LLM output for steps: ${llmGeneratedStepsString.substring(0, 500)}... (see server console for full output)`);
+    sendSseMessage('log_entry', { message: `[SSE] Received raw LLM output. Length: ${llmGeneratedStepsString.length}. Attempting to parse.` });
+
+
+    if (!llmGeneratedStepsString || llmGeneratedStepsString.trim() === '' || llmGeneratedStepsString.startsWith('// LLM_ERROR:') || llmGeneratedStepsString.startsWith('// LLM_WARNING:')) {
+      const errorMsg = `LLM failed to generate a plan or returned an empty/error response. Output: ${llmGeneratedStepsString}`;
       console.error(`[handleExecuteAutonomousTask] ${errorMsg}`);
       overallExecutionLog.push(`[Autonomous Mode] ❌ ${errorMsg}`);
       sendSseMessage('error', { content: errorMsg });
-      sendSseMessage('execution_complete', { message: 'Task terminated due to LLM plan generation error.' });
+      sendSseMessage('execution_complete', { message: 'Task terminated due to LLM plan generation error or empty response.' });
       if (expressHttpRes.writable) {
         expressHttpRes.end();
       }
       return;
     }
 
+    let generatedSteps;
     try {
-      // Attempt to find the JSON array within the LLM output
-      // Common issue: LLM wraps JSON in ```json ... ``` or adds explanations.
       const jsonMatch = llmGeneratedStepsString.match(/\[\s*\{[\s\S]*?\}\s*\]/);
       if (!jsonMatch) {
-          throw new Error("No valid JSON array found in LLM output. Output started with: " + llmGeneratedStepsString.substring(0,100));
+        throw new Error("No valid JSON array found in LLM output. Output started with: " + llmGeneratedStepsString.substring(0, 200));
       }
       const extractedJsonString = jsonMatch[0];
-      steps = JSON.parse(extractedJsonString); // This is the critical part
+      generatedSteps = JSON.parse(extractedJsonString);
 
-      if (!Array.isArray(steps) || steps.some(step => typeof step.type !== 'string' || typeof step.details !== 'object')) {
-        throw new Error('LLM output, while valid JSON, is not a valid array of step objects (type/details). Parsed: ' + JSON.stringify(steps).substring(0,200));
+      if (!Array.isArray(generatedSteps) || generatedSteps.length === 0) {
+        throw new Error('LLM output, while valid JSON, is not a non-empty array of steps. Parsed: ' + JSON.stringify(generatedSteps).substring(0, 200));
+      }
+      if (generatedSteps.some(step => typeof step.type !== 'string' || typeof step.details !== 'object')) {
+        throw new Error('LLM output is not a valid array of step objects (each needs type:string and details:object). Parsed: ' + JSON.stringify(generatedSteps).substring(0, 200));
       }
 
-      sendSseMessage('log_entry', { message: `[SSE] Successfully parsed ${steps.length} steps from LLM output.` });
-      overallExecutionLog.push(`[Autonomous Mode] Successfully parsed ${steps.length} steps from LLM output.`);
-      console.log(`[handleExecuteAutonomousTask] Autonomous Mode: Parsed ${steps.length} steps from LLM.`);
+      sendSseMessage('log_entry', { message: `[SSE] Successfully parsed ${generatedSteps.length} steps from LLM output.` });
+      overallExecutionLog.push(`[Autonomous Mode] Successfully parsed ${generatedSteps.length} steps from LLM output.`);
+      console.log(`[handleExecuteAutonomousTask] Autonomous Mode: Parsed ${generatedSteps.length} steps from LLM.`);
+      steps = generatedSteps; // Assign to the 'steps' variable that was declared earlier
     } catch (e) {
-      const errorMsg = `Failed to parse LLM-generated steps into a valid JSON array of step objects. Error: ${e.message}. Raw LLM output (first 300 chars): ${llmGeneratedStepsString.substring(0, 300)}...`;
+      const errorMsg = `Failed to parse LLM-generated steps into a valid JSON array of step objects. Error: ${e.message}. Raw LLM output (first 300 chars): ${llmGeneratedStepsString.substring(0, 300)}... (see server console for full output)`;
       console.error(`[handleExecuteAutonomousTask] ${errorMsg}`);
       overallExecutionLog.push(`[Autonomous Mode] ❌ ${errorMsg}`);
       sendSseMessage('error', { content: errorMsg });
@@ -2191,13 +2268,12 @@ Remember, output *only* the JSON array.
       if (expressHttpRes.writable) {
         expressHttpRes.end();
       }
-      return; // Terminate: Do not proceed to pendingPlanApprovals
+      return;
     }
 
-    // If parsing succeeded and steps are valid, then proceed to propose the plan.
-    const planId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+    const planId = uuidv4(); // Using uuidv4 for planId
     pendingPlanApprovals[planId] = {
-      generatedSteps: steps, // These are the LLM-generated steps
+      generatedSteps: steps,
       task_description,
       safetyMode,
       originalExpressHttpRes: expressHttpRes,
@@ -2205,10 +2281,9 @@ Remember, output *only* the JSON array.
       overallExecutionLog,
       taskContext,
     };
-    console.log(`[handleExecuteAutonomousTask] Plan ${planId} generated and awaiting approval. Stored originalExpressHttpRes.`);
+    console.log(`[handleExecuteAutonomousTask] Plan ${planId} generated and awaiting approval. Stored originalExpressHttpRes, sendSseMessage, logs, and context.`);
     sendSseMessage('proposed_plan', { planId, generated_steps: steps });
-    // Connection stays open, waiting for approval/decline.
-    return;
+    return; // IMPORTANT: Return here to wait for approval. Do not execute steps immediately.
 
   } else { // Not Autonomous Mode
     sendSseMessage('log_entry', { message: '[SSE] Manual Mode enabled. Using user-provided steps.' });
