@@ -427,10 +427,6 @@ ipcMain.on('start-conference-stream', (event, payload) => {
     console.log('[Electron IPC] start-conference-stream: EventSource connection successfully opened to URL:', eventSourceUrl);
     const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
 
-
-    console.log('[Electron IPC] start-conference-stream: EventSource connection successfully opened to URL:', eventSourceUrl);
-    const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
-
     console.log('[Electron IPC] start-conference-stream: EventSource connection opened.');
     // For onopen, the data is static, so we can log it directly here or ensure forwardEvent handles it.
     // To stick to the plan, ensure forwardEvent is called for all relevant events.
@@ -444,124 +440,37 @@ ipcMain.on('start-conference-stream', (event, payload) => {
   conferenceEventSource.onmessage = (e) => {
     console.log('[Electron IPC] start-conference-stream: EventSource message, data:', e.data);
     try {
-      let msg = JSON.parse(e.data); // Use 'let' to allow modification
-      let channelToSend;
-      let dataToSend;
-
-
-      // Apply defaults and determine channel and data based on msg.type
+      const msg = JSON.parse(e.data);
       switch (msg.type) {
         case 'llm_chunk':
-          msg.content = msg.content || '';
-          msg.speaker = msg.speaker || 'Unknown Speaker';
-          channelToSend = 'conference-stream-llm-chunk';
-          dataToSend = msg;
-          break;
-        case 'log_entry':
-          msg.message = msg.message || '';
-          msg.speaker = msg.speaker || 'System';
-          channelToSend = 'conference-stream-log-entry';
-          dataToSend = msg;
-          break;
-        case 'error':
-          msg.error = msg.error || 'An unknown error occurred';
-
-
-      // Apply defaults and determine channel and data based on msg.type
-      switch (msg.type) {
-        case 'llm_chunk':
-          msg.content = msg.content || '';
-          msg.speaker = msg.speaker || 'Unknown Speaker';
-          channelToSend = 'conference-stream-llm-chunk';
-          dataToSend = msg;
-          break;
-        case 'log_entry':
-          msg.message = msg.message || '';
-          msg.speaker = msg.speaker || 'System';
-          channelToSend = 'conference-stream-log-entry';
-          dataToSend = msg;
-          break;
-        case 'error':
-          msg.error = msg.error || 'An unknown error occurred';
-
-      // Adapt message types based on expected backend output for conference tasks
-      switch (msg.type) {
-        case 'llm_chunk':
-          // Ensure msg.content and msg.speaker are defined
           msg.content = msg.content || '';
           msg.speaker = msg.speaker || 'Unknown Speaker';
           forwardEvent('conference-stream-llm-chunk', msg);
           break;
         case 'log_entry':
-          // Ensure msg.message and msg.speaker are defined
           msg.message = msg.message || '';
           msg.speaker = msg.speaker || 'System';
           forwardEvent('conference-stream-log-entry', msg);
           break;
         case 'error':
-          // Ensure msg.error is defined
           msg.error = msg.error || 'An unknown error occurred';
-          // msg.details can also be checked or defaulted if necessary
-
-
-
           msg.details = msg.details || '';
           console.error('[Electron IPC] start-conference-stream: Received error event:', msg);
-          channelToSend = 'conference-stream-error';
-          dataToSend = msg;
+          forwardEvent('conference-stream-error', msg);
           break;
         case 'execution_complete':
-          dataToSend = msg || {}; // Ensure msg is at least an empty object
-          console.log('[Electron IPC] start-conference-stream: Execution complete event:', dataToSend);
-          channelToSend = 'conference-stream-complete';
-          // Note: The original forwardEvent('conference-stream-complete', msg || {}); was here.
-          // We now call forwardEvent after the switch.
+          console.log('[Electron IPC] start-conference-stream: Execution complete event:', msg);
+          forwardEvent('conference-stream-complete', msg || {});
+          if (conferenceEventSource) conferenceEventSource.close();
+          conferenceEventSource = null;
           break;
         default:
           console.log('[Electron IPC] start-conference-stream: Unknown event type received:', msg.type, msg);
-          // For unknown types, structure it like a log_entry for forwarding
-          dataToSend = { type: 'log_entry', message: `Received event: ${msg.type || 'unknown'}`, data: msg, speaker: 'System' };
-          channelToSend = 'conference-stream-log-entry';
-
-
-
-
+          forwardEvent('conference-stream-log-entry', { type: 'log_entry', message: `Received event: ${msg.type || 'unknown'}`, data: msg, speaker: 'System' });
       }
-
-      // Now call the modified forwardEvent which includes the detailed logging
-      if (channelToSend && dataToSend) {
-        forwardEvent(channelToSend, dataToSend);
-      }
-
-      // Specific handling for execution_complete to close EventSource
-      if (msg.type === 'execution_complete') {
-        if (conferenceEventSource) conferenceEventSource.close();
-        conferenceEventSource = null;
-      }
-
-
-
-
-      }
-
-      // Now call the modified forwardEvent which includes the detailed logging
-      if (channelToSend && dataToSend) {
-        forwardEvent(channelToSend, dataToSend);
-      }
-
-      // Specific handling for execution_complete to close EventSource
-      if (msg.type === 'execution_complete') {
-        if (conferenceEventSource) conferenceEventSource.close();
-        conferenceEventSource = null;
-      }
-
-
-
     } catch (err) {
       console.error('[Electron IPC] start-conference-stream: Failed to parse SSE message:', e.data, err);
-      // Log before sending error (as per plan, though forwardEvent will log again)
       const errorData = { error: 'Failed to parse message from backend.', details: e.data };
-      // console.log(`[Electron IPC] Forwarding to ConferenceTab - Channel: conference-stream-error, Payload: ${JSON.stringify(errorData)}`);
       forwardEvent('conference-stream-error', errorData);
     }
   };
