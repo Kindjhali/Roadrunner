@@ -247,7 +247,7 @@
 
         <!-- Conference Tab Content -->
         <div v-if="activeTab === 'conference'" class="tab-content conference-tab-content p-4">
-          <conference-tab />
+          <conference-tab @edit-instructions="openConferenceAgentInstructions" />
         </div>
 
         <!-- Configuration Tab Content -->
@@ -259,7 +259,7 @@
       <instructions-modal
         :agentType="modalAgentType"
         :agentRole="modalAgentRole"
-        :showModal.sync="showInstructionsModal"
+        v-model:showModal="showInstructionsModal"
       />
    </div>
 </template>
@@ -819,6 +819,11 @@ export default {
       this.modalAgentRole = null;
       this.showInstructionsModal = true;
     },
+    openConferenceAgentInstructions(role) {
+      this.modalAgentType = 'conference_agent';
+      this.modalAgentRole = role;
+      this.showInstructionsModal = true;
+    },
 
     // Sends the user's message from the Brainstorming tab to the main Electron process via IPC for LLM interaction.
     // Manages streaming state and adds placeholders for model responses.
@@ -881,10 +886,21 @@ export default {
 
       console.log('[App.vue] sendBrainstormingMessage: Determined modelIdToSend:', modelIdToSend);
 
+      // Transform brainstormingHistory for the backend
+      const processedHistory = this.brainstormingHistory.map(message => {
+        return {
+          role: message.sender === 'user' ? 'user' : 'assistant',
+          content: message.text
+        };
+      });
+      // Note: The current user's message (messageText) is already included in brainstormingHistory
+      // before this transformation, so processedHistory will contain it as the last element.
+
       if (window.electronAPI && window.electronAPI.sendBrainstormingChat) {
         window.electronAPI.sendBrainstormingChat({
           modelId: modelIdToSend, // Use the adjusted modelId
-          prompt: messageText
+          // prompt: messageText, // Prompt is now part of the history
+          history: processedHistory
         });
       } else {
         console.error("electronAPI or sendBrainstormingChat not available.");

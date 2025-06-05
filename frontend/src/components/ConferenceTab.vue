@@ -45,7 +45,7 @@
       <label for="conference-prompt">Enter your prompt:</label>
       <textarea id="conference-prompt" v-model="prompt" rows="5" placeholder="e.g., What is the best strategy to reduce technical debt?"></textarea>
       <button @click="startConference" :disabled="isLoading || isStreaming">
-        {{ isLoading || isStreaming ? (isStreaming ? 'Streaming...' : 'Processing...') : 'Start Conference' }}
+        {{ isLoading || isStreaming ? (isStreaming ? 'Streaming...' : 'Processing...') : (conferenceLog.length === 0 ? 'Start Conference' : 'Send Message') }}
       </button>
     </div>
 
@@ -115,13 +115,8 @@
 </template>
 
 <script>
-import InstructionsModal from './InstructionsModal.vue'; // Import the modal
-
 export default {
   name: 'ConferenceTab',
-  components: {
-    InstructionsModal, // Register the modal
-  },
   data() {
     return {
       prompt: '',
@@ -282,8 +277,7 @@ export default {
       }
     },
     openConferenceInstructions(role) {
-      this.modalAgentRoleForConference = role;
-      this.showInstructionsModal = true;
+      this.$emit('edit-instructions', role);
     },
     setDefaultModels() {
       console.log('[ConferenceTab setDefaultModels] Attempting to set default models.');
