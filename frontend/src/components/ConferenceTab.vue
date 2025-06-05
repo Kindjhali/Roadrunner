@@ -105,6 +105,12 @@
          <!-- <p class="text-gray-500 text-xs italic">(No system logs to display at the moment.)</p> -->
       </div>
     </div>
+
+    <instructions-modal
+      agentType="conference_agent"
+      :agentRole="modalAgentRoleForConference"
+      :showModal.sync="showInstructionsModal"
+    />
   </div>
 </template>
 
@@ -133,6 +139,7 @@ export default {
       // For Instructions Modal
       showInstructionsModal: false,
       modalAgentRoleForConference: null,
+      // modalAgentType: 'conference_agent', // This is fixed for this tab
     };
   },
   computed: {
@@ -155,6 +162,24 @@ export default {
         return this.result;
       }
       return 'No final response from arbiter to display.';
+    }
+  },
+  watch: {
+    showInstructionsModal(newValue, oldValue) {
+      console.log(`[ConferenceTab.vue] showInstructionsModal changed from ${oldValue} to ${newValue}`);
+    },
+    categorizedModels: {
+      handler(newModels) {
+        if (newModels && Object.keys(newModels).length > 0) {
+          // Check if defaults are already set by user or previous runs to avoid override
+          if (this.selectedModelA === null || this.selectedModelB === null || this.selectedArbiter === null) {
+            console.log('[ConferenceTab Watcher categorizedModels] Models loaded, attempting to set defaults.');
+            this.setDefaultModels();
+          }
+        }
+      },
+      deep: true,
+      immediate: true, // Call handler immediately when component is created, if models are already in store
     }
   },
   methods: {
@@ -316,21 +341,9 @@ export default {
       }
     },
   },
-  watch: {
-    categorizedModels: {
-      handler(newModels) {
-        if (newModels && Object.keys(newModels).length > 0) {
-          // Check if defaults are already set by user or previous runs to avoid override
-          if (this.selectedModelA === null || this.selectedModelB === null || this.selectedArbiter === null) {
-            console.log('[ConferenceTab Watcher categorizedModels] Models loaded, attempting to set defaults.');
-            this.setDefaultModels();
-          }
-        }
-      },
-      deep: true,
-      immediate: true, // Call handler immediately when component is created, if models are already in store
-    }
-  },
+  // Original watch for categorizedModels is now inside the methods section's watch, merge if necessary or ensure structure is correct.
+  // It seems the previous diff might have misplaced it, or this is a new placement.
+  // For clarity, Vue components should have one `watch` block.
   mounted() {
     this.setDefaultModels(); // Attempt to set defaults on mount
     if (window.electronAPI) {

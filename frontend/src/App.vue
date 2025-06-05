@@ -386,6 +386,9 @@ export default {
     }
   },
   watch: {
+    showInstructionsModal(newValue, oldValue) {
+      console.log(`[App.vue] showInstructionsModal changed from ${oldValue} to ${newValue}`);
+    },
     selectedModule(newModule, oldModule) { /* ... */ },
     categorizedCoderModels: {
       handler(newModels) {
@@ -519,6 +522,7 @@ export default {
         this.initializeTaskProperties(newTask);
         this.sessionTasks.push(newTask);
         this.activeSessionTaskId = newTask.taskId;
+        // console.log('[App.vue Coder] addTaskToSession: Task added/updated. Active Task ID:', this.activeSessionTaskId, 'Session tasks:', JSON.stringify(this.sessionTasks)); // Covered by handleFileUpload log
     },
 
     // Handles the event when a user uploads a task file.
@@ -569,6 +573,7 @@ export default {
             description: taskDescription,
             steps: stepsToUse
           });
+          console.log('[App.vue Coder] handleFileUpload: Task added/updated. Active Task ID:', this.activeSessionTaskId, 'Session tasks:', JSON.stringify(this.sessionTasks));
 
           event.target.value = null; // Reset the file input
         };
@@ -600,39 +605,59 @@ export default {
 
     // Prepares the payload for the currently active task and sends it to the backend via SSE for execution.
     runExecutor() {
-      // ... (existing logic to find activeSessionTaskDetails) ...
+      console.log('[App.vue Coder] runExecutor: Called. Active Task ID:', this.activeSessionTaskId);
+
+      if (!this.$store.getters.getOllamaStatus.isConnected) {
+        const errorMsg = 'Cannot run task: Ollama is not connected. Please check Configuration.';
+        this.executorOutput.unshift({ message: errorMsg, type: 'error', timestamp: new Date() });
+        console.error('[App.vue Coder] runExecutor:', errorMsg);
+        return;
+      }
+
       const activeTask = this.activeSessionTaskDetails;
-      if (!activeTask) { /* ... error ... */ return; }
+      if (!activeTask) {
+        const errorMsg = 'Cannot run task: No active task selected or task details are unavailable.';
+        this.executorOutput.unshift({ message: errorMsg, type: 'error', timestamp: new Date() });
+        console.error('[App.vue Coder] runExecutor:', errorMsg, 'Active Task ID:', this.activeSessionTaskId);
+        return;
+      }
+      console.log('[App.vue Coder] runExecutor: Active task details:', JSON.stringify(activeTask));
+
+      const modelIdForTask = activeTask.modelConfig?.id || this.defaultModelConfig.id;
+      if (!modelIdForTask || modelIdForTask === 'default/unknown') {
+        const errorMsg = `Cannot run task "${activeTask.task_description}": Model not selected or invalid. Please select a model for this task or a default model.`;
+        this.executorOutput.unshift({ message: errorMsg, type: 'error', timestamp: new Date() });
+        console.error('[App.vue Coder] runExecutor:', errorMsg, 'Model ID:', modelIdForTask);
+        return;
+      }
 
       const payload = {
         task_description: activeTask.task_description,
         steps: JSON.stringify(activeTask.steps),
-        // The model for the task is now part of the task object itself
-        // Backend needs to be aware of how to use this.
-        // For now, we'll send it, assuming backend might use it for certain steps,
-        // or for a future enhancement where it influences planner model.
-        modelId: activeTask.modelConfig?.id || this.defaultModelConfig.id, // Send the ID
-        modelType: activeTask.modelConfig?.type || this.defaultModelConfig.type, // Send the type
-        safetyMode: this.safetyModeActive, // Global safety mode
-        isAutonomousMode: false, // runExecutor is for defined tasks, so not autonomous planning
+        modelId: modelIdForTask,
+        modelType: activeTask.modelConfig?.type || this.defaultModelConfig.type,
+        safetyMode: this.safetyModeActive,
+        isAutonomousMode: false,
         sessionId: this.currentSessionId,
         sessionTaskId: this.activeSessionTaskId,
         useOpenAIFromStorage: localStorage.getItem('useStoredOpenAIKey') === 'true',
       };
       this.executorOutput.unshift({ message: `Executing task: "${payload.task_description}". Using model: ${payload.modelId} (${payload.modelType}).`, type: 'info', timestamp: new Date() });
-      // The old direct log message is removed, as events will now populate the executorOutput.
-      // this.executorOutput.unshift({ message: `Executing task: "${payload.task_description}". Using model: ${payload.modelId} (${payload.modelType}).`, type: 'info', timestamp: new Date() });
 
       if (window.electronAPI && window.electronAPI.executeTaskWithEvents) {
         this.executorOutput.unshift({ message: `Initializing task execution: "${payload.task_description}"...`, type: 'info', timestamp: new Date() });
+        console.log('[App.vue Coder] runExecutor: Payload for executeTaskWithEvents:', JSON.stringify(payload));
         window.electronAPI.executeTaskWithEvents(payload);
       } else {
-        this.executorOutput.unshift({ message: `Error: executeTaskWithEvents API not available. Cannot run task.`, type: 'error', timestamp: new Date() });
-        console.error('[App.vue] runExecutor: window.electronAPI.executeTaskWithEvents is not available.');
+        const errorMsg = 'Error: executeTaskWithEvents API is not available. Cannot run task.';
+        this.executorOutput.unshift({ message: errorMsg, type: 'error', timestamp: new Date() });
+        console.error('[App.vue Coder] runExecutor: executeTaskWithEvents API is not available!');
+        // console.error('[App.vue] runExecutor: window.electronAPI.executeTaskWithEvents is not available.'); // Redundant with above
       }
     },
 
     handleCoderTaskEvent(eventData) {
+      console.log('[App.vue Coder] handleCoderTaskEvent: Received event:', JSON.stringify(eventData));
       // console.log('[App.vue] handleCoderTaskEvent:', eventData);
       let message = '';
       let type = eventData.logLevel || 'info'; // Default type
@@ -696,6 +721,7 @@ export default {
         timestamp: new Date(),
         details: eventData.details || (eventData.type === 'proposed_plan' ? eventData.generated_steps : null)
       });
+      console.log('[App.vue Coder] handleCoderTaskEvent: executorOutput updated. New length:', this.executorOutput.length);
 
       // If it was a confirmation or plan, reset relevant flags if auto-action was taken
       if (eventData.type === 'confirmation_required' && !this.safetyModeActive) { // Assuming auto-deny for now

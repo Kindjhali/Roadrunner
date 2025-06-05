@@ -10,16 +10,43 @@
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div v-if="!isLoading && !error" class="instructions-editor">
-        <ul class="instructions-list">
-          <li v-for="(instruction, index) in instructions" :key="index" class="instruction-item">
-            <input type="text" v-model="instructions[index]" class="instruction-input" placeholder="Enter instruction"/>
-            <button @click="removeInstruction(index)" class="button-remove-instruction" title="Remove Instruction">&times;</button>
-          </li>
-        </ul>
+        <!-- Table Layout -->
+        <table class="w-full text-sm text-left text-gray-400 dark:text-gray-400" style="table-layout: fixed;">
+          <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+            <tr>
+              <th scope="col" class="px-6 py-3" style="width: 70%;">Instruction</th>
+              <th scope="col" class="px-6 py-3" style="width: 30%;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(instruction, index) in instructions" :key="index" class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+              <td class="px-6 py-4">
+                <div v-if="editingIndex === index">
+                  <textarea v-model="editableInstructionText" class="instruction-textarea"></textarea>
+                  <div class="mt-1">
+                    <button @click="saveEdit()" class="button-save-edit text-xs">Save Edit</button>
+                    <button @click="cancelEdit()" class="button-cancel-edit text-xs ml-1">Cancel</button>
+                  </div>
+                </div>
+                <div v-else @click="startEditing(index)" class="cursor-pointer hover:bg-gray-600 dark:hover:bg-gray-700 p-1 rounded min-h-[30px]">
+                  {{ instruction }}
+                </div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap"> <!-- Added whitespace-nowrap -->
+                <button @click="startEditing(index)" :disabled="editingIndex === index" class="text-blue-500 hover:text-blue-700 text-xs mr-2 disabled:opacity-50">[Edit]</button>
+                <button @click="removeInstruction(index)" class="text-red-500 hover:text-red-700 text-xs">[Remove]</button>
+              </td>
+            </tr>
+            <tr v-if="instructions.length === 0">
+              <td colspan="2" class="px-6 py-4 text-center text-gray-500">No instructions yet. Add one below.</td>
+            </tr>
+          </tbody>
+        </table>
+        <!-- End Table Layout -->
 
-        <div class="add-instruction-area">
-          <input type="text" v-model="newInstruction" @keyup.enter="addInstruction" class="instruction-input-new" placeholder="Add new instruction..." />
-          <button @click="addInstruction" class="button-add-instruction">Add</button>
+        <div class="add-instruction-area mt-4"> <!-- Added mt-4 for spacing -->
+          <textarea v-model="newInstruction" @keyup.enter.prevent="addInstruction" class="instruction-textarea" placeholder="Add new instruction..."></textarea>
+          <button @click="addInstruction" class="button-add-instruction ml-2">[+] Add</button>
         </div>
       </div>
 
@@ -57,6 +84,8 @@ export default {
       error: '',
       newInstruction: '',
       backendPort: 0, // Will be fetched from store or context
+      editingIndex: null,
+      editableInstructionText: '',
     };
   },
   watch: {
@@ -137,9 +166,14 @@ export default {
       }
     },
     async saveInstructions() {
-      if (!this.agentType) return;
+      console.log('[InstructionsModal] Attempting to save instructions for:', this.agentType, this.agentRole ? 'Role: ' + this.agentRole : '');
+      if (!this.agentType) {
+        this.error = "Agent type is not specified. Cannot save."; // Added error for user visibility
+        return;
+      }
       this.isLoading = true;
       this.error = '';
+      let errorData = null;
 
       let url = `${this.getApiBaseUrl()}/api/instructions/`;
       if (this.agentType === 'conference_agent' && this.agentRole) {
@@ -154,7 +188,10 @@ export default {
         url += this.agentType;
       }
 
+      const payload = { instructions: this.instructions };
+      console.log('[InstructionsModal] Payload:', JSON.stringify(payload));
       console.log(`[InstructionsModal] Saving instructions to: ${url}`);
+
 
       try {
         const response = await fetch(url, {
@@ -162,32 +199,67 @@ export default {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ instructions: this.instructions }),
+          body: JSON.stringify(payload),
         });
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ message: response.statusText }));
+          try {
+            errorData = await response.json();
+          } catch (parseErr) {
+            errorData = `Status: ${response.status}, StatusText: ${response.statusText}, Body: ${await response.text().catch(() => 'Could not read body')}`;
+          }
           throw new Error(errorData.message || `HTTP error ${response.status}`);
         }
-        // Optional: Show success message to user
-        console.log('[InstructionsModal] Instructions saved successfully.');
+        const data = await response.json();
+        console.log('[InstructionsModal] Save successful. Response:', data);
         this.close(); // Close modal on successful save
       } catch (err) {
-        console.error('[InstructionsModal] Error saving instructions:', err);
-        this.error = `Failed to save instructions: ${err.message}`;
+        console.error('[InstructionsModal] Save failed. Error:', err, 'Response body:', errorData);
+        this.error = `Failed to save instructions: ${err.message}.`;
+        if (typeof errorData === 'string') {
+             this.error += ` Details: ${errorData}`;
+        } else if (errorData && errorData.message && err.message !== errorData.message) {
+            this.error += ` Server: ${errorData.message}`;
+        } else if (errorData) {
+            this.error += ` Details: ${JSON.stringify(errorData)}`;
+        }
       } finally {
         this.isLoading = false;
       }
     },
     addInstruction() {
+      console.log('[InstructionsModal] addInstruction called. New instruction:', this.newInstruction, 'Current instructions:', JSON.stringify(this.instructions));
       if (this.newInstruction.trim() !== '') {
         this.instructions.push(this.newInstruction.trim());
-        this.newInstruction = '';
+        this.newInstruction = ''; // Clear the textarea
       }
     },
     removeInstruction(index) {
+      console.log('[InstructionsModal] removeInstruction called for index:', index, 'Current instructions:', JSON.stringify(this.instructions));
       this.instructions.splice(index, 1);
+      // If the removed instruction was being edited, cancel edit mode
+      if (this.editingIndex === index) {
+        this.cancelEdit();
+      } else if (this.editingIndex !== null && index < this.editingIndex) {
+        // If an item before the currently edited item is removed, adjust editingIndex
+        this.editingIndex--;
+      }
+    },
+    startEditing(index) {
+      this.editingIndex = index;
+      this.editableInstructionText = this.instructions[index];
+    },
+    saveEdit() {
+      if (this.editingIndex !== null && this.editableInstructionText.trim() !== '') {
+        this.instructions.splice(this.editingIndex, 1, this.editableInstructionText.trim());
+      }
+      this.cancelEdit(); // Reset editing state
+    },
+    cancelEdit() {
+      this.editingIndex = null;
+      this.editableInstructionText = '';
     },
     close() {
+      console.log('[InstructionsModal] Close method called. Emitting update:showModal false.');
       this.$emit('update:showModal', false);
     },
   },
@@ -220,9 +292,9 @@ export default {
   color: #e2e8f0; /* text-gray-200 */
   padding: 20px;
   border-radius: 8px;
-  min-width: 500px;
-  max-width: 90%;
-  max-height: 80vh;
+  min-width: 600px; /* Changed */
+  max-width: 80%;   /* Changed */
+  max-height: 75vh;  /* Changed */
   display: flex;
   flex-direction: column;
   box-shadow: 0 4px 6px rgba(0,0,0,0.1);
@@ -370,4 +442,90 @@ export default {
 .button-cancel:hover {
   background-color: #4a5568; /* hover:bg-gray-600 */
 }
+
+/* Styling for the new textarea */
+.instruction-textarea {
+  width: 100%;
+  min-height: 60px;
+  resize: vertical;
+  padding: 0.5rem;
+  background-color: #1a202c; /* bg-gray-900 */
+  border: 1px solid #4a5568; /* border-gray-600 */
+  color: #e2e8f0; /* text-gray-200 */
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.instruction-textarea:focus {
+  outline: none;
+  border-color: #4299e1; /* focus:border-blue-500 */
+  box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.5); /* focus:ring-blue-500 */
+}
+
+/* Minimal table styling if not using Tailwind utility classes directly in template */
+.w-full { width: 100%; }
+.text-sm { font-size: 0.875rem; }
+.text-left { text-align: left; }
+/* text-gray-400 is already defined in the template on table */
+/* dark:text-gray-400 is already defined in the template on table */
+
+.px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+.py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+.py-4 { padding-top: 1rem; padding-bottom: 1rem; } /* Added for td cells */
+.px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+
+
+/* text-xs, uppercase, bg-gray-50, dark:bg-gray-700, dark:text-gray-400 are on thead */
+
+.bg-white { background-color: #fff; } /* Used for table rows */
+.dark .bg-gray-800 { background-color: #1f2937; } /* Used for table rows in dark */
+.border-b { border-bottom-width: 1px; } /* Used for table rows */
+.dark .border-gray-700 { border-color: #374151; } /* Used for table rows in dark */
+
+.cursor-pointer { cursor: pointer; }
+.hover\:bg-gray-600:hover { background-color: #4b5563; } /* Slightly different from previous for variety */
+.dark .hover\:bg-gray-700:hover { background-color: #374151; }
+.p-1 { padding: 0.25rem; }
+.rounded { border-radius: 0.25rem; }
+.min-h-\[30px\] { min-height: 30px; } /* Ensure clickable area for short instructions */
+.whitespace-nowrap { white-space: nowrap; } /* For action buttons cell */
+.disabled\:opacity-50:disabled { opacity: 0.5; }
+
+
+.text-blue-500 { color: #3b82f6; }
+.hover\:text-blue-700:hover { color: #1d4ed8; }
+.text-red-500 { color: #ef4444; }
+.hover\:text-red-700:hover { color: #b91c1c; }
+.text-xs { font-size: 0.75rem; }
+.mr-2 { margin-right: 0.5rem; }
+.ml-1 { margin-left: 0.25rem; }
+
+
+.button-save-edit, .button-cancel-edit {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  color: white;
+  font-size: 0.75rem; /* text-xs */
+}
+.button-save-edit {
+  background-color: #2563eb; /* blue-600 */
+}
+.button-save-edit:hover {
+  background-color: #1d4ed8; /* blue-700 */
+}
+.button-cancel-edit {
+  background-color: #6b7280; /* gray-500 */
+}
+.button-cancel-edit:hover {
+  background-color: #4b5563; /* gray-600 */
+}
+
+.mt-1 { margin-top: 0.25rem; } /* For spacing edit buttons from textarea */
+.text-center { text-align: center; }
+.text-gray-500 { color: #6b7280; }
+
+
+.mt-4 { margin-top: 1rem; }
+.ml-2 { margin-left: 0.5rem; }
+
 </style>
