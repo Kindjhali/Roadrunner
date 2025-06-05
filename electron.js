@@ -397,28 +397,44 @@ ipcMain.on('start-conference-stream', (event, payload) => {
   conferenceEventSource.onmessage = (e) => {
     console.log('[Electron IPC] start-conference-stream: EventSource message, data:', e.data);
     try {
-      const msg = JSON.parse(e.data);
+      let msg = JSON.parse(e.data); // Use 'let' to allow modification
+
       // Adapt message types based on expected backend output for conference tasks
       switch (msg.type) {
         case 'llm_chunk':
+          // Ensure msg.content and msg.speaker are defined
+          msg.content = msg.content || '';
+          msg.speaker = msg.speaker || 'Unknown Speaker';
           forwardEvent('conference-stream-llm-chunk', msg);
           break;
         case 'log_entry':
+          // Ensure msg.message and msg.speaker are defined
+          msg.message = msg.message || '';
+          msg.speaker = msg.speaker || 'System';
           forwardEvent('conference-stream-log-entry', msg);
           break;
         case 'error':
+          // Ensure msg.error is defined
+          msg.error = msg.error || 'An unknown error occurred';
+          // msg.details can also be checked or defaulted if necessary
+          msg.details = msg.details || '';
           console.error('[Electron IPC] start-conference-stream: Received error event:', msg);
           forwardEvent('conference-stream-error', msg);
           break;
         case 'execution_complete': // Or whatever the backend sends for completion
+          // Ensure msg (summaryData) and its nested properties are handled carefully.
+          // For now, we primarily ensure msg itself is an object (which JSON.parse does).
+          // Further checks might be needed if the backend could send non-object `msg` for this type,
+          // or if specific nested properties are critical and might be missing.
+          // The frontend will also add checks.
           console.log('[Electron IPC] start-conference-stream: Execution complete event:', msg);
-          forwardEvent('conference-stream-complete', msg);
+          forwardEvent('conference-stream-complete', msg || {}); // Ensure msg is at least an empty object
           if (conferenceEventSource) conferenceEventSource.close();
           conferenceEventSource = null;
           break;
         default:
           console.log('[Electron IPC] start-conference-stream: Unknown event type received:', msg.type, msg);
-          forwardEvent('conference-stream-log-entry', { type: 'log_entry', message: `Received event: ${msg.type}`, data: msg });
+          forwardEvent('conference-stream-log-entry', { type: 'log_entry', message: `Received event: ${msg.type || 'unknown'}`, data: msg });
       }
     } catch (err) {
       console.error('[Electron IPC] start-conference-stream: Failed to parse SSE message:', e.data, err);
