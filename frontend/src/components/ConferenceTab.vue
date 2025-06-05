@@ -16,6 +16,7 @@
       </div>
       <div>
         <label for="modelB-select">Select Model B:</label>
+
         <select id="modelB-select" v-model="selectedModelB" class="conference-model-select">
           <option :value="null" disabled>-- Select Model B --</option>
           <optgroup v-for="(group, category) in categorizedModels" :key="category" :label="category.toUpperCase()">
@@ -198,6 +199,7 @@ export default {
   },
   mounted() {
     if (window.electronAPI) {
+
       // Setup listeners
       if (window.electronAPI.onConferenceStreamChunk) {
         window.electronAPI.onConferenceStreamChunk((event, data) => {
@@ -255,6 +257,12 @@ export default {
   gap: 15px;
 }
 
+.model-selection-section {
+  margin-bottom: 15px;
+  display: flex;
+  gap: 15px;
+}
+
 .model-selection-section > div {
   flex: 1;
 }
@@ -263,15 +271,15 @@ export default {
   display: block;
   margin-bottom: 5px;
   color: #D1D5DB; /* Light text for labels in dark mode */
-}
-
-/* .model-selection-section select {
+/*
+.model-selection-section select {
   width: 100%;
   padding: 8px;
   border-radius: 4px;
   border: 1px solid #ddd;
+
   box-sizing: border-box;
-} */
+ */
 
 .conference-model-select {
   width: 100%;
@@ -308,7 +316,8 @@ export default {
   border-color: #60A5FA; /* Tailwind blue-400 for focus */
   box-shadow: 0 0 0 2px #3B82F660; /* Example focus ring */
 }
-
+  box-sizing: border-box; /* Ensures padding doesn't expand width */
+}
 
 .prompt-section textarea {
   width: 100%;
@@ -361,11 +370,31 @@ export default {
   border-radius: 4px;
   background-color: #374151; /* Dark background for individual turns */
 }
-
 .conversation-log-section .turn strong {
   display: block;
   margin-bottom: 4px;
   color: #9CA3AF; /* Lighter gray for speaker */
+.conversation-log-section {
+  margin-top: 20px;
+  padding: 10px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+}
+
+.conversation-log-section .turn {
+  margin-bottom: 10px;
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  background-color: #f0f0f0; /* Slightly different background for turns */
+}
+
+.conversation-log-section .turn strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #333; /* Darker text for speaker */
+
 }
 
 
