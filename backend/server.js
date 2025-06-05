@@ -9,7 +9,6 @@ const { v4: uuidv4 } = require('uuid'); // Ensure uuid is required
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 
 // --- OwlCore, Ollama, Config, Helpers (Assume these are defined as in previous complete versions) ---
-let owlcore; try { /* ... */ } catch (e) { owlcore = null; }
 async function checkOllamaStatus() {
   try {
     const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`); // MODIFIED to use OLLAMA_BASE_URL
