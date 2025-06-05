@@ -73,6 +73,17 @@ class ModularFsAgent {
         }
       };
     }
+
+    if (/\{\{[^}]+\}\}/.test(relativePath)) {
+      return {
+        success: false,
+        error: {
+          code: 'FS_UNRESOLVED_TEMPLATE',
+          message: 'Error: Path contains unresolved template placeholders.',
+          details: { relativePath }
+        }
+      };
+    }
     const normalizedPath = path.normalize(relativePath);
     let fullPath = path.isAbsolute(normalizedPath)
       ? path.resolve(normalizedPath)
