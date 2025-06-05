@@ -65,12 +65,18 @@
       <div v-if="result.model_a_response">
         <h4>Model A's Response:</h4>
         <pre>{{ result.model_a_response }}</pre>
+        <div v-if="logMessages.length" class="conference-log-terminal">
+          <pre v-for="(line, idx) in logMessages" :key="'a-' + idx">{{ line }}</pre>
+        </div>
       </div>
       <div v-if="result.model_b_response">
         <h4>Model B's Response:</h4>
         <pre>{{ result.model_b_response }}</pre>
+        <div v-if="logMessages.length" class="conference-log-terminal">
+          <pre v-for="(line, idx) in logMessages" :key="'b-' + idx">{{ line }}</pre>
+        </div>
       </div>
-    </div>
+      </div>
 
     <div v-if="error" class="error-section">
       <h3>Error:</h3>
@@ -93,6 +99,7 @@ export default {
       selectedModelB: null,
       selectedArbiter: null,
       conferenceLog: [], // To store conversation turns { speaker, message }
+      logMessages: [],
     };
   },
   computed: {
@@ -124,6 +131,7 @@ export default {
       this.isLoading = true;
       this.isStreaming = false; // Reset streaming state
       this.conferenceLog = [];
+      this.logMessages = [];
 
       if (!this.prompt.trim()) {
         this.error = 'Prompt cannot be empty.';
@@ -187,6 +195,9 @@ export default {
           break;
         case 'complete':
           this.result = eventData.summary; // This should contain final_response, model_a_response, model_b_response
+          if (eventData.summary && Array.isArray(eventData.summary.log_messages)) {
+            this.logMessages = eventData.summary.log_messages;
+          }
           this.isLoading = false;
           this.isStreaming = false;
           // Optionally, add a final "Conference Complete" message to the log
