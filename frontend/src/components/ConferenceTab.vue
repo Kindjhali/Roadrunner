@@ -204,7 +204,7 @@ export default {
         model_a_id: this.selectedModelA,
         model_b_id: this.selectedModelB,
         arbiter_model_id: this.selectedArbiter,
-        history: this.conversationHistory,
+        history: JSON.parse(JSON.stringify(this.conversationHistory)),
       };
       this.prompt = '';
 

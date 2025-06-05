@@ -210,11 +210,11 @@ class ModularFsAgent {
                 this.logger.log(`[ModularFsAgent.createFile] Successfully created parent directory: ${baseDir}`);
                 warnings.push(`Parent directory ${baseDir} created.`);
             } catch (mkdirError) {
-                this.logger.error(`[ModularFsAgent.createFile] Error creating parent directory ${baseDir}:`, mkdirError);
+                this.logger.error(`[ModularFsAgent.createFile] Error creating parent directory '${baseDir}'. Code: ${mkdirError.code}, Message: ${mkdirError.message}`, mkdirError);
                 return {
                     success: false,
                     message: `Failed to create parent directories for ${fullPath}: ${mkdirError.message}`,
-                    error: { code: 'FS_MKDIR_FAILED', originalError: mkdirError, message: mkdirError.message },
+                    error: { code: 'FS_MKDIR_FAILED', originalError: mkdirError, message: mkdirError.message, errorCode: mkdirError.code },
                     fullPath: baseDir, // Path that failed to be created
                     warnings
                 };
@@ -282,7 +282,7 @@ class ModularFsAgent {
       return {
         success: false,
         message: `Error writing file to ${fullPath}: ${writeError.message}`,
-        error: { code: 'FS_WRITE_FILE_FAILED', originalError: writeError, message: writeError.message },
+        error: { code: 'FS_WRITE_FILE_FAILED', originalError: writeError, message: writeError.message, errorCode: writeError.code },
         fullPath,
         warnings,
       };

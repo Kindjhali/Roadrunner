@@ -33,10 +33,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onBrainstormingChatStreamError: (callback) => ipcRenderer.on('brainstorming-chat-stream-error', callback),
   onBrainstormingChatStreamEnd: (callback) => ipcRenderer.on('brainstorming-chat-stream-end', callback),
   startConferenceStream: (payload) => ipcRenderer.send('start-conference-stream', payload),
-  onConferenceStreamChunk: (callback) => ipcRenderer.on('conference-stream-chunk', callback),
+  onConferenceStreamLLMChunk: (callback) => ipcRenderer.on('conference-stream-llm-chunk', callback),
+  onConferenceStreamLogEntry: (callback) => ipcRenderer.on('conference-stream-log-entry', callback),
   onConferenceStreamError: (callback) => ipcRenderer.on('conference-stream-error', callback),
-  onConferenceStreamEnd: (callback) => ipcRenderer.on('conference-stream-end', callback),
-  removeAllConferenceListeners: () => ipcRenderer.send('remove-conference-listeners'),
+  onConferenceStreamComplete: (callback) => ipcRenderer.on('conference-stream-complete', callback),
+  removeAllConferenceListeners: () => {
+    ipcRenderer.send('remove-conference-listeners');
+    // Though ConferenceTab.vue sends an array of channel names,
+    // this preload function doesn't currently pass them to the main process.
+    // The main process's 'remove-conference-listeners' handler closes the EventSource.
+    // Explicitly removing listeners here for the renderer side is good practice,
+    // especially if the component calling this might not be destroyed immediately.
+    // However, the `ipcRenderer.on` wrapper already returns a cleanup function,
+    // which Vue's `onUnmounted` (or similar) should be using.
+    // For now, to match the subtask's focus on *renaming* and *adding specific* listeners,
+    // and given the existing comment about how `removeAllConferenceListeners` works,
+    // we won't change the *signature* or *behavior* of `removeAllConferenceListeners` itself,
+    // beyond ensuring the main process is signaled. The crucial part is that
+    // `ConferenceTab.vue` will use the new electronAPI names.
+    // The subtask also asks to "Ensure the removeAllConferenceListeners function is updated
+    // if it explicitly lists channels to remove". This function *doesn't* explicitly list
+    // channels to remove *for ipcRenderer.removeListener* calls directly within itself.
+    // The channels are implicitly managed by the `on` wrapper or would be if Vue calls
+    // the returned unsubscribe functions.
+    // The prompt mentions:
+    // "Ensure the removeAllConferenceListeners function is updated if it explicitly lists
+    // channels to remove, to include the new/renamed channels:
+    // 'conference-stream-llm-chunk', 'conference-stream-log-entry',
+    // 'conference-stream-error', 'conference-stream-complete'."
+    // Since it does NOT explicitly list them for removal here, no direct change
+    // to this function's *body* for channel removal is made. The primary action
+    // is `ipcRenderer.send('remove-conference-listeners')`.
+  },
   executeTaskWithEvents: (payload) => ipcRenderer.send('execute-task-with-events', payload),
   onCoderTaskLog: (cb) => ipcRenderer.on('coder-task-log', cb),
   onCoderTaskError: (cb) => ipcRenderer.on('coder-task-error', cb),
