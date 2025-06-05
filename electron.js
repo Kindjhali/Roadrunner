@@ -36,11 +36,33 @@ function startBackendServer() {
   });
 
   backendProcess.stdout.on('data', (data) => {
-    console.log(`[Backend STDOUT] ${data.toString().trim()}`);
+    const output = data.toString();
+    output.split('\n').forEach(line => {
+      const trimmedLine = line.trim();
+      if (trimmedLine) {
+        console.log(`[Backend STDOUT] ${trimmedLine}`);
+        sendToAllWindows('backend-log-event', {
+          timestamp: new Date().toISOString(),
+          stream: 'stdout',
+          line: trimmedLine
+        });
+      }
+    });
   });
 
   backendProcess.stderr.on('data', (data) => {
-    console.error(`[Backend STDERR] ${data.toString().trim()}`);
+    const output = data.toString();
+    output.split('\n').forEach(line => {
+      const trimmedLine = line.trim();
+      if (trimmedLine) {
+        console.error(`[Backend STDERR] ${trimmedLine}`);
+        sendToAllWindows('backend-log-event', {
+          timestamp: new Date().toISOString(),
+          stream: 'stderr',
+          line: trimmedLine
+        });
+      }
+    });
   });
 
   backendProcess.on('exit', (code, signal) => {
