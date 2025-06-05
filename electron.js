@@ -379,7 +379,8 @@ ipcMain.on('start-conference-stream', (event, payload) => {
   }
 
   const eventSourceUrl = `http://127.0.0.1:${currentBackendPort}/execute-autonomous-task?${params.toString()}`;
-  console.log('[Electron IPC] start-conference-stream: Connecting to EventSource URL:', eventSourceUrl);
+  // Log eventSourceUrl (as per subtask)
+  console.log('[Electron IPC] start-conference-stream: Attempting to connect to EventSource URL:', eventSourceUrl);
 
   conferenceEventSource = new EventSource(eventSourceUrl);
 
@@ -393,13 +394,19 @@ ipcMain.on('start-conference-stream', (event, payload) => {
     }
   };
 
+  // Enhance conferenceEventSource.onopen (as per subtask)
   conferenceEventSource.onopen = () => {
+
+    console.log('[Electron IPC] start-conference-stream: EventSource connection successfully opened to URL:', eventSourceUrl);
+    const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
+
     console.log('[Electron IPC] start-conference-stream: EventSource connection opened.');
     // For onopen, the data is static, so we can log it directly here or ensure forwardEvent handles it.
     // To stick to the plan, ensure forwardEvent is called for all relevant events.
     const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
     // Log before sending (as per plan, though forwardEvent will log again)
     // console.log(`[Electron IPC] Forwarding to ConferenceTab - Channel: conference-stream-log-entry, Payload: ${JSON.stringify(openData)}`);
+
     forwardEvent('conference-stream-log-entry', openData);
   };
 
@@ -409,6 +416,24 @@ ipcMain.on('start-conference-stream', (event, payload) => {
       let msg = JSON.parse(e.data); // Use 'let' to allow modification
       let channelToSend;
       let dataToSend;
+
+
+      // Apply defaults and determine channel and data based on msg.type
+      switch (msg.type) {
+        case 'llm_chunk':
+          msg.content = msg.content || '';
+          msg.speaker = msg.speaker || 'Unknown Speaker';
+          channelToSend = 'conference-stream-llm-chunk';
+          dataToSend = msg;
+          break;
+        case 'log_entry':
+          msg.message = msg.message || '';
+          msg.speaker = msg.speaker || 'System';
+          channelToSend = 'conference-stream-log-entry';
+          dataToSend = msg;
+          break;
+        case 'error':
+          msg.error = msg.error || 'An unknown error occurred';
 
       // Adapt message types based on expected backend output for conference tasks
       switch (msg.type) {
@@ -429,6 +454,7 @@ ipcMain.on('start-conference-stream', (event, payload) => {
           msg.error = msg.error || 'An unknown error occurred';
           // msg.details can also be checked or defaulted if necessary
 
+
           msg.details = msg.details || '';
           console.error('[Electron IPC] start-conference-stream: Received error event:', msg);
           channelToSend = 'conference-stream-error';
@@ -446,6 +472,7 @@ ipcMain.on('start-conference-stream', (event, payload) => {
           // For unknown types, structure it like a log_entry for forwarding
           dataToSend = { type: 'log_entry', message: `Received event: ${msg.type || 'unknown'}`, data: msg, speaker: 'System' };
           channelToSend = 'conference-stream-log-entry';
+
       }
 
       // Now call the modified forwardEvent which includes the detailed logging
@@ -459,6 +486,21 @@ ipcMain.on('start-conference-stream', (event, payload) => {
         conferenceEventSource = null;
       }
 
+
+      }
+
+      // Now call the modified forwardEvent which includes the detailed logging
+      if (channelToSend && dataToSend) {
+        forwardEvent(channelToSend, dataToSend);
+      }
+
+      // Specific handling for execution_complete to close EventSource
+      if (msg.type === 'execution_complete') {
+        if (conferenceEventSource) conferenceEventSource.close();
+        conferenceEventSource = null;
+      }
+
+
     } catch (err) {
       console.error('[Electron IPC] start-conference-stream: Failed to parse SSE message:', e.data, err);
       // Log before sending error (as per plan, though forwardEvent will log again)
@@ -468,26 +510,56 @@ ipcMain.on('start-conference-stream', (event, payload) => {
     }
   };
 
+  // Enhance conferenceEventSource.onerror (as per subtask)
   conferenceEventSource.onerror = (err) => {
-    console.error('[Electron IPC] start-conference-stream: EventSource error:', err);
-    forwardEvent('conference-stream-error', { error: 'EventSource connection error.', details: err ? JSON.stringify(err, Object.getOwnPropertyNames(err)) : 'Unknown EventSource error' });
-    if (conferenceEventSource) conferenceEventSource.close();
-    conferenceEventSource = null;
+    // Log the raw error object structure for inspection
+    console.error('[Electron IPC] start-conference-stream: EventSource error occurred. Raw error object:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
+
+    let errorDetailsString = 'Unknown EventSource error';
+    if (err) {
+      if (err.type === 'error' && err.message) { // Standard error event
+        errorDetailsString = `EventSource error: ${err.message}`;
+      } else if (err.type === 'exception' && err.message && err.description) {
+          errorDetailsString = `EventSource exception: ${err.message} - ${err.description}`;
+      } else if (typeof err === 'object' && err.target && err.target.readyState === EventSource.CLOSED) {
+        errorDetailsString = 'EventSource connection was closed (readyState is CLOSED). This might indicate the server is unavailable or the URL is incorrect.';
+      } else if (err.message) { // Generic error object with a message
+          errorDetailsString = err.message;
+      }
+      // For events that might have an HTTP status (like from eventsource polyfill on non-200 responses)
+      if (err.status) {
+          errorDetailsString += ` (HTTP Status: ${err.status})`;
+      }
+    }
+
+    console.error('[Electron IPC] start-conference-stream: EventSource error processed details:', errorDetailsString);
+    forwardEvent('conference-stream-error', {
+      error: 'EventSource connection error or stream failure.',
+      details: errorDetailsString
+    });
+
+    if (conferenceEventSource) {
+      conferenceEventSource.close();
+      conferenceEventSource = null;
+      console.log('[Electron IPC] start-conference-stream: Closed EventSource due to error.');
+    }
   };
 });
 
 ipcMain.on('remove-conference-listeners', (event) => {
-  console.log('[Electron IPC] remove-conference-listeners: Closing conference EventSource and removing listeners.');
+  const senderId = event.sender.id; // Get sender webContents ID for context
+  console.log(`[Electron IPC] Received 'remove-conference-listeners' from sender ID: ${senderId}. Current EventSource readyState: ${conferenceEventSource ? conferenceEventSource.readyState : 'null (no active EventSource)'}`);
   if (conferenceEventSource) {
     conferenceEventSource.close();
     conferenceEventSource = null;
+    console.log('[Electron IPC] Closed active conference EventSource due to remove-conference-listeners request.');
   }
   // These remove listeners on the renderer side, which is good practice.
   // The actual event source connection is managed by conferenceEventSource.close()
-  event.sender.removeAllListeners('conference-stream-llm-chunk');
-  event.sender.removeAllListeners('conference-stream-log-entry');
-  event.sender.removeAllListeners('conference-stream-error');
-  event.sender.removeAllListeners('conference-stream-complete'); // Changed from conference-stream-end
+  // event.sender.removeAllListeners('conference-stream-llm-chunk');
+  // event.sender.removeAllListeners('conference-stream-log-entry');
+  // event.sender.removeAllListeners('conference-stream-error');
+  // event.sender.removeAllListeners('conference-stream-complete');
 });
 
 // Execute coder tasks with SSE event forwarding

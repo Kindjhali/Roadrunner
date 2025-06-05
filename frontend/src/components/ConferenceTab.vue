@@ -269,6 +269,7 @@ export default {
       this.error = errorMessage;
       this.isLoading = false;
       this.isStreaming = false;
+      console.log(`[ConferenceTab] handleError: Set isLoading to ${this.isLoading}, isStreaming to ${this.isStreaming}. Error displayed: ${errorMessage}`);
     },
 
     handleComplete(summaryData) {
@@ -435,14 +436,15 @@ export default {
     }
   },
   beforeUnmount() {
+    console.log('[ConferenceTab] beforeUnmount hook called. Preparing to emit remove-conference-listeners.');
     if (window.electronAPI) {
       // The main process's remove-conference-listeners now handles EventSource closure.
       // This call ensures frontend listeners are cleaned up if the preload script's removeAllConferenceListeners
       // maps to specific removeListener calls for each new event type, or if it's a generic one.
       if (window.electronAPI.removeAllConferenceListeners) {
-        console.log('[ConferenceTab] Requesting removal of all conference listeners.');
+        console.log('[ConferenceTab] Requesting removal of all conference listeners via electronAPI.removeAllConferenceListeners.');
         window.electronAPI.removeAllConferenceListeners([
-          'conference-stream-llm-chunk', // Explicitly listing, though the main process might not need it
+          'conference-stream-llm-chunk',
           'conference-stream-log-entry',
           'conference-stream-error',
           'conference-stream-complete'
