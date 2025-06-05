@@ -15,6 +15,7 @@
         <div class="tab-navigation">
           <button @click="activeTab = 'coder'" :class="{ 'active': activeTab === 'coder' }">Coder</button>
           <button @click="activeTab = 'brainstorming'" :class="{ 'active': activeTab === 'brainstorming' }">Brainstorming</button>
+          <button @click="activeTab = 'conference'" :class="{ 'active': activeTab === 'conference' }">Conference</button>
           <button @click="activeTab = 'configuration'" :class="{ 'active': activeTab === 'configuration' }">Configuration</button>
         </div>
 
@@ -249,10 +250,12 @@
 import RoadmapParser from './RoadmapParser';
 import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
+import ConferenceTab from './components/ConferenceTab.vue';
 
 export default {
   components: {
     ConfigurationTab,
+    ConferenceTab,
   },
   // ... (name, components)
   data() {
