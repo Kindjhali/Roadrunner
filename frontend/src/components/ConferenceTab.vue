@@ -52,29 +52,29 @@
     <div v-if="conferenceLog.length > 0" class="conversation-log-section">
       <h3>Conversation Log:</h3>
       <div v-for="(turn, index) in conferenceLog" :key="index" class="turn">
-        <strong>{{ turn.speaker }}:</strong>
-        <pre>{{ turn.message }}</pre>
+        <strong>{{ turn.speaker || 'System' }}:</strong>
+        <pre>{{ turn.message || "..." }}</pre>
       </div>
     </div>
 
     <div v-if="result && !error" class="result-section">
       <h3>Conference Result (Arbiter's View):</h3>
-      <pre>{{ formattedResult }}</pre>
+      <pre>{{ formattedResult || "Waiting for result..." }}</pre>
       <div v-if="result.model_a_response">
         <h4>Model A's Response:</h4>
-        <pre>{{ result.model_a_response }}</pre>
+        <pre>{{ result.model_a_response || "No response from Model A." }}</pre>
       </div>
 
       <div v-if="result.model_b_response">
         <h4>Model B's Response:</h4>
-        <pre>{{ result.model_b_response }}</pre>
+        <pre>{{ result.model_b_response || "No response from Model B." }}</pre>
       </div>
 
       <!-- Consolidated Conference Log Messages Display -->
-      <div v-if="logMessages.length > 0" class="conference-summary-log-terminal mt-3 p-2 bg-gray-750 rounded">
+      <div v-if="logMessages && logMessages.length > 0" class="conference-summary-log-terminal mt-3 p-2 bg-gray-750 rounded">
         <h4 class="text-md font-semibold text-gray-300 mb-1">Conference Detail Log:</h4>
         <div class="max-h-40 overflow-y-auto text-xs">
-            <pre v-for="(line, idx) in logMessages" :key="'conf-log-' + idx">{{ line }}</pre>
+            <pre v-for="(line, idx) in logMessages" :key="'conf-log-' + idx">{{ line || "Empty log line" }}</pre>
         </div>
       </div>
     </div>
@@ -211,7 +211,6 @@ export default {
       if (window.electronAPI && window.electronAPI.startConferenceStream) {
         console.log('[ConferenceTab] Calling startConferenceStream with payload:', payload);
         window.electronAPI.startConferenceStream(payload);
-        // isLoading is already true, isStreaming will be set by an event or first chunk
       } else {
         this.error = "Error: Conference streaming API is not available. Ensure you're in the Electron environment and preload scripts are loaded.";
         this.isLoading = false;
@@ -219,62 +218,107 @@ export default {
       }
     },
 
-    handleConferenceEvent(eventData) {
-      console.log('[ConferenceTab] Received conference event:', eventData);
-      if (!this.isStreaming && eventData.type !== 'error' && eventData.type !== 'complete') {
-        // First chunk of data means streaming has started
+    handleLLMChunk(data) {
+      console.log('[ConferenceTab] handleLLMChunk:', data);
+      this.isStreaming = true;
+      this.isLoading = false;
+      if (data && data.content) {
+        this.conferenceLog.push({
+          speaker: data.speaker || (data.role || 'Model'), // Use speaker, fallback to role, then 'Model'
+          message: data.content,
+        });
+        // Optionally add to conversationHistory if llm_chunks are considered part of history
+        // this.conversationHistory.push({ role: data.speaker || 'assistant', content: data.content });
+      } else {
+        console.warn('[ConferenceTab] Received LLM chunk without content:', data);
+      }
+    },
+
+    handleLogEntry(data) {
+      console.log('[ConferenceTab] handleLogEntry:', data);
+      if (!this.isStreaming && !this.isLoading) { // If this is the first event after start
+        // This might not be strictly necessary if LLM chunks arrive first
+      }
+      // An early log entry might arrive before the first LLM chunk.
+      // Set streaming to true and loading to false if this is the first sign of activity.
+      if (this.isLoading && !this.isStreaming) {
         this.isStreaming = true;
-        this.isLoading = false; // No longer just loading, now actively streaming
+        this.isLoading = false;
+      }
+      if (data && data.message) {
+        this.conferenceLog.push({
+          speaker: data.speaker || 'System',
+          message: `[SYS-LOG] ${data.message}`, // Prepend to distinguish from model messages
+        });
+      } else {
+        console.warn('[ConferenceTab] Received log entry without message:', data);
+      }
+    },
+
+    handleError(errorDetails) {
+      console.error('[ConferenceTab] handleError:', errorDetails);
+      let errorMessage = 'An unexpected error occurred during the conference.';
+      if (errorDetails) {
+        if (typeof errorDetails === 'string') {
+          errorMessage = errorDetails;
+        } else if (errorDetails.error) {
+          errorMessage = errorDetails.error;
+          if (errorDetails.details) {
+            errorMessage += ` (Details: ${errorDetails.details})`;
+          }
+        } else if (errorDetails.message) { // Fallback for generic error objects
+            errorMessage = errorDetails.message;
+        }
+      }
+      this.error = errorMessage;
+      this.isLoading = false;
+      this.isStreaming = false;
+    },
+
+    handleComplete(summaryData) {
+      console.log('[ConferenceTab] handleComplete:', summaryData);
+      this.isLoading = false;
+      this.isStreaming = false;
+
+      if (!summaryData) {
+        this.error = "Conference completed, but no summary data was received.";
+        this.conferenceLog.push({ speaker: 'System', message: 'Conference complete. No summary data.' });
+        return;
       }
 
-      switch (eventData.type) {
-        case 'turn':
-          this.conferenceLog.push({ speaker: eventData.speaker, message: eventData.message });
-          break;
-        case 'arbiter_summary':
-          // The arbiter_summary might be a part of the log or a preliminary result
-          this.conferenceLog.push({ speaker: eventData.speaker || 'Arbiter', message: eventData.message });
-          // If the summary also contains model responses, you might want to update this.result partially
-          if (eventData.model_a_response) {
-            if (!this.result) this.result = {};
-            this.result.model_a_response = eventData.model_a_response;
-          }
-          if (eventData.model_b_response) {
-            if (!this.result) this.result = {};
-            this.result.model_b_response = eventData.model_b_response;
-          }
-          break;
-        case 'error':
-          this.error = `${eventData.message}${eventData.details ? ` (Details: ${JSON.stringify(eventData.details)})` : ''}`;
-          this.isLoading = false;
-          this.isStreaming = false;
-          break;
-       case 'complete':
-          this.result = eventData.summary; // This should contain final_response, model_a_response, model_b_response
-          if (eventData.summary && Array.isArray(eventData.summary.log_messages)) {
-            this.logMessages = eventData.summary.log_messages;
-          }
-          if (eventData.summary) {
-            if (eventData.summary.model_a_response) {
-              this.conferenceLog.push({ speaker: 'Model A', message: eventData.summary.model_a_response });
-              this.conversationHistory.push({ role: 'model_a', content: eventData.summary.model_a_response });
-            }
-            if (eventData.summary.model_b_response) {
-              this.conferenceLog.push({ speaker: 'Model B', message: eventData.summary.model_b_response });
-              this.conversationHistory.push({ role: 'model_b', content: eventData.summary.model_b_response });
-            }
-            if (eventData.summary.final_response) {
-              this.conferenceLog.push({ speaker: 'Arbiter', message: eventData.summary.final_response });
-              this.conversationHistory.push({ role: 'arbiter', content: eventData.summary.final_response });
-            }
-          }
-          this.isLoading = false;
-          this.isStreaming = false;
-          this.conferenceLog.push({ speaker: 'System', message: 'Conference complete. Final summary generated.' });
-          break;
-        default:
-          console.warn('[ConferenceTab] Received unknown conference event type:', eventData.type);
+      // Attempt to extract results, potentially from a nested structure
+      const conferenceResult = summaryData.taskContext?.outputs?.conference_result || summaryData;
+
+      this.result = {
+        final_response: conferenceResult.final_response || "No final response provided.",
+        model_a_response: conferenceResult.model_a_response || "No response from Model A recorded.",
+        model_b_response: conferenceResult.model_b_response || "No response from Model B recorded."
+      };
+
+      if (conferenceResult.log_messages && Array.isArray(conferenceResult.log_messages)) {
+        this.logMessages = conferenceResult.log_messages;
+      } else if (summaryData.log_messages && Array.isArray(summaryData.log_messages)) { // fallback to top level
+        this.logMessages = summaryData.log_messages;
       }
+
+
+      // Add final responses to logs if they aren't already there (e.g., if not streamed chunk by chunk)
+      // This might lead to duplicates if chunks already added them. Consider how backend sends final data.
+      // For now, let's assume chunks don't add these specific "final" labeled responses.
+      if (this.result.model_a_response) {
+        this.conferenceLog.push({ speaker: 'Model A (Final)', message: this.result.model_a_response });
+        this.conversationHistory.push({ role: 'model_a', content: this.result.model_a_response });
+      }
+      if (this.result.model_b_response) {
+        this.conferenceLog.push({ speaker: 'Model B (Final)', message: this.result.model_b_response });
+        this.conversationHistory.push({ role: 'model_b', content: this.result.model_b_response });
+      }
+      if (this.result.final_response) {
+        this.conferenceLog.push({ speaker: 'Arbiter (Final)', message: this.result.final_response });
+        this.conversationHistory.push({ role: 'arbiter', content: this.result.final_response });
+      }
+
+      this.conferenceLog.push({ speaker: 'System', message: 'Conference complete. Final summary processed.' });
     },
     openConferenceInstructions(role) {
       this.$emit('edit-instructions', role);
@@ -341,35 +385,39 @@ export default {
   mounted() {
     this.setDefaultModels(); // Attempt to set defaults on mount
     if (window.electronAPI) {
+      // Remove old listeners first (optional, but good practice if re-mounting without full page reload)
+      if (window.electronAPI.removeAllConferenceListeners) {
+         window.electronAPI.removeAllConferenceListeners(); // Clean up before attaching new ones
+      }
 
-      // Setup listeners
-      if (window.electronAPI.onConferenceStreamChunk) {
-        window.electronAPI.onConferenceStreamChunk((event, data) => {
-          this.handleConferenceEvent(data);
-        });
+      // Setup new listeners
+      if (window.electronAPI.onConferenceStreamLLMChunk) {
+        window.electronAPI.onConferenceStreamLLMChunk((_event, data) => this.handleLLMChunk(data));
       } else {
-        console.warn('[ConferenceTab] onConferenceStreamChunk API is not available.');
+        console.warn('[ConferenceTab] onConferenceStreamLLMChunk API is not available.');
+      }
+
+      if (window.electronAPI.onConferenceStreamLogEntry) {
+        window.electronAPI.onConferenceStreamLogEntry((_event, data) => this.handleLogEntry(data));
+      } else {
+        console.warn('[ConferenceTab] onConferenceStreamLogEntry API is not available.');
       }
 
       if (window.electronAPI.onConferenceStreamError) {
-        window.electronAPI.onConferenceStreamError((event, errorDetails) => {
-          this.handleConferenceEvent({ type: 'error', message: errorDetails.error, details: errorDetails.details });
-        });
+        window.electronAPI.onConferenceStreamError((_event, errorDetails) => this.handleError(errorDetails));
       } else {
         console.warn('[ConferenceTab] onConferenceStreamError API is not available.');
       }
 
-      if (window.electronAPI.onConferenceStreamEnd) {
-        window.electronAPI.onConferenceStreamEnd((event, summary) => {
-          this.handleConferenceEvent({ type: 'complete', summary: summary });
-        });
+      if (window.electronAPI.onConferenceStreamComplete) {
+        window.electronAPI.onConferenceStreamComplete((_event, summaryData) => this.handleComplete(summaryData));
       } else {
-        console.warn('[ConferenceTab] onConferenceStreamEnd API is not available.');
+        console.warn('[ConferenceTab] onConferenceStreamComplete API is not available.');
       }
 
-      // Listener for general backend logs
+      // Listener for general backend logs (remains unchanged)
       if (window.electronAPI && window.electronAPI.onBackendLogEvent) {
-        window.electronAPI.onBackendLogEvent((event, logEntry) => {
+        window.electronAPI.onBackendLogEvent((_event, logEntry) => { // Changed event to _event
           const formattedLog = `[${new Date(logEntry.timestamp).toLocaleTimeString()}] [${logEntry.stream}] ${logEntry.line}`;
           this.generalBackendLogs.push(formattedLog);
           if (this.generalBackendLogs.length > 200) { // Keep last 200 lines
@@ -378,7 +426,6 @@ export default {
         });
       } else {
         console.warn('[ConferenceTab] Backend log event API (onBackendLogEvent) not available.');
-        // this.generalBackendLogs.push('[Mock] Backend log API not available in this environment.');
       }
 
     } else {
@@ -388,13 +435,22 @@ export default {
   },
   beforeUnmount() {
     if (window.electronAPI) {
+      // The main process's remove-conference-listeners now handles EventSource closure.
+      // This call ensures frontend listeners are cleaned up if the preload script's removeAllConferenceListeners
+      // maps to specific removeListener calls for each new event type, or if it's a generic one.
       if (window.electronAPI.removeAllConferenceListeners) {
-        console.log('[ConferenceTab] Removing all conference listeners.');
-        window.electronAPI.removeAllConferenceListeners();
+        console.log('[ConferenceTab] Requesting removal of all conference listeners.');
+        window.electronAPI.removeAllConferenceListeners([
+          'conference-stream-llm-chunk', // Explicitly listing, though the main process might not need it
+          'conference-stream-log-entry',
+          'conference-stream-error',
+          'conference-stream-complete'
+        ]);
       } else {
-        console.warn('[ConferenceTab] removeAllConferenceListeners API is not available.');
+        console.warn('[ConferenceTab] removeAllConferenceListeners API is not available for conference events.');
       }
-      // Cleanup for general backend logs listener
+
+      // Cleanup for general backend logs listener (remains unchanged)
       if (window.electronAPI.removeBackendLogEventListener) {
         console.log('[ConferenceTab] Removing backend log event listener.');
         window.electronAPI.removeBackendLogEventListener();
