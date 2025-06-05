@@ -22,6 +22,18 @@ function startBackendServer() {
     stdio: ['pipe', 'pipe', 'pipe', 'ipc'] // Keep ipc for potential future use
   });
 
+  // New log statement:
+  if (backendProcess && backendProcess.pid) {
+    console.log(`[Backend] Backend process spawned successfully. PID: ${backendProcess.pid}. Command: node ${backendPath}`);
+  } else if (backendProcess) {
+    // This case might happen if the process object exists but pid is not available immediately (though rare for successful spawn)
+    console.log(`[Backend] Backend process spawning initiated. PID not immediately available. Command: node ${backendPath}`);
+  } else {
+    // This case would indicate spawn itself failed synchronously and returned null/undefined,
+    // though 'error' event handler is the primary place for spawn failures.
+    console.error(`[Backend] Backend process failed to spawn (backendProcess object is null). Command: node ${backendPath}`);
+  }
+
   backendProcess.on('message', (message) => {
     if (message && message.type === 'backend-port') {
       currentBackendPort = message.port;
@@ -208,9 +220,11 @@ app.on('before-quit', () => {
 });
 
 app.on('quit', () => {
+  console.log(`[Electron Main] 'app.quit' event triggered. Attempting to terminate backend process (PID: ${backendProcess ? backendProcess.pid : 'N/A'}, Exists: ${!!backendProcess})`); // Enhanced log
   if (backendProcess) {
-    console.log('[Backend] Terminating backend server process...');
+    console.log('[Electron Main] Terminating backend server process explicitly on app quit.'); // Specific log before kill
     backendProcess.kill();
+    backendProcess = null; // Ensure it's nulled after killing
   }
 });
 
@@ -413,12 +427,17 @@ ipcMain.on('start-conference-stream', (event, payload) => {
     console.log('[Electron IPC] start-conference-stream: EventSource connection successfully opened to URL:', eventSourceUrl);
     const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
 
+
+    console.log('[Electron IPC] start-conference-stream: EventSource connection successfully opened to URL:', eventSourceUrl);
+    const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
+
     console.log('[Electron IPC] start-conference-stream: EventSource connection opened.');
     // For onopen, the data is static, so we can log it directly here or ensure forwardEvent handles it.
     // To stick to the plan, ensure forwardEvent is called for all relevant events.
     const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
     // Log before sending (as per plan, though forwardEvent will log again)
     // console.log(`[Electron IPC] Forwarding to ConferenceTab - Channel: conference-stream-log-entry, Payload: ${JSON.stringify(openData)}`);
+
 
     forwardEvent('conference-stream-log-entry', openData);
   };
@@ -429,6 +448,24 @@ ipcMain.on('start-conference-stream', (event, payload) => {
       let msg = JSON.parse(e.data); // Use 'let' to allow modification
       let channelToSend;
       let dataToSend;
+
+
+      // Apply defaults and determine channel and data based on msg.type
+      switch (msg.type) {
+        case 'llm_chunk':
+          msg.content = msg.content || '';
+          msg.speaker = msg.speaker || 'Unknown Speaker';
+          channelToSend = 'conference-stream-llm-chunk';
+          dataToSend = msg;
+          break;
+        case 'log_entry':
+          msg.message = msg.message || '';
+          msg.speaker = msg.speaker || 'System';
+          channelToSend = 'conference-stream-log-entry';
+          dataToSend = msg;
+          break;
+        case 'error':
+          msg.error = msg.error || 'An unknown error occurred';
 
 
       // Apply defaults and determine channel and data based on msg.type
@@ -468,6 +505,7 @@ ipcMain.on('start-conference-stream', (event, payload) => {
           // msg.details can also be checked or defaulted if necessary
 
 
+
           msg.details = msg.details || '';
           console.error('[Electron IPC] start-conference-stream: Received error event:', msg);
           channelToSend = 'conference-stream-error';
@@ -486,18 +524,7 @@ ipcMain.on('start-conference-stream', (event, payload) => {
           dataToSend = { type: 'log_entry', message: `Received event: ${msg.type || 'unknown'}`, data: msg, speaker: 'System' };
           channelToSend = 'conference-stream-log-entry';
 
-      }
 
-      // Now call the modified forwardEvent which includes the detailed logging
-      if (channelToSend && dataToSend) {
-        forwardEvent(channelToSend, dataToSend);
-      }
-
-      // Specific handling for execution_complete to close EventSource
-      if (msg.type === 'execution_complete') {
-        if (conferenceEventSource) conferenceEventSource.close();
-        conferenceEventSource = null;
-      }
 
 
       }
@@ -512,6 +539,23 @@ ipcMain.on('start-conference-stream', (event, payload) => {
         if (conferenceEventSource) conferenceEventSource.close();
         conferenceEventSource = null;
       }
+
+
+
+
+      }
+
+      // Now call the modified forwardEvent which includes the detailed logging
+      if (channelToSend && dataToSend) {
+        forwardEvent(channelToSend, dataToSend);
+      }
+
+      // Specific handling for execution_complete to close EventSource
+      if (msg.type === 'execution_complete') {
+        if (conferenceEventSource) conferenceEventSource.close();
+        conferenceEventSource = null;
+      }
+
 
 
     } catch (err) {

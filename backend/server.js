@@ -1,3 +1,22 @@
+// --- Global Error Handlers for Backend Stability ---
+process.on('uncaughtException', (error, origin) => {
+  // Using console.error to ensure it goes to stderr
+  console.error(`[Backend CRITICAL] Uncaught Exception at: ${origin}`);
+  console.error('[Backend CRITICAL] Error details:', error);
+  // It's often recommended to exit after an uncaught exception,
+  // as the application state might be corrupt.
+  // However, for debugging, we might initially just log.
+  // Consider adding process.exit(1) here if stability is preferred over continued (but potentially flawed) execution.
+  // fs.writeSync(process.stderr.fd, `Caught exception: ${error}\nException origin: ${origin}`); // Alternative direct stderr write
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Backend CRITICAL] Unhandled Rejection at Promise:', promise);
+  console.error('[Backend CRITICAL] Reason:', reason);
+  // Application specific logging, throwing an error, or other logic here
+});
+// --- End Global Error Handlers ---
+
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
