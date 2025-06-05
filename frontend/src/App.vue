@@ -23,6 +23,7 @@
         <!-- Coder Tab Content -->
         <div v-if="activeTab === 'coder'" class="tab-content coder-tab-content p-4 space-y-4">
           <div class="passeriformes-form-area space-y-4">
+            <!--
             <div v-if="isIntegratedMode" class="piciformes-input-row flex items-center space-x-2">
               <label for="moduleSelect" class="emberiza-label">Module:</label>
               <select id="moduleSelect" v-model="selectedModule" class="turdus-select">
@@ -33,7 +34,7 @@
                 🔄
               </button>
             </div>
-
+            -->
           <div class="piciformes-input-row">
             <div class="piciformes-input-group">
               <label for="modelSelect" class="emberiza-label" title="This model is used for new tasks. You can override it for individual tasks in the session list below.">Default Task Model:</label>
@@ -255,6 +256,11 @@
         </div>
 
         <!-- Settings Panel (conditionally rendered) -->      </div>
+      <instructions-modal
+        :agentType="modalAgentType"
+        :agentRole="modalAgentRole"
+        :showModal.sync="showInstructionsModal"
+      />
    </div>
 </template>
 

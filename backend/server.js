@@ -65,6 +65,14 @@ const fsAgent = require('./fsAgent');
 const gitAgent = require('./gitAgent');
 const { resolvePathInWorkspace, generateDirectoryTree } = fsAgent;
 
+// Sandbox Directory Names
+const CONFERENCE_SANDBOX_DIR = 'conference_files';
+const BRAINSTORMING_SANDBOX_DIR = 'brainstorming_files';
+
+// Allowed File Extensions for Conference/Brainstorming Agents
+const ALLOWED_AGENT_FILE_EXTENSIONS = ['.py', '.json', '.js', '.vue', '.css', '.md', '.svg', '.pdf', '.txt', '.sh', '.yaml', '.yml'];
+
+
 // --- Path Configuration ---
 // Specific for backend server settings (LLM provider, API key)
 const BACKEND_CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json');
@@ -1072,6 +1080,17 @@ async function executeStepsInternal(
         const isConfirmedAction = currentStep.details?.isConfirmedAction || false;
         lastErrorForStep = null; // Clear last error before new attempt
 
+        // --- Sandboxing Logic ---
+        // Hypothetical: agentContext could come from taskContext.agentType or currentStep.agentContext
+        const agentContext = taskContext.agentType || currentStep.agentContext;
+        let sandboxSubDir = null;
+
+        if (agentContext === 'conference_agent') {
+          sandboxSubDir = CONFERENCE_SANDBOX_DIR;
+        } else if (agentContext === 'brainstorming_agent') {
+          sandboxSubDir = BRAINSTORMING_SANDBOX_DIR;
+        }
+
         // --- Actual Step Execution Logic (moved inside the while loop) ---
         if (currentStep.type === 'loop_iterations') {
           const { count, loop_steps, iterator_var } = currentStep.details || {};
@@ -1247,11 +1266,32 @@ async function executeStepsInternal(
       } else if (currentStep.type === 'create_file_with_llm_content') {
         overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
         const {
-          filePath,
+          filePath: originalFilePath_llm, // Rename to avoid conflict
           prompt,
           content_from_llm,
           output_id,
         } = currentStep.details || {};
+        let filePath = originalFilePath_llm;
+        const originalFilePathForExtensionCheck = originalFilePath_llm; // Use original for extension check
+
+        if (sandboxSubDir && filePath) {
+          filePath = path.join(sandboxSubDir, filePath);
+          console.log(`[Sandboxing] Remapped filePath for ${agentContext} to: ${filePath}`);
+          sendSseMessage('log_entry', { message: `[SSE] Path sandboxed for ${agentContext}: ${filePath}` }, expressHttpRes);
+        }
+
+        // File type restriction check
+        if ((agentContext === 'conference_agent' || agentContext === 'brainstorming_agent') && originalFilePathForExtensionCheck) {
+          const fileExt = path.extname(originalFilePathForExtensionCheck).toLowerCase();
+          if (!ALLOWED_AGENT_FILE_EXTENSIONS.includes(fileExt)) {
+            const errorMsg = `File type '${fileExt}' is not allowed for ${agentContext}. Allowed types: ${ALLOWED_AGENT_FILE_EXTENSIONS.join(', ')}`;
+            sendSseMessage('error', { content: `[SSE] ${errorMsg}` });
+            overallExecutionLog.push(`  -> ❌ ${errorMsg}`);
+            console.warn(`[File Restriction] ${errorMsg}`);
+            triggerStepFailure(errorMsg, { filePath: originalFilePathForExtensionCheck, extension: fileExt, allowedExtensions: ALLOWED_AGENT_FILE_EXTENSIONS }, currentStep.type, stepNumber, {i});
+            return; // Important: stop processing this step
+          }
+        }
 
         const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
         const stepDisablesConfirmation = currentStep.details?.requireConfirmation === false;
@@ -1360,19 +1400,31 @@ async function executeStepsInternal(
           case 'add':
             gitAgentFunction = gitAgent.gitAdd;
             if (details.filePath) {
-              // Assuming details.filePath is relative to WORKSPACE_DIR
-              // We need to make it relative to projectRoot for gitAgent
-              const absoluteFilePath = fsAgent.resolvePathInWorkspace(details.filePath).fullPath;
+              let gitFilePath = details.filePath;
+              // Git operations are relative to project root, not WORKSPACE_DIR typically.
+              // Sandboxing for git_operation might need careful consideration if paths are meant to be within WORKSPACE_DIR/sandbox.
+              // For this subtask, we assume details.filePath for git is NOT sandboxed unless fsAgent itself handles it
+              // based on its own working directory context which is project root.
+              // If sandboxing is desired for git 'add' paths that are within the workspace,
+              // the sandboxed path should be made relative to projectRoot.
+              // Example: if WORKSPACE_DIR is /app/output and sandbox is conference_files,
+              // user provides 'my_doc.txt'. Sandboxed: 'conference_files/my_doc.txt'.
+              // Resolved by fsAgent for git: 'output/conference_files/my_doc.txt' (relative to project root /app)
+
+              // For now, git operations are NOT sandboxed here directly. fsAgent's path resolution applies.
+              // If sandboxing is needed for git paths, it implies the git command itself operates within the sandboxed sub-directory.
+              // This is a more complex change for gitAgent or requires tasks to be structured differently.
+
+              const absoluteFilePath = fsAgent.resolvePathInWorkspace(gitFilePath).fullPath;
               if (absoluteFilePath) {
                   gitArgs = [path.relative(projectRoot, absoluteFilePath)];
               } else {
-                  // Handle error: path resolution failed.
-                  const errorMsg = `Error resolving path for git add: ${details.filePath}`;
-                  triggerStepFailure(errorMsg, { filePath: details.filePath }, currentStep.type, stepNumber, {i});
+                  const errorMsg = `Error resolving path for git add: ${gitFilePath}`;
+                  triggerStepFailure(errorMsg, { filePath: gitFilePath }, currentStep.type, stepNumber, {i});
                   return;
               }
             } else {
-              gitArgs = ['.']; // Stage all in project root context
+              gitArgs = ['.'];
             }
             break;
           case 'commit':
@@ -1509,10 +1561,24 @@ async function executeStepsInternal(
       // Handles 'show_workspace_tree' steps to display directory structures.
       } else if (currentStep.type === 'show_workspace_tree') {
         // This step is considered non-operational in terms of modification count
-        let targetPath = WORKSPACE_DIR;
+        let targetPath = WORKSPACE_DIR; // Default to overall workspace for non-sandboxed contexts
         let rootName = 'workspace_root';
-        if (currentStep.details && currentStep.details.path) {
-            const resolvedPathResult = fsAgent.resolvePathInWorkspace(currentStep.details.path);
+        let originalTreePath = currentStep.details && currentStep.details.path ? currentStep.details.path : '';
+
+        if (sandboxSubDir) {
+            // If there's a sandbox, the tree is shown relative to that sandbox within the workspace.
+            targetPath = path.join(WORKSPACE_DIR, sandboxSubDir, originalTreePath);
+            rootName = sandboxSubDir + (originalTreePath ? `/${path.basename(originalTreePath)}` : '');
+            // Ensure the sandboxed targetPath exists before trying to generate a tree
+            if (!fs.existsSync(path.join(WORKSPACE_DIR, sandboxSubDir))) {
+                fs.mkdirSync(path.join(WORKSPACE_DIR, sandboxSubDir), { recursive: true });
+                 console.log(`[Sandboxing] Created sandbox dir for show_workspace_tree: ${sandboxSubDir}`);
+            }
+             console.log(`[Sandboxing] Remapped show_workspace_tree path for ${agentContext} to root: ${targetPath}`);
+             sendSseMessage('log_entry', { message: `[SSE] Workspace tree path sandboxed for ${agentContext} to: ${rootName}` }, expressHttpRes);
+        } else if (originalTreePath) {
+            // If a path is provided but no sandbox, resolve it normally within WORKSPACE_DIR
+            const resolvedPathResult = fsAgent.resolvePathInWorkspace(originalTreePath);
             if (resolvedPathResult.success) {
                 targetPath = resolvedPathResult.fullPath;
                 rootName = path.basename(targetPath);
@@ -1521,6 +1587,8 @@ async function executeStepsInternal(
                 return;
             }
         }
+        // If no path provided and no sandbox, targetPath remains WORKSPACE_DIR, rootName workspace_root
+
         const treeString = fsAgent.generateDirectoryTree(targetPath, '', rootName);
         sendSseMessage('log_entry', { message: `Workspace tree (${rootName}):\n\`\`\`\n${treeString}\n\`\`\`` }, expressHttpRes);
       // Handles 'conference_task' steps for multi-model debates and synthesis.
@@ -1700,10 +1768,18 @@ async function executeStepsInternal(
         }
 
       } else if (currentStep.type === 'createDirectory') {
-        const { dirPath } = currentStep.details || {};
+        const { dirPath: originalDirPath } = currentStep.details || {};
+        let dirPath = originalDirPath;
+
         if (!dirPath) {
           triggerStepFailure("Missing 'details.dirPath' for createDirectory.", null, currentStep.type, stepNumber, {i});
           return;
+        }
+
+        if (sandboxSubDir) {
+          dirPath = path.join(sandboxSubDir, dirPath);
+          console.log(`[Sandboxing] Remapped dirPath for ${agentContext} to: ${dirPath}`);
+          sendSseMessage('log_entry', { message: `[SSE] Path sandboxed for ${agentContext}: ${dirPath}` }, expressHttpRes);
         }
 
         const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
@@ -1733,10 +1809,32 @@ async function executeStepsInternal(
             return;
         }
       } else if (currentStep.type === 'createFile') {
-        const { filePath, content } = currentStep.details || {};
+        const { filePath: originalFilePath_create, content } = currentStep.details || {};
+        let filePath = originalFilePath_create;
+        const originalFilePathForExtensionCheck_create = originalFilePath_create; // Use original for ext check
+
         if (!filePath || content === undefined) {
             triggerStepFailure("Missing 'details.filePath' or 'details.content' for createFile.", null, currentStep.type, stepNumber, {i});
             return;
+        }
+
+        if (sandboxSubDir) {
+          filePath = path.join(sandboxSubDir, filePath);
+          console.log(`[Sandboxing] Remapped filePath for ${agentContext} to: ${filePath}`);
+          sendSseMessage('log_entry', { message: `[SSE] Path sandboxed for ${agentContext}: ${filePath}` }, expressHttpRes);
+        }
+
+        // File type restriction check
+        if ((agentContext === 'conference_agent' || agentContext === 'brainstorming_agent') && originalFilePathForExtensionCheck_create) {
+          const fileExt = path.extname(originalFilePathForExtensionCheck_create).toLowerCase();
+          if (!ALLOWED_AGENT_FILE_EXTENSIONS.includes(fileExt)) {
+            const errorMsg = `File type '${fileExt}' is not allowed for ${agentContext}. Allowed types: ${ALLOWED_AGENT_FILE_EXTENSIONS.join(', ')}`;
+            sendSseMessage('error', { content: `[SSE] ${errorMsg}` });
+            overallExecutionLog.push(`  -> ❌ ${errorMsg}`);
+            console.warn(`[File Restriction] ${errorMsg}`);
+            triggerStepFailure(errorMsg, { filePath: originalFilePathForExtensionCheck_create, extension: fileExt, allowedExtensions: ALLOWED_AGENT_FILE_EXTENSIONS }, currentStep.type, stepNumber, {i});
+            return; // Important: stop processing this step
+          }
         }
 
         const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
@@ -1766,11 +1864,20 @@ async function executeStepsInternal(
             return;
         }
       } else if ( currentStep.type === 'readFile' || currentStep.type === 'read_file_to_output') {
-        const { filePath, output_id } = currentStep.details || {};
+        const { filePath: originalFilePath_read, output_id } = currentStep.details || {};
+        let filePath = originalFilePath_read;
+
         if (!filePath) {
             triggerStepFailure("Missing 'details.filePath' for readFile.", null, currentStep.type, stepNumber, {i});
             return;
         }
+
+        if (sandboxSubDir) {
+          filePath = path.join(sandboxSubDir, filePath);
+          console.log(`[Sandboxing] Remapped filePath for ${agentContext} to: ${filePath}`);
+          sendSseMessage('log_entry', { message: `[SSE] Path sandboxed for ${agentContext}: ${filePath}` }, expressHttpRes);
+        }
+
         const result = fsAgent.readFile(filePath);
         if (result.success) {
           if (output_id) taskContext.outputs[output_id] = result.content;
@@ -1780,10 +1887,31 @@ async function executeStepsInternal(
             return;
         }
       } else if (currentStep.type === 'updateFile') {
-        const { filePath, content, append } = currentStep.details || {};
+        const { filePath: originalFilePath_update, content, append } = currentStep.details || {};
+        let filePath = originalFilePath_update;
+        const originalFilePathForExtensionCheck_update = originalFilePath_update; // Use original for ext check
+
         if (!filePath || content === undefined) {
             triggerStepFailure("Missing 'details.filePath' or 'details.content' for updateFile.", null, currentStep.type, stepNumber, {i});
             return;
+        }
+        if (sandboxSubDir) {
+          filePath = path.join(sandboxSubDir, filePath);
+          console.log(`[Sandboxing] Remapped filePath for ${agentContext} to: ${filePath}`);
+          sendSseMessage('log_entry', { message: `[SSE] Path sandboxed for ${agentContext}: ${filePath}` }, expressHttpRes);
+        }
+
+        // File type restriction check
+        if ((agentContext === 'conference_agent' || agentContext === 'brainstorming_agent') && originalFilePathForExtensionCheck_update) {
+          const fileExt = path.extname(originalFilePathForExtensionCheck_update).toLowerCase();
+          if (!ALLOWED_AGENT_FILE_EXTENSIONS.includes(fileExt)) {
+            const errorMsg = `File type '${fileExt}' is not allowed for ${agentContext}. Allowed types: ${ALLOWED_AGENT_FILE_EXTENSIONS.join(', ')}`;
+            sendSseMessage('error', { content: `[SSE] ${errorMsg}` });
+            overallExecutionLog.push(`  -> ❌ ${errorMsg}`);
+            console.warn(`[File Restriction] ${errorMsg}`);
+            triggerStepFailure(errorMsg, { filePath: originalFilePathForExtensionCheck_update, extension: fileExt, allowedExtensions: ALLOWED_AGENT_FILE_EXTENSIONS }, currentStep.type, stepNumber, {i});
+            return; // Important: stop processing this step
+          }
         }
 
         const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
@@ -1813,10 +1941,17 @@ async function executeStepsInternal(
             return;
         }
       } else if (currentStep.type === 'deleteFile') {
-        const { filePath } = currentStep.details || {};
+        const { filePath: originalFilePath_delete } = currentStep.details || {};
+        let filePath = originalFilePath_delete;
+
         if (!filePath) {
             triggerStepFailure("Missing 'details.filePath' for deleteFile.", null, currentStep.type, stepNumber, {i});
             return;
+        }
+        if (sandboxSubDir) {
+          filePath = path.join(sandboxSubDir, filePath);
+          console.log(`[Sandboxing] Remapped filePath for ${agentContext} to: ${filePath}`);
+          sendSseMessage('log_entry', { message: `[SSE] Path sandboxed for ${agentContext}: ${filePath}` }, expressHttpRes);
         }
 
         const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
@@ -1846,10 +1981,18 @@ async function executeStepsInternal(
             return;
         }
       } else if (currentStep.type === 'deleteDirectory') {
-        const { dirPath } = currentStep.details || {};
+        const { dirPath: originalDirPath_delete } = currentStep.details || {};
+        let dirPath = originalDirPath_delete;
+
         if (!dirPath) {
             triggerStepFailure("Missing 'details.dirPath' for deleteDirectory.", null, currentStep.type, stepNumber, {i});
             return;
+        }
+
+        if (sandboxSubDir) {
+          dirPath = path.join(sandboxSubDir, dirPath);
+          console.log(`[Sandboxing] Remapped dirPath for ${agentContext} to: ${dirPath}`);
+          sendSseMessage('log_entry', { message: `[SSE] Path sandboxed for ${agentContext}: ${dirPath}` }, expressHttpRes);
         }
 
         const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
