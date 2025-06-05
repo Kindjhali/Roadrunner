@@ -109,13 +109,8 @@
 </template>
 
 <script>
-import InstructionsModal from './InstructionsModal.vue'; // Import the modal
-
 export default {
   name: 'ConferenceTab',
-  components: {
-    InstructionsModal, // Register the modal
-  },
   data() {
     return {
       prompt: '',
@@ -130,9 +125,6 @@ export default {
       conversationHistory: [], // History sent to backend { role, content }
       logMessages: [],
       generalBackendLogs: [], // Added for general backend logs
-      // For Instructions Modal
-      showInstructionsModal: false,
-      modalAgentRoleForConference: null,
     };
   },
   computed: {
@@ -257,8 +249,7 @@ export default {
       }
     },
     openConferenceInstructions(role) {
-      this.modalAgentRoleForConference = role;
-      this.showInstructionsModal = true;
+      this.$emit('edit-instructions', role);
     },
     setDefaultModels() {
       console.log('[ConferenceTab setDefaultModels] Attempting to set default models.');

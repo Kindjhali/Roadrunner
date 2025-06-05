@@ -247,7 +247,7 @@
 
         <!-- Conference Tab Content -->
         <div v-if="activeTab === 'conference'" class="tab-content conference-tab-content p-4">
-          <conference-tab />
+          <conference-tab @edit-instructions="openConferenceAgentInstructions" />
         </div>
 
         <!-- Configuration Tab Content -->
@@ -259,7 +259,7 @@
       <instructions-modal
         :agentType="modalAgentType"
         :agentRole="modalAgentRole"
-        :showModal.sync="showInstructionsModal"
+        v-model:showModal="showInstructionsModal"
       />
    </div>
 </template>
@@ -791,6 +791,11 @@ export default {
     openBrainstormingInstructions() {
       this.modalAgentType = 'brainstorming_agent';
       this.modalAgentRole = null;
+      this.showInstructionsModal = true;
+    },
+    openConferenceAgentInstructions(role) {
+      this.modalAgentType = 'conference_agent';
+      this.modalAgentRole = role;
       this.showInstructionsModal = true;
     },
 

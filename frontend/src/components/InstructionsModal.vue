@@ -50,6 +50,7 @@ export default {
       required: true,
     },
   },
+  emits: ['update:showModal'],
   data() {
     return {
       instructions: [],
