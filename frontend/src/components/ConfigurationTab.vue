@@ -92,41 +92,43 @@ export default {
     }),
     computedLlmProvider: {
       get() {
-        return this.currentSettings.llmProvider;
+        return this.currentSettings ? this.currentSettings.llmProvider : null;
       },
       set(value) {
-        this.saveSettings({
-          ...this.currentSettings,
-          llmProvider: value,
-        });
+        const newSettings = { ...(this.currentSettings || {}) };
+        newSettings.llmProvider = value;
+        this.saveSettings(newSettings);
       },
     },
     computedApiKey: {
       get() {
-        return this.currentSettings.apiKey;
+        return this.currentSettings ? this.currentSettings.apiKey : ''; // Return empty string as default for input field
       },
       set(value) {
-        this.saveSettings({
-          ...this.currentSettings,
-          apiKey: value,
-        });
+        const newSettings = { ...(this.currentSettings || {}) };
+        newSettings.apiKey = value;
+        this.saveSettings(newSettings);
       },
     },
     computedDefaultOllamaModel: {
       get() {
-        return this.currentSettings.defaultOllamaModel;
+        return this.currentSettings ? this.currentSettings.defaultOllamaModel : ''; // Return empty string as default
       },
       set(value) {
-        this.saveSettings({
-          ...this.currentSettings,
-          defaultOllamaModel: value,
-        });
+        const newSettings = { ...(this.currentSettings || {}) };
+        newSettings.defaultOllamaModel = value;
+        this.saveSettings(newSettings);
       },
     },
   },
   mounted() {
+    console.log('[ConfigurationTab] Mounted. Initial currentSettings:', JSON.stringify(this.currentSettings));
     this.loadOpenAIConfig();
-    this.loadSettings(); // Load general LLM settings
+    this.loadSettings().then(() => {
+      console.log('[ConfigurationTab] After loadSettings(). currentSettings:', JSON.stringify(this.currentSettings));
+    }).catch(error => {
+      console.error('[ConfigurationTab] Error during loadSettings:', error);
+    });
   },
   methods: {
     ...mapActions(['saveSettings', 'loadSettings']),

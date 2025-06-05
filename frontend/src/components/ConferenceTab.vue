@@ -47,10 +47,6 @@
       </button>
     </div>
 
-    <div v-if="isLoading || isStreaming" class="loading-section">
-      <p><i>{{ isStreaming ? 'Live conference in progress...' : 'Initiating conference... Please wait.' }}</i></p>
-    </div>
-
     <div v-if="conferenceLog.length > 0" class="conversation-log-section">
       <h3>Conversation Log:</h3>
       <div v-for="(turn, index) in conferenceLog" :key="index" class="turn">
@@ -86,11 +82,25 @@
       <pre>{{ error }}</pre>
     </div>
 
-    <!-- General Backend Logs Display -->
-    <div v-if="generalBackendLogs.length > 0" class="general-backend-log-terminal mt-4 p-3 bg-gray-800 rounded-md">
-      <h4 class="text-md font-semibold text-gray-300 mb-2">System Logs:</h4>
-      <div class="max-h-60 overflow-y-auto text-xs">
+    <!-- Enhanced System Logs / Conference Status Area -->
+    <div class="system-and-conference-status-log-terminal mt-4 p-3 bg-gray-800 rounded-md">
+      <div v-if="isLoading && !isStreaming">
+        <p class="text-yellow-400 italic mb-2">Initiating conference... Please wait. Background activity:</p>
+      </div>
+      <div v-if="isStreaming">
+        <p class="text-green-400 italic mb-2">Live conference in progress... Background activity:</p>
+      </div>
+
+      <!-- Always show generalBackendLogs if they exist, or a placeholder if loading and no logs yet -->
+      <div v-if="generalBackendLogs.length > 0" class="max-h-60 overflow-y-auto text-xs">
         <pre v-for="(log, index) in generalBackendLogs" :key="`general-log-${index}`">{{ log }}</pre>
+      </div>
+      <div v-else-if="isLoading || isStreaming">
+        <p class="text-gray-500 text-xs italic">(Waiting for background activity...)</p>
+      </div>
+      <div v-else-if="!generalBackendLogs.length">
+         <!-- Optional: Message if no logs and not loading/streaming -->
+         <!-- <p class="text-gray-500 text-xs italic">(No system logs to display at the moment.)</p> -->
       </div>
     </div>
   </div>

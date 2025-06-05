@@ -379,7 +379,13 @@ ipcMain.on('remove-conference-listeners', (event) => {
 ipcMain.on('execute-task-with-events', (event, payload) => {
   const params = new URLSearchParams();
   if (payload.task_description) params.append('task_description', payload.task_description);
-  if (payload.steps) params.append('steps', payload.steps);
+  if (payload.steps) {
+    if (typeof payload.steps === 'string') {
+      params.append('steps', payload.steps); // Already a string, pass as is
+    } else {
+      params.append('steps', JSON.stringify(payload.steps)); // Stringify if object/array
+    }
+  }
   if (payload.modelId) params.append('modelId', payload.modelId);
   if (payload.modelType) params.append('modelType', payload.modelType);
   params.append('safetyMode', payload.safetyMode);
