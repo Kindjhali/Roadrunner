@@ -416,7 +416,6 @@ ipcMain.on('start-conference-stream', (event, payload) => {
     console.log('[Electron IPC] start-conference-stream: EventSource connection opened.');
     // For onopen, the data is static, so we can log it directly here or ensure forwardEvent handles it.
     // To stick to the plan, ensure forwardEvent is called for all relevant events.
-    const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
     // Log before sending (as per plan, though forwardEvent will log again)
     // console.log(`[Electron IPC] Forwarding to ConferenceTab - Channel: conference-stream-log-entry, Payload: ${JSON.stringify(openData)}`);
 
