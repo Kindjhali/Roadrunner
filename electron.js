@@ -229,6 +229,8 @@ ipcMain.handle('select-directory', async () => {
 
 // The duplicated handlers below have been removed.
 
+let conferenceEventSource = null; // Variable to hold the EventSource for conference streams
+
 ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt, history }) => {
   // At the beginning of the handler
   if (!modelId || typeof modelId !== 'string' || modelId.trim() === '') {
@@ -335,47 +337,115 @@ ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt, history }
   }
 });
 
-ipcMain.on('start-conference-stream', async (event, payload) => {
-  const { prompt, model_a_id, model_b_id, arbiter_model_id, history } = payload || {};
+ipcMain.on('start-conference-stream', (event, payload) => {
+  const { prompt, model_a_id, model_b_id, arbiter_model_id, history, sessionId, sessionTaskId } = payload || {};
+
+  if (conferenceEventSource) {
+    console.warn('[Electron IPC] start-conference-stream: Conference stream already in progress. Closing existing one.');
+    conferenceEventSource.close();
+    conferenceEventSource = null;
+  }
+
   if (!prompt) {
     event.sender.send('conference-stream-error', { error: 'Prompt cannot be empty.' });
     return;
   }
+  if (!model_a_id && !model_b_id && !arbiter_model_id) {
+    event.sender.send('conference-stream-error', { error: 'At least one model ID must be provided for the conference.' });
+    return;
+  }
 
-  const postBody = {
-    prompt,
-    modelName: model_a_id || model_b_id || arbiter_model_id,
-    modelARole: 'Model A',
-    modelBRole: 'Model B',
-    arbiterModelRole: 'Arbiter',
-    history
+  const params = new URLSearchParams();
+  params.append('task_type', 'conference'); // Assuming backend uses this to differentiate
+  params.append('task_description', prompt);
+  if (model_a_id) params.append('model_a_id', model_a_id);
+  if (model_b_id) params.append('model_b_id', model_b_id);
+  if (arbiter_model_id) params.append('arbiter_model_id', arbiter_model_id);
+  if (history) params.append('history', JSON.stringify(history)); // History should be stringified if complex
+
+  // Add common parameters, similar to execute-task-with-events
+  params.append('isAutonomousMode', 'true'); // Conferences are likely autonomous interactions
+  if (sessionId) params.append('sessionId', sessionId);
+  if (sessionTaskId) params.append('sessionTaskId', sessionTaskId);
+  // Assuming safetyMode and useOpenAIFromStorage are not directly relevant or have defaults for conference
+  // params.append('safetyMode', payload.safetyMode);
+  // params.append('useOpenAIFromStorage', payload.useOpenAIFromStorage);
+
+
+  if (!currentBackendPort || currentBackendPort === 0) {
+    console.error('[Electron IPC] start-conference-stream: Critical: Backend port is not set or invalid:', currentBackendPort);
+    event.sender.send('conference-stream-error', { error: 'Backend connection error', details: 'Backend port not configured.' });
+    return;
+  }
+
+  const eventSourceUrl = `http://127.0.0.1:${currentBackendPort}/execute-autonomous-task?${params.toString()}`;
+  console.log('[Electron IPC] start-conference-stream: Connecting to EventSource URL:', eventSourceUrl);
+
+  conferenceEventSource = new EventSource(eventSourceUrl);
+
+  const forwardEvent = (channel, data) => {
+    if (event.sender && !event.sender.isDestroyed()) {
+      event.sender.send(channel, data);
+    }
   };
 
-  try {
-    const response = await fetch(`http://127.0.0.1:${currentBackendPort}/execute-conference-task`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(postBody)
-    });
+  conferenceEventSource.onopen = () => {
+    console.log('[Electron IPC] start-conference-stream: EventSource connection opened.');
+    forwardEvent('conference-stream-log-entry', { type: 'log_entry', message: 'Connection to backend for conference established.' });
+  };
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      event.sender.send('conference-stream-error', { error: `HTTP ${response.status}`, details: errorText });
-      return;
+  conferenceEventSource.onmessage = (e) => {
+    console.log('[Electron IPC] start-conference-stream: EventSource message, data:', e.data);
+    try {
+      const msg = JSON.parse(e.data);
+      // Adapt message types based on expected backend output for conference tasks
+      switch (msg.type) {
+        case 'llm_chunk':
+          forwardEvent('conference-stream-llm-chunk', msg);
+          break;
+        case 'log_entry':
+          forwardEvent('conference-stream-log-entry', msg);
+          break;
+        case 'error':
+          console.error('[Electron IPC] start-conference-stream: Received error event:', msg);
+          forwardEvent('conference-stream-error', msg);
+          break;
+        case 'execution_complete': // Or whatever the backend sends for completion
+          console.log('[Electron IPC] start-conference-stream: Execution complete event:', msg);
+          forwardEvent('conference-stream-complete', msg);
+          if (conferenceEventSource) conferenceEventSource.close();
+          conferenceEventSource = null;
+          break;
+        default:
+          console.log('[Electron IPC] start-conference-stream: Unknown event type received:', msg.type, msg);
+          forwardEvent('conference-stream-log-entry', { type: 'log_entry', message: `Received event: ${msg.type}`, data: msg });
+      }
+    } catch (err) {
+      console.error('[Electron IPC] start-conference-stream: Failed to parse SSE message:', e.data, err);
+      forwardEvent('conference-stream-error', { error: 'Failed to parse message from backend.', details: e.data });
     }
+  };
 
-    const result = await response.json();
-    event.sender.send('conference-stream-end', result);
-  } catch (err) {
-    console.error('[Main] Conference stream error:', err);
-    event.sender.send('conference-stream-error', { error: err.message });
-  }
+  conferenceEventSource.onerror = (err) => {
+    console.error('[Electron IPC] start-conference-stream: EventSource error:', err);
+    forwardEvent('conference-stream-error', { error: 'EventSource connection error.', details: err ? JSON.stringify(err, Object.getOwnPropertyNames(err)) : 'Unknown EventSource error' });
+    if (conferenceEventSource) conferenceEventSource.close();
+    conferenceEventSource = null;
+  };
 });
 
 ipcMain.on('remove-conference-listeners', (event) => {
-  event.sender.removeAllListeners('conference-stream-chunk');
+  console.log('[Electron IPC] remove-conference-listeners: Closing conference EventSource and removing listeners.');
+  if (conferenceEventSource) {
+    conferenceEventSource.close();
+    conferenceEventSource = null;
+  }
+  // These remove listeners on the renderer side, which is good practice.
+  // The actual event source connection is managed by conferenceEventSource.close()
+  event.sender.removeAllListeners('conference-stream-llm-chunk');
+  event.sender.removeAllListeners('conference-stream-log-entry');
   event.sender.removeAllListeners('conference-stream-error');
-  event.sender.removeAllListeners('conference-stream-end');
+  event.sender.removeAllListeners('conference-stream-complete'); // Changed from conference-stream-end
 });
 
 // Execute coder tasks with SSE event forwarding
