@@ -25,6 +25,7 @@ It is designed for indie developers, tinkerers, and non-coders who work outside 
 - **Markdown-driven**: Tasks can be defined in markdown files (e.g., `.steps.md` or custom task files) and are processed by the execution engine.
 - **Executable**: Tasks can include file creation, code generation, shell commands, or AI prompts
 - **Modular**: Frontend and backend are separated and extendable
+- **Agent Personalization**: Customize the AI's behavior, communication style, and operational preferences via the `agent-profile.md` file located in the root directory. This profile is processed by the agent before task execution.
 
 ---
 

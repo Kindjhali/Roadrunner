@@ -1,5 +1,15 @@
 # AGENTS.md
 
+## 🎯 Purpose of This Document
+
+This document (`AGENTS.md`) outlines foundational rules, mandatory behaviors, and structural guidelines for **AI agents contributing to or developing within the Roadrunner project framework**. It serves as a "rulebook" to ensure consistency, quality, and adherence to project standards, particularly for meta-tasks like code generation or validation related to Roadrunner itself (e.g., the "Logic Validator" role described below).
+
+## 👤 Specific Agent Personas (e.g., `agent-profile.md`)
+
+Alongside these general development guidelines, Roadrunner also supports the concept of **specific, user-configurable agent personas**. An example of this is `agent-profile.md` (located in the root directory), which defines the personality, communication style, and operational preferences for a particular agent instance (e.g., the "Aaron" persona).
+
+While `AGENTS.md` provides general rules for *how agents should build or validate parts of Roadrunner*, files like `agent-profile.md` define *how a specific named agent persona should behave when executing user tasks*. The Roadrunner system reads the active `agent-profile.md` to tailor its interactions.
+
 ## 👮 AGENT CONTRIBUTION RULEBOOK
 
 This file is for AI agents only. Do not include this logic or wording in human-facing documentation. These rules are mandatory and enforced. If violated, your output is invalid.

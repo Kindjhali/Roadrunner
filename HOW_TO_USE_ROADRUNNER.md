@@ -22,6 +22,16 @@ The Roadrunner application interface is primarily organized into three tabs:
 *   **Brainstorming Tab:** The Brainstorming Tab provides an interactive chat interface for direct conversations with selected Language Models. You can select an available Ollama model, type your questions or prompts, and receive answers. It's useful for quick Q&A, idea generation, or exploring a model's capabilities. Basic file upload functionality is present (it logs the uploaded file's name and notes it in the chat), but full contextual understanding of uploaded files, conversation management (saving/loading chats), and integration with remote models for chat are planned for future enhancements.
 *   **Configuration Tab:** The Configuration Tab is intended for managing application settings. This will include configurations for LLM connections (like API keys for remote models), defining default paths, and other application-level preferences. Currently, most of these configuration options are planned for future development. Please refer to [roadrunner.steps.md](./roadrunner.steps.md) for updates on feature implementation.
 
+## Customizing Agent Behavior with `agent-profile.md`
+
+Roadrunner's AI agent behavior can be significantly customized by editing the `agent-profile.md` file, found in the main `roadrunner/` directory.
+
+This Markdown file contains a set of rules, preferences, and constraints (e.g., communication style, output formatting, decision-making filters) that define a specific agent persona (e.g., 'Aaron' as per the default profile).
+
+The Roadrunner backend processes this profile before executing any task, using its contents to guide LLM interactions, ensuring the agent's responses and actions align with the defined persona.
+
+Users can modify this file to tailor the agent's personality for a more consistent and preferred interaction style. For example, you can define how verbose the agent should be, its preferred coding languages or architectural styles, and even its 'cognitive triggers' to avoid.
+
 ## Working with Tasks and Sessions
 
 Roadrunner organizes work into "tasks" which are part of a "session." A task typically consists of an overall goal and a sequence of steps to achieve that goal.
