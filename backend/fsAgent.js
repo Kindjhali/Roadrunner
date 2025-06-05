@@ -160,17 +160,24 @@ class ModularFsAgent {
   }
 
   createFile(relativePath, content, options = {}) {
+    this.logger.log(`[ModularFsAgent.createFile] Attempting to create file. Raw path: '${relativePath}', Content length: ${content?.length || 'N/A'}`);
+    this.logger.log(`[ModularFsAgent.createFile] Options received: ${JSON.stringify(options)}`);
+
     const resolved = this.resolvePathInWorkspace(relativePath);
+    this.logger.log(`[ModularFsAgent.createFile] Path resolution attempt for '${relativePath}'. Result: success=${resolved.success}, fullPath='${resolved.fullPath || ''}', error='${resolved.error?.message || ''}'`);
+
     if (!resolved.success) {
-      return { success: false, error: resolved.error, warnings: [] };
+      return { success: false, error: resolved.error, message: resolved.error?.message || 'Path resolution failed', warnings: [] };
     }
-    const { fullPath } = resolved;
-    let warnings = []; // Ensure warnings is always an array
+    const { fullPath } = resolved; // fullPath is the absolute path to the target file
+    const baseDir = path.dirname(fullPath); // baseDir is the parent directory of the target file
+
+    this.logger.log(`[ModularFsAgent.createFile] Resolved path: '${fullPath}', Base directory: '${baseDir}'`);
+    let warnings = [];
 
     if (options.dryRun) {
       this._logOperation('createFile', fullPath, true, `DRY RUN: File would have been created/overwritten.`);
       warnings.push('Operation performed in dry run mode.');
-      // Simulate path existence for subsequent dry run operations if needed, though current logic doesn't rely on this.
       return {
         success: true,
         message: `DRY RUN: File would have been created/overwritten at ${fullPath}`,
@@ -180,88 +187,92 @@ class ModularFsAgent {
       };
     }
 
-    try {
-      const dirname = path.dirname(fullPath);
-      if (!fs.existsSync(dirname)) {
-        fs.mkdirSync(dirname, { recursive: true });
-        this._logOperation(
-          'createFile',
-          dirname,
-          true,
-          `Created parent directory/directories.`
-        );
-      }
-
-      const existsCheck = this.checkFileExists(relativePath); // Use class method
-
-      if (existsCheck.success && existsCheck.exists) {
-        if (options.requireConfirmation && !options.isConfirmedAction) {
-          return {
+    // Ensure parent directories exist if ensureParents is true or by default
+    // The original code implicitly created parent directories with fs.mkdirSync(dirname, { recursive: true });
+    // Let's make it more explicit and tied to an option if necessary, or keep default behavior.
+    // For now, maintaining original behavior of ensuring parents.
+    if (options.ensureParents !== false) { // Default to true unless explicitly false
+        if (!fs.existsSync(baseDir)) {
+            this.logger.log(`[ModularFsAgent.createFile] Base directory ${baseDir} does not exist. Attempting to create.`);
+            try {
+                fs.mkdirSync(baseDir, { recursive: true });
+                this.logger.log(`[ModularFsAgent.createFile] Successfully created parent directory: ${baseDir}`);
+                warnings.push(`Parent directory ${baseDir} created.`);
+            } catch (mkdirError) {
+                this.logger.error(`[ModularFsAgent.createFile] Error creating parent directory ${baseDir}:`, mkdirError);
+                return {
+                    success: false,
+                    message: `Failed to create parent directories for ${fullPath}: ${mkdirError.message}`,
+                    error: { code: 'FS_MKDIR_FAILED', originalError: mkdirError, message: mkdirError.message },
+                    fullPath: baseDir, // Path that failed to be created
+                    warnings
+                };
+            }
+        }
+    } else if (!fs.existsSync(baseDir)) {
+        // If ensureParents is false and directory doesn't exist, this is an error.
+        const message = `Parent directory ${baseDir} does not exist and ensureParents is false.`;
+        this.logger.warn(`[ModularFsAgent.createFile] ${message}`);
+        return {
             success: false,
-            message: 'Confirmation required to overwrite file.',
-            confirmationNeeded: true,
-            fullPath: fullPath,
-            action: 'createFile', // This action context is useful for the caller
-            error: { // Adding an error object for consistency, though it's a confirmation
-                code: 'FS_CONFIRMATION_REQUIRED',
-                message: 'Confirmation required to overwrite file.',
-                details: { path: fullPath, operation: 'createFile' }
-            },
-            warnings: ['File will be overwritten if confirmed.'],
-          };
-        }
-        const overwriteWarning = `WARNING: File at ${fullPath} already exists and will be overwritten (isConfirmedAction: ${options.isConfirmedAction}).`;
-        warnings.push(overwriteWarning);
-        this._logOperation('createFile', fullPath, true, overwriteWarning);
-        try {
-          fs.copyFileSync(fullPath, fullPath + '.bak');
-          warnings.push(`File backed up to ${fullPath}.bak`);
-          this._logOperation(
-            'createFile',
+            message,
+            error: { code: 'FS_PARENT_DIR_MISSING', message, details: { path: fullPath } },
             fullPath,
-            true,
-            `Backup created at ${fullPath}.bak`
-          );
-        } catch (backupError) {
-          const backupFailureWarning = `Failed to create backup for ${fullPath}: ${backupError.message}`;
-          warnings.push(backupFailureWarning);
-          this._logOperation(
-            'createFile',
-            fullPath,
-            false,
-            backupFailureWarning,
-            backupError
-          );
-        }
+            warnings
+        };
+    }
+
+
+    const existsCheck = this.checkFileExists(relativePath); // Uses relativePath
+
+    if (existsCheck.success && existsCheck.exists) {
+      this.logger.log(`[ModularFsAgent.createFile] File already exists at ${fullPath}. Checking confirmation requirements.`);
+      if (options.requireConfirmation && !options.isConfirmedAction) {
+        const message = `Confirmation required to overwrite file at ${fullPath}.`;
+        this.logger.warn(`[ModularFsAgent.createFile] ${message}`);
+        return {
+          success: false,
+          message,
+          confirmationNeeded: true,
+          fullPath,
+          action: 'createFile',
+          error: { code: 'FS_CONFIRMATION_REQUIRED', message, details: { path: fullPath, operation: 'createFile' } },
+          warnings: ['File will be overwritten if confirmed.'],
+        };
       }
-      fs.writeFileSync(fullPath, content);
-      this._logOperation(
-        'createFile',
-        fullPath,
-        true,
-        `File created/overwritten successfully.`
-      );
+      const overwriteWarning = `WARNING: File at ${fullPath} already exists and will be overwritten (isConfirmedAction: ${options.isConfirmedAction}, requireConfirmation: ${options.requireConfirmation}).`;
+      warnings.push(overwriteWarning);
+      this.logger.log(`[ModularFsAgent.createFile] ${overwriteWarning}`);
+      try {
+        fs.copyFileSync(fullPath, fullPath + '.bak');
+        const backupMsg = `File backed up to ${fullPath}.bak`;
+        warnings.push(backupMsg);
+        this.logger.log(`[ModularFsAgent.createFile] ${backupMsg}`);
+      } catch (backupError) {
+        const backupFailureWarning = `Failed to create backup for ${fullPath}: ${backupError.message}`;
+        warnings.push(backupFailureWarning);
+        this.logger.error(`[ModularFsAgent.createFile] ${backupFailureWarning}`, backupError);
+      }
+    }
+
+    try {
+      this.logger.log(`[ModularFsAgent.createFile] Writing file to: ${fullPath}`);
+      fs.writeFileSync(fullPath, content, 'utf-8'); // Explicitly use utf-8
+      const successMsg = `File created/overwritten successfully at ${fullPath}`;
+      this.logger.log(`[ModularFsAgent.createFile] ${successMsg}`);
       return {
         success: true,
-        message: `File created/overwritten successfully at ${fullPath}`,
+        message: successMsg,
         fullPath,
         warnings,
       };
-    } catch (error) {
-      this._logOperation(
-        'createFile',
-        fullPath,
-        false,
-        `Error creating file.`,
-        error
-      );
+    } catch (writeError) {
+      this.logger.error(`[ModularFsAgent.createFile] Error writing file ${fullPath}:`, writeError);
       return {
         success: false,
-        error: {
-          code: 'FS_CREATE_FILE_FAILED',
-          message: `Error creating file at ${fullPath}: ${error.message}`,
-          details: { path: fullPath, originalError: error.message }
-        },
+        message: `Error writing file to ${fullPath}: ${writeError.message}`,
+        error: { code: 'FS_WRITE_FILE_FAILED', originalError: writeError, message: writeError.message },
+        fullPath,
         warnings,
       };
     }

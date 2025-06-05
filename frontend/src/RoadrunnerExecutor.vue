@@ -681,14 +681,43 @@ export default {
       }
       const parser = new RoadmapParser(this.sniperFileContent);
       const parsed = parser.parse();
-      this.parsedSniperJSON = parsed;
+
+      if (parsed && parsed.metadata && parsed.steps) {
+        this.addLogEntry('✅ Sniper.md file parsed successfully.', 'info', { metadata: parsed.metadata, numberOfSteps: parsed.steps.length });
+      } else if (parsed && parsed.error) {
+        this.addLogEntry(`❌ Error parsing Sniper.md file: ${parsed.error}`, 'error', parsed);
+        this.parsedSniperJSON = null; // Clear any partial data
+        this.generatedScaffoldingSteps = []; // Clear steps
+        return; // Stop further processing
+      } else {
+        this.addLogEntry('❌ Error parsing Sniper.md file: Unknown parsing error or invalid structure.', 'error', parsed);
+        this.parsedSniperJSON = null;
+        this.generatedScaffoldingSteps = [];
+        return; // Stop further processing
+      }
+
+      this.parsedSniperJSON = parsed; // Store the successfully parsed JSON
+
+      this.addLogEntry('ℹ️ Preparing scaffolding steps based on parsed Sniper file...', 'info');
+
       const moduleName = parsed.metadata?.ModuleName || 'module';
-      const baseDir = this.targetBaseDir.replace(/\/$/, '');
+      const baseDir = this.targetBaseDir.replace(/\/$/, ''); // Ensure no trailing slash
+
+      // Basic scaffolding steps - customize as needed based on parsed.steps
       this.generatedScaffoldingSteps = [
         { type: 'createDirectory', details: { dirPath: `${baseDir}/${moduleName}` } },
-        { type: 'create_file_with_llm_content', details: { filePath: `${baseDir}/${moduleName}/README.md`, prompt: `Write a README for ${moduleName}. Summary: ${parsed.summary}` } },
+        { type: 'create_file_with_llm_content', details: { filePath: `${baseDir}/${moduleName}/README.md`, prompt: `Write a README for ${moduleName}. Summary: ${parsed.summary || 'No summary provided in Sniper file.'}` } },
+        // Potentially iterate over parsed.steps to create more detailed scaffolding
+        // For example:
+        // ...parsed.steps.map(step => ({ type: 'placeholder_step', details: { description: step.description } }))
       ];
-      this.addLogEntry(`Generated ${this.generatedScaffoldingSteps.length} scaffolding steps from Sniper file.`, 'info');
+
+      if (this.generatedScaffoldingSteps && this.generatedScaffoldingSteps.length > 0) {
+        this.addLogEntry(`✅ Generated ${this.generatedScaffoldingSteps.length} scaffolding steps. Click "Execute Autonomous Task" to run them.`, 'info', this.generatedScaffoldingSteps);
+        console.log('Generated scaffolding steps:', JSON.stringify(this.generatedScaffoldingSteps, null, 2)); // For browser console debugging
+      } else {
+        this.addLogEntry('⚠️ No scaffolding steps were generated from the Sniper file. Check the file content and structure.', 'warning');
+      }
     },
     handleBrainstormingFileUpload(event) {
       const file = event.target.files[0];
