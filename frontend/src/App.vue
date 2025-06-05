@@ -237,6 +237,11 @@
           </div>
         </div>
 
+        <!-- Conference Tab Content -->
+        <div v-if="activeTab === 'conference'" class="tab-content conference-tab-content p-4">
+          <conference-tab />
+        </div>
+
         <!-- Configuration Tab Content -->
         <div v-if="activeTab === 'configuration'" class="tab-content configuration-tab-content p-4 space-y-4">
           <configuration-tab />
