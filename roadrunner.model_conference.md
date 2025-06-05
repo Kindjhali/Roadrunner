@@ -1,4 +1,4 @@
-# Roadrunner: Multi-Model Conferencing Protocol (Planned Feature)
+# Roadrunner: Multi-Model Conferencing Protocol
 
 ## 📌 Purpose
 To enable Roadrunner to simulate a debate or discussion between multiple LLMs — having two models respond to a user-defined question, and a third model act as a judge to determine the best answer or synthesize a combined response.
