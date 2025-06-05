@@ -310,6 +310,48 @@ ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt }) => {
   }
 });
 
+ipcMain.on('start-conference-stream', async (event, payload) => {
+  const { prompt, model_a_id, model_b_id, arbiter_model_id } = payload || {};
+  if (!prompt) {
+    event.sender.send('conference-stream-error', { error: 'Prompt cannot be empty.' });
+    return;
+  }
+
+  const postBody = {
+    prompt,
+    modelName: model_a_id || model_b_id || arbiter_model_id,
+    modelARole: 'Model A',
+    modelBRole: 'Model B',
+    arbiterModelRole: 'Arbiter'
+  };
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${currentBackendPort}/execute-conference-task`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(postBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      event.sender.send('conference-stream-error', { error: `HTTP ${response.status}`, details: errorText });
+      return;
+    }
+
+    const result = await response.json();
+    event.sender.send('conference-stream-end', result);
+  } catch (err) {
+    console.error('[Main] Conference stream error:', err);
+    event.sender.send('conference-stream-error', { error: err.message });
+  }
+});
+
+ipcMain.on('remove-conference-listeners', (event) => {
+  event.sender.removeAllListeners('conference-stream-chunk');
+  event.sender.removeAllListeners('conference-stream-error');
+  event.sender.removeAllListeners('conference-stream-end');
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
