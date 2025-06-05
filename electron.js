@@ -111,8 +111,7 @@ function createWindow() {
     console.error(`[Main-WebContents] Renderer did-fail-load: ${validatedURL}, Code: ${errorCode}, Desc: ${errorDescription}`);
   });
 
-  mainWindow.webContents.on('console-message', (event, messageInfo) => {
-    const { level, message, line, sourceId } = messageInfo;
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
     const levelStr = ['VERBOSE', 'INFO', 'WARNING', 'ERROR'][level] || `LEVEL${level}`;
     console.log(`[Main-WebContents-Console] [${levelStr}] ${message} (source: ${sourceId}:${line})`);
   });
@@ -196,6 +195,18 @@ ipcMain.handle('get-backend-port', async () => {
   return currentBackendPort;
 });
 
+app.on('before-quit', () => {
+  isAppQuitting = true;
+  if (coderTaskEventSource) {
+    coderTaskEventSource.close();
+    coderTaskEventSource = null;
+  }
+  if (conferenceEventSource) {
+    conferenceEventSource.close();
+    conferenceEventSource = null;
+  }
+});
+
 app.on('quit', () => {
   if (backendProcess) {
     console.log('[Backend] Terminating backend server process...');
@@ -230,6 +241,8 @@ ipcMain.handle('select-directory', async () => {
 // The duplicated handlers below have been removed.
 
 let conferenceEventSource = null; // Variable to hold the EventSource for conference streams
+let coderTaskEventSource = null;  // EventSource for coder task execution
+let isAppQuitting = false;        // Track app shutdown to suppress benign errors
 
 ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt, history }) => {
   // At the beginning of the handler
@@ -592,6 +605,7 @@ ipcMain.on('execute-task-with-events', (event, payload) => {
   const eventSourceUrl = `http://127.0.0.1:${currentBackendPort}/execute-autonomous-task?${params.toString()}`;
   console.log('[Electron IPC] execute-task-with-events: Connecting to EventSource URL:', eventSourceUrl);
   const es = new (require('eventsource'))(eventSourceUrl);
+  coderTaskEventSource = es; // track for cleanup on app quit
 
   const forward = (channel, data) => event.sender.send(channel, data);
 
@@ -633,13 +647,24 @@ ipcMain.on('execute-task-with-events', (event, payload) => {
   };
 
   es.onerror = (err) => {
-    console.error('[Electron IPC] execute-task-with-events: EventSource es.onerror, error:', err);
-    forward('coder-task-error', { error: 'EventSource connection error or stream failure.', details: err ? JSON.stringify(err, Object.getOwnPropertyNames(err)) : 'Unknown EventSource error' });
+    if (isAppQuitting && err && err.message && err.message.includes('ECONNRESET')) {
+      console.log('[Electron IPC] execute-task-with-events: EventSource closed due to app quit.');
+    } else {
+      console.error('[Electron IPC] execute-task-with-events: EventSource es.onerror, error:', err);
+      forward('coder-task-error', {
+        error: 'EventSource connection error or stream failure.',
+        details: err ? JSON.stringify(err, Object.getOwnPropertyNames(err)) : 'Unknown EventSource error'
+      });
+    }
     es.close();
+    coderTaskEventSource = null;
   };
 
   ipcMain.once('remove-coder-task-listeners', () => {
-    es.close();
+    if (coderTaskEventSource) {
+      coderTaskEventSource.close();
+      coderTaskEventSource = null;
+    }
   });
 });
 
