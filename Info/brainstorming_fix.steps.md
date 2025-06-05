@@ -1,5 +1,0 @@
-- Added `electronAPI` bridge in `preload.js` for brainstorming chat IPC.
-- Updated `electron.js` console message handler to new signature.
-- Moved Vue component scoped styles to `roadrunner.css`.
-- Added `onBackendPortUpdated` listener in `preload.js` and `App.vue`.
-- Default model is now selected for brainstorming when models load.

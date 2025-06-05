@@ -22,7 +22,7 @@ It is designed for indie developers, tinkerers, and non-coders who work outside 
 
 ## 💡 Core Concepts
 - **Local-first**: No cloud sync or dependency by default
-- **Markdown-driven**: All tasks are declared in `.steps.md` or `.roadmap.md` files
+- **Markdown-driven**: Tasks can be defined in markdown files (e.g., `.steps.md` or custom task files) and are processed by the execution engine.
 - **Executable**: Tasks can include file creation, code generation, shell commands, or AI prompts
 - **Modular**: Frontend and backend are separated and extendable
 
@@ -31,14 +31,10 @@ It is designed for indie developers, tinkerers, and non-coders who work outside 
 ## 🧩 Core Components
 
 ### `runner.js`
-- The main task executor
-- Reads markdown task files, parses steps, triggers logic
-- Supports local scripting and AI-assisted operations
+- Main application logic for the Electron app is in `electron.js` and `roadrunner.js`. The backend server (`server.js`) handles task processing and LLM interactions.
 
 ### `roadrunner_ui`
-- Electron-based interface
-- Accepts markdown task file input
-- Displays logs, output results, and execution status
+- The user interface is a Vue.js application within the `frontend/` directory, providing a tabbed interface (Coder, Brainstorming) for task management, execution, and chat.
 
 ### `backend/`
 - Contains logic for executing shell commands, modifying files, interacting with local models (e.g. via Ollama)
@@ -47,10 +43,7 @@ It is designed for indie developers, tinkerers, and non-coders who work outside 
 - Interface code for displaying input forms, execution logs, and step controls
 
 ### `logs/`
-- Stores execution logs for traceability and debugging (Note: existing README mentions `/logs/roadrunner/YYYY-MM-DD_HHMMSS.json`)
-
-### `Roadmaps/`
-- Predefined `.roadmap.md` files for common tasks (e.g. scaffold Vue app, write README, refactor files)
+- Stores detailed execution logs for each task run. Logs are saved as markdown files in the format `logs/task-YYYY-MM-DDTHH-MM-SS-MSZ.log.md`.
 
 ### `output/`
 - Directory for generated files and results
@@ -161,10 +154,7 @@ Agent responses follow this format:
 ## 📁 Logs
 
 Stored at:
-
-```
-/logs/roadrunner/YYYY-MM-DD_HHMMSS.json
-```
+Each task execution is logged in detail to a markdown file in the `logs/` directory, typically named like `task-YYYY-MM-DDTHH-MM-SS-MSZ.log.md`.
 
 Includes:
 
@@ -184,30 +174,9 @@ Includes:
 
 ---
 
-# 📅 Implementation Steps
+## 🛠️ Development Plan and Progress
 
-## Phase 1: Foundation
-
-1. Create `roadrunner.js` as a standalone arbitration module.
-2. Define `registerAgentResponse(inputID, agentID, proposal, confidence, flags)`.
-3. Define `evaluateResponses(inputID)` to select outcome.
-4. Write results and decision chain to `/logs/roadrunner/`.
-
-## Phase 2: Agent Integration
-
-5. Enable API, CLI, or socket interface for external agent modules.
-6. Add timeout or max-wait mechanism for agent responses.
-
-## Phase 3: Visualisation (Optional)
-
-7. Create a log viewer panel or CLI output renderer.
-8. Allow override and replay of past decisions.
-
-## Phase 4: Optimisation
-
-9. Add throttling to avoid redundant re-evaluation.
-10. Weight agents dynamically based on performance metrics.
-11. Add internal fallback agent if no valid answers are returned.
+The detailed development plan, ongoing tasks, and history of completed work are maintained in the [roadrunner.steps.md](./roadrunner.steps.md) file. This document provides the most up-to-date information on the project's status and future direction.
 
 ### Potential Future Enhancements
 - AI model integration (Ollama, GPT via local proxy)
@@ -215,6 +184,10 @@ Includes:
 - Step editor UI
 - Roadmap generator (from project folders)
 
+## ⏳ Partially Implemented Features
+
+### Multi-Model Conferencing Protocol
+A backend API endpoint (`POST /execute-conference-task`) is available for a multi-model conferencing feature, allowing different LLMs to respond to a prompt and a third to arbitrate. Frontend integration for this feature is pending. For more conceptual details, see the [roadrunner.model_conference.md](./roadrunner.model_conference.md) document.
 ---
 
 Roadrunner is a **decisive, agentic decision layer**. It is intended for multi-model coordination, arbitration, and logical refinement of actions or outputs from distributed reasoning systems. No dependency. No noise. Just reasoned resolution.
