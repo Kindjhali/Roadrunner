@@ -96,7 +96,7 @@
             <h3 class="text-lg font-semibold text-gray-300">Session Tasks ({{ sessionTasks.length }}) <span v-if="activeSessionTaskId && activeSessionTaskDetails" class="text-sm text-gray-400">- Selected: {{ getActiveTaskDescription() }}</span></h3>
             <div v-if="sessionTasks.length > 0" class="flex flex-col md:flex-row">
               <!-- Task List -->
-              <div class="w-full md:w-1/3 pr-0 md:pr-2 md:border-r md:border-gray-600 max-h-96 overflow-y-auto mb-4 md:mb-0">
+              <div class="w-full md:w-1/3 pr-0 md:pr-2 md:border-r md:border-gray-600 max-h-96 overflow-y-auto mb-4 md:mb-0 min-h-0">
                 <ul class="list-none pl-0 text-sm">
                   <li v-for="(task) in sessionTasks" :key="task.taskId"
                       @click="setActiveSessionTask(task.taskId)"
@@ -140,7 +140,7 @@
                 </ul>
               </div>
               <!-- Steps and Annotations for Active Task -->
-              <div class="w-full md:w-2/3 md:pl-2 max-h-96 overflow-y-auto">
+              <div class="w-full md:w-2/3 md:pl-2 max-h-96 overflow-y-auto min-h-0">
                 <!-- ... (existing steps and annotations display) ... -->
               </div>
             </div>
@@ -296,6 +296,12 @@ export default {
       useOpenAIFromStorageGlobal: false, // Keep this if it's a global setting
       selectedBrainstormingModelId: '',
       safetyModeActive: true, // Add this line, defaulting to true now
+
+      // Coder Task specific state for confirmations and plans
+      coderTaskPendingConfirmationId: null,
+      coderTaskProposedPlanId: null,
+      coderTaskProposedSteps: [],
+      isCoderTaskAwaitingPlanApproval: false,
     };
   },
   computed: {
@@ -520,10 +526,91 @@ export default {
         useOpenAIFromStorage: localStorage.getItem('useStoredOpenAIKey') === 'true',
       };
       this.executorOutput.unshift({ message: `Executing task: "${payload.task_description}". Using model: ${payload.modelId} (${payload.modelType}).`, type: 'info', timestamp: new Date() });
-      // ... (rest of SSE setup and call to /execute-autonomous-task with the new payload)
-      // The backend /execute-autonomous-task currently doesn't take top-level modelId/modelType for execution.
-      // It uses its own defaults for generic_step, etc. This frontend change prepares for future backend enhancements.
-      // The critical part is that modelConfig is *stored* with the task in the frontend.
+      // The old direct log message is removed, as events will now populate the executorOutput.
+      // this.executorOutput.unshift({ message: `Executing task: "${payload.task_description}". Using model: ${payload.modelId} (${payload.modelType}).`, type: 'info', timestamp: new Date() });
+
+      if (window.electronAPI && window.electronAPI.executeTaskWithEvents) {
+        this.executorOutput.unshift({ message: `Initializing task execution: "${payload.task_description}"...`, type: 'info', timestamp: new Date() });
+        window.electronAPI.executeTaskWithEvents(payload);
+      } else {
+        this.executorOutput.unshift({ message: `Error: executeTaskWithEvents API not available. Cannot run task.`, type: 'error', timestamp: new Date() });
+        console.error('[App.vue] runExecutor: window.electronAPI.executeTaskWithEvents is not available.');
+      }
+    },
+
+    handleCoderTaskEvent(eventData) {
+      // console.log('[App.vue] handleCoderTaskEvent:', eventData);
+      let message = '';
+      let type = eventData.logLevel || 'info'; // Default type
+
+      switch (eventData.type) {
+        case 'log_entry':
+          message = eventData.message;
+          type = eventData.logLevel || 'info';
+          break;
+        case 'llm_chunk':
+          // For simplicity, each chunk creates a new entry.
+          // A more sophisticated approach might append to the last message if it's also an llm_chunk.
+          message = eventData.content;
+          type = 'llm';
+          break;
+        case 'file_written':
+          message = `File Written: ${eventData.path}${eventData.message ? ` - ${eventData.message}` : ''}`;
+          type = 'success';
+          break;
+        case 'error':
+          message = `Error: ${eventData.content}`;
+          type = 'error';
+          break;
+        case 'execution_complete':
+          message = `Task Complete: ${eventData.message}`;
+          if (eventData.finalLogSummary) {
+            message += `\nSummary: ${eventData.finalLogSummary}`;
+          }
+          type = 'success';
+          break;
+        case 'confirmation_required':
+          this.coderTaskPendingConfirmationId = eventData.confirmationId;
+          // For now, log and auto-deny. UI for confirmation is a separate feature.
+          message = `CONFIRMATION REQUIRED: ${eventData.message}\nDetails: ${JSON.stringify(eventData.details)}\n(Auto-denying for now.)`;
+          type = 'warning';
+          if (window.electronAPI && window.electronAPI.sendTaskConfirmationResponse) {
+            window.electronAPI.sendTaskConfirmationResponse({ confirmationId: eventData.confirmationId, confirmed: false });
+          }
+          break;
+        case 'proposed_plan':
+          this.coderTaskProposedPlanId = eventData.planId;
+          this.coderTaskProposedSteps = eventData.generated_steps;
+          this.isCoderTaskAwaitingPlanApproval = true;
+          // For now, log. UI for plan approval is a separate feature.
+          message = `PROPOSED PLAN (ID: ${eventData.planId}): Review needed. Steps:\n${JSON.stringify(eventData.generated_steps, null, 2)}`;
+          type = 'info';
+          // To auto-reject:
+          // if (window.electronAPI && window.electronAPI.sendTaskPlanApprovalResponse) {
+          //   window.electronAPI.sendTaskPlanApprovalResponse({ planId: eventData.planId, approved: false });
+          //   this.isCoderTaskAwaitingPlanApproval = false;
+          // }
+          break;
+        default:
+          message = `Unknown event: ${JSON.stringify(eventData)}`;
+          type = 'info';
+      }
+
+      this.executorOutput.unshift({
+        message: message,
+        type: type,
+        timestamp: new Date(),
+        details: eventData.details || (eventData.type === 'proposed_plan' ? eventData.generated_steps : null)
+      });
+
+      // If it was a confirmation or plan, reset relevant flags if auto-action was taken
+      if (eventData.type === 'confirmation_required' && !this.safetyModeActive) { // Assuming auto-deny for now
+          this.coderTaskPendingConfirmationId = null;
+      }
+      // if (eventData.type === 'proposed_plan' && !this.isCoderTaskAwaitingPlanApproval) { // If auto-rejected
+      //     this.coderTaskProposedPlanId = null;
+      //     this.coderTaskProposedSteps = [];
+      // }
     },
 
     async loadAvailableModels() {
@@ -783,20 +870,44 @@ export default {
         this.isStreamingResponse = false;
         this.scrollToBottom('brainstorming');
       });
+
+      // Coder Task Event Listeners
+      if (window.electronAPI.onCoderTaskLog) {
+        window.electronAPI.onCoderTaskLog((event, data) => { this.handleCoderTaskEvent(data); });
+      }
+      if (window.electronAPI.onCoderTaskError) {
+        window.electronAPI.onCoderTaskError((event, data) => { this.handleCoderTaskEvent({ type: 'error', content: data.error, details: data.details }); });
+      }
+      if (window.electronAPI.onCoderTaskComplete) {
+        window.electronAPI.onCoderTaskComplete((event, data) => { this.handleCoderTaskEvent({ type: 'execution_complete', message: data.message, finalLogSummary: data.finalLogSummary }); });
+      }
+      if (window.electronAPI.onCoderTaskConfirmationRequired) {
+        window.electronAPI.onCoderTaskConfirmationRequired((event, data) => { this.handleCoderTaskEvent({ type: 'confirmation_required', confirmationId: data.confirmationId, message: data.message, details: data.details }); });
+      }
+      if (window.electronAPI.onCoderTaskProposedPlan) {
+        window.electronAPI.onCoderTaskProposedPlan((event, data) => { this.handleCoderTaskEvent({ type: 'proposed_plan', planId: data.planId, generated_steps: data.generated_steps }); });
+      }
     }
   },
   beforeUnmount() {
     // It's good practice to remove IPC listeners when the component is unmounted to prevent memory leaks.
-    // The exact method depends on how `electronAPI` is implemented in the preload script.
-    // For example, if each 'on' method returned a remover function:
-    // if (this.unsubscribeChunk) this.unsubscribeChunk();
-    // if (this.unsubscribeError) this.unsubscribeError();
-    // if (this.unsubscribeEnd) this.unsubscribeEnd();
-    // Or if a generic remover for all brainstorming listeners exists:
+    // Brainstorming listeners (example, actual removal depends on preload implementation)
     // if (window.electronAPI && window.electronAPI.removeAllBrainstormingListeners) {
     //   window.electronAPI.removeAllBrainstormingListeners();
     // }
-    // Since specific removal methods are not defined by this subtask, this serves as a placeholder.
+
+    // Coder Task Event Listeners Removal
+    // Assuming a generic remover or that on<Event> methods return a remover function.
+    // If specific 'off' methods exist, they should be used.
+    // For this subtask, we'll assume a generic remover for Coder task listeners if available.
+    if (window.electronAPI && window.electronAPI.removeAllCoderTaskListeners) {
+      console.log('[App.vue] Removing all Coder task listeners.');
+      window.electronAPI.removeAllCoderTaskListeners();
+    } else {
+      // If no generic remover, individual listeners would need to be tracked and removed.
+      // This part would need to be more robust if individual removal is required.
+      console.warn('[App.vue] beforeUnmount: removeAllCoderTaskListeners not available. Specific listeners for Coder tasks might not be cleaned up if not handled by Electron main process or if `on` methods do not return unlistener functions.');
+    }
   }
 };
 </script>
