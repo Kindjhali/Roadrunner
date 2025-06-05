@@ -73,6 +73,12 @@ describe('ModularFsAgent', () => {
             expect(result.success).toBe(false);
             expect(result.error.code).toBe('FS_RESOLVE_PATH_INVALID_TYPE');
         });
+
+        it('should return error for unresolved template placeholders', () => {
+            const result = fsAgentInstance.resolvePathInWorkspace('file_{{outputs.missing}}.txt');
+            expect(result.success).toBe(false);
+            expect(result.error.code).toBe('FS_UNRESOLVED_TEMPLATE');
+        });
     });
 
     describe('createFile', () => {
