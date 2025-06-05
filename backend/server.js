@@ -1374,17 +1374,25 @@ async function executeStepsInternal(
           console.log(`[executeStepsInternal] File-specific confirmation required for ${filePath}. Pausing task. ID: ${confirmationId}`);
           return; // Pause execution
         }
-        if (createFileResult.success && isConfirmedAction) { // This block was already here
-            operationCountSinceLastConfirmation = 0; // Reset op count if this specific action was confirmed
+        if (createFileResult.success && isConfirmedAction) {
+            operationCountSinceLastConfirmation = 0;
         }
-        if (createFileResult.warnings) // This line was already here
+        if (createFileResult.warnings && createFileResult.warnings.length > 0) {
           createFileResult.warnings.forEach((w) =>
             sendSseMessage('log_entry', { message: `[fsAgent Warning] ${w}` }, expressHttpRes)
           );
+        }
         if (createFileResult.success) {
           sendSseMessage('file_written', { path: createFileResult.fullPath, message: `  -> ✅ File created successfully at: ${createFileResult.fullPath}` }, expressHttpRes);
-        } else if (!createFileResult.confirmationNeeded) { // Genuine failure, not a confirmation pause
-          triggerStepFailure(`fsAgent.createFile failed: ${createFileResult.message}`, createFileResult, currentStep.type, stepNumber, {i});
+        } else if (!createFileResult.confirmationNeeded) {
+          console.error(`[executeStepsInternal] fsAgent.createFile failed for path '${filePath}'. Full result:`, JSON.stringify(createFileResult, null, 2));
+          triggerStepFailure(
+              `fsAgent.createFile failed: ${createFileResult.message || 'Unspecified error from fsAgent'}`,
+              createFileResult,
+              currentStep.type,
+              stepNumber,
+              {i}
+          );
           return;
         }
       // Handles 'git_operation' steps for executing Git commands.
@@ -1884,9 +1892,17 @@ async function executeStepsInternal(
           return;
         }
         if (result.success && isConfirmedAction) { operationCountSinceLastConfirmation = 0; }
-        if (result.success) sendSseMessage('file_written', { path: result.fullPath, message: `✅ File created: ${result.fullPath}` }, expressHttpRes);
-        else if (!result.confirmationNeeded) { // Genuine failure
-            triggerStepFailure(`fsAgent.createFile failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
+        if (result.success) {
+            sendSseMessage('file_written', { path: result.fullPath, message: `✅ File created: ${result.fullPath}` }, expressHttpRes);
+        } else if (!result.confirmationNeeded) { // Genuine failure
+            console.error(`[executeStepsInternal] fsAgent.createFile (from manual step type 'createFile') failed for path '${filePath}'. Full result:`, JSON.stringify(result, null, 2));
+            triggerStepFailure(
+                `fsAgent.createFile failed: ${result.message || 'Unspecified error from fsAgent'}`,
+                result,
+                currentStep.type,
+                stepNumber,
+                {i}
+            );
             return;
         }
       } else if ( currentStep.type === 'readFile' || currentStep.type === 'read_file_to_output') {
