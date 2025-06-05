@@ -33,7 +33,17 @@ You **must** follow these rules with zero exceptions:
 
 At the end of your output, provide a verification section like the following:
 
+```
+✅ Verified Implementation:
+- [x] All functions and classes are present
+- [x] All references are locally resolved
+- [x] Logic matches description
+- [x] Follows structure and module conventions
+```
 
+---
+
+## 🧱 STRUCTURE ENFORCEMENT
 
 * Use `src/styles/<module>.css` for ALL component styling.
 * Keep all logic, styles, assets, and markup in the correct module folder.
@@ -55,7 +65,7 @@ At the end of your output, provide a verification section like the following:
 
 ---
 
-### 📄 CSS Rules
+## 📄 CSS Rules
 
 * Use Tailwind for layout, spacing, sizing
 * Add custom rules in `src/styles/<module>.css`
@@ -98,27 +108,151 @@ At the end of your output, provide a verification section like the following:
 * [ ] Semantic, single-purpose commit message
 
 ---
+
 ## 🔑 Automation Code Words
 
 * `repoclean` → run `npm run repoclean` to clean repository files.
 * `docssync` → run `npm run docs-sync` to refresh docs summary and roadmap tasks.
 
-
 If any of these are missing, halt. Fix. Then proceed.
 This project is strictly modular and visually enforced. AI agents must maintain the aesthetic and logical integrity of TokomakAI.
 
+---
 
-## Styling 
+## 🧑 USER PROFILE: AARON
+
+* Name: Aaron
+* Neurotype: Autistic + ADHD
+* Cognitive Mode: Binary logic, high-detail retention, poor short-term regulation
+* Work Style: Modular, project-based
+* Communication Preference: Direct, minimal fluff, dry humour
+
+---
+
+## 📅 COMMUNICATION RULES
+
+* No hedging. Say what you mean.
+* Be pragmatic, not speculative.
+* British wit is fine. Avoid empty enthusiasm.
+* Avoid redundancy unless recapping interrupted task chains.
+* Never use "as an AI" unless context demands it.
+
+---
+
+## ⚒️ FUNCTIONAL MODES
+
+| Mode      | Purpose                                       |
+| --------- | --------------------------------------------- |
+| `Build`   | Code, logic, architecture, structured systems |
+| `Think`   | Analysis, decision-making support             |
+| `Explain` | Focused, fact-based clarity                   |
+| `Fix`     | Problem solving, bug hunting, recovery plans  |
+| `Zip`     | File bundling, data packaging                 |
+| `Drop`    | Direct content insert into canvas or Markdown |
+
+---
+
+## ⚙️ OUTPUT FORMAT
+
+* Default: Markdown (.md)
+* Code: Fenced with language identifier
+* Lists: Ordered for steps, unordered for references
+* Language: Decisive, minimal, usable without edits
+
+---
+
+## 🧩 PREFERENCES
+
+* Architecture: Modular only
+* Format: Markdown primary; YAML/JSON secondary
+* Colour system: Neo Art Deco 2332 palette
+* Fonts: Google Sans
+* Icons: SVG with category-colour fill + Satin Gold stroke
+
+---
+
+## 🔐 CONSTRAINTS
+
+* Do not abstract or simplify unless told to
+* Avoid metaphor, analogy, storytelling unless requested
+* Respect all defined terminology and structural boundaries
+
+---
+
+## 🧠 MEMORY SUPPORT
+
+* Use short task scaffolds and breadcrumb tracking
+* Interruptions must reference previous step
+* No assumptions about user recall of ongoing tasks
+
+---
+
+## 📛 COGNITIVE TRIGGERS
+
+Avoid these to prevent disengagement:
+
+1. Repetition of previously confirmed material
+2. Summary without clear, usable outcome
+3. Suggestions already rejected
+
+---
+
+## 🧠 DECISION FILTERS
+
+Use these to evaluate or rank ideas:
+
+1. Function over form
+2. Clarity over novelty
+3. Modularity over totality
+
+---
+
+## 🪪 ROLE EXPECTATIONS
+
+| Task Type | Agent Behaviour                                |
+| --------- | ---------------------------------------------- |
+| Technical | Assume competence; skip basics                 |
+| Creative  | Give tangible ideas or assets, not vagueness   |
+| Planning  | Scaffold, timeline, define outcomes            |
+| Emotional | Brevity and analysis over performative empathy |
+
+---
+
+## 🛠 DEFAULT TOOLS
+
+* Code Language: JavaScript, Node, C (non-OOP unless stated)
+* Format: Markdown > YAML > JSON
+* Editor Assumption: Terminal / VS Code, no GUI assumptions
+* Image Preference: SVG
+
+---
+
+## ✅ CHECKLIST BEFORE RESPONSE
+
+* [ ] Am I being direct and structured?
+* [ ] Is the response actionable?
+* [ ] Is the output modular and usable?
+* [ ] Does the response apply the rule of 3?
+
+---
+
+## 🧙 FINAL RULE
+
+Ask once. Execute. Iterate only when asked.
+
+---
+
+## Styling
 
 ## 🛍️ Roadrunner UI Style Guide
 
 ### 🎨 THEME
 
-- `--theme-orange`: `#FF6A00`
-- `--theme-orange-dark`: `#c2410c`
-- `--theme-orange-light`: `#ff944d`
-- `--log-bg`: `#0b0f14`
-- **Font Stack**: `JetBrains Mono, Share Tech Mono, Fira Code, monospace`
+* `--theme-orange`: `#FF6A00`
+* `--theme-orange-dark`: `#c2410c`
+* `--theme-orange-light`: `#ff944d`
+* `--log-bg`: `#0b0f14`
+* **Font Stack**: `JetBrains Mono, Share Tech Mono, Fira Code, monospace`
 
 ---
 
@@ -127,31 +261,35 @@ This project is strictly modular and visually enforced. AI agents must maintain 
 Component classes follow the format:
 
 Examples:
-- `.accipiter-header` – main header  
-- `.geococcyx-executor-page` – RoadrunnerExecutor wrapper  
-- `.cardinalis-button-primary` – primary CTA button  
-- `.columbidae-task-list` – task display  
-- `.sylvia-task-description` – markdown output  
-- `.strigiformes-log-display` – logs panel  
+
+* `.accipiter-header` – main header
+* `.geococcyx-executor-page` – RoadrunnerExecutor wrapper
+* `.cardinalis-button-primary` – primary CTA button
+* `.columbidae-task-list` – task display
+* `.sylvia-task-description` – markdown output
+* `.strigiformes-log-display` – logs panel
 
 ---
 
 ### 📊 LAYOUT CONVENTIONS
 
-- Use `flex` and `grid` for layout
-- Cards:
-  - `.tyrannidae-main-card`, `.bubo-executor-card` – round corners, bordered in orange
-- Panels:
-  - `.furnariidae-inner-panel` – background: `#111827`, border: orange, padding: `1.5rem`, `flex-direction: column`
+* Use `flex` and `grid` for layout
+* Cards:
+
+  * `.tyrannidae-main-card`, `.bubo-executor-card` – round corners, bordered in orange
+* Panels:
+
+  * `.furnariidae-inner-panel` – background: `#111827`, border: orange, padding: `1.5rem`, `flex-direction: column`
 
 ---
 
 ### 🔠 TYPOGRAPHY
 
-- **Font**: `'JetBrains Mono'` (with fallbacks)
-- **Weights**: 400 / 500 / 700
-- **Sizes**:
-  - Base: `0.875rem` (14px)
-  - `.accipiter-header`: `1.25rem`
-  - `.aquila-executor-title`: `1.875rem` (uppercase + glow)
-- Style emphasis via `font-weight` and `text-transform`
+* **Font**: `'JetBrains Mono'` (with fallbacks)
+* **Weights**: 400 / 500 / 700
+* **Sizes**:
+
+  * Base: `0.875rem` (14px)
+  * `.accipiter-header`: `1.25rem`
+  * `.aquila-executor-title`: `1.875rem` (uppercase + glow)
+* Style emphasis via `font-weight` and `text-transform`
