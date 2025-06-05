@@ -23,6 +23,7 @@
         <!-- Coder Tab Content -->
         <div v-if="activeTab === 'coder'" class="tab-content coder-tab-content p-4 space-y-4">
           <div class="passeriformes-form-area space-y-4">
+            <!--
             <div v-if="isIntegratedMode" class="piciformes-input-row flex items-center space-x-2">
               <label for="moduleSelect" class="emberiza-label">Module:</label>
               <select id="moduleSelect" v-model="selectedModule" class="turdus-select">
@@ -33,7 +34,7 @@
                 🔄
               </button>
             </div>
-
+            -->
           <div class="piciformes-input-row">
             <div class="piciformes-input-group">
               <label for="modelSelect" class="emberiza-label" title="This model is used for new tasks. You can override it for individual tasks in the session list below.">Default Task Model:</label>
@@ -170,6 +171,9 @@
               </div>
             </div>
           </div>
+           <div class="mt-4">
+              <button @click="openCoderInstructions" class="pelecanus-button-action text-xs">Edit Coder Instructions</button>
+            </div>
         </div>
       </div>
 
@@ -236,6 +240,9 @@
               Send
             </button>
           </div>
+           <div class="mt-4">
+              <button @click="openBrainstormingInstructions" class="pelecanus-button-action text-xs">Edit Brainstorming Instructions</button>
+            </div>
         </div>
 
         <!-- Conference Tab Content -->
@@ -249,6 +256,11 @@
         </div>
 
         <!-- Settings Panel (conditionally rendered) -->      </div>
+      <instructions-modal
+        :agentType="modalAgentType"
+        :agentRole="modalAgentRole"
+        :showModal.sync="showInstructionsModal"
+      />
    </div>
 </template>
 
@@ -257,11 +269,13 @@ import RoadmapParser from './RoadmapParser';
 import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
 import ConferenceTab from './components/ConferenceTab.vue';
+import InstructionsModal from './components/InstructionsModal.vue'; // Import the modal
 
 export default {
   components: {
     ConfigurationTab,
     ConferenceTab,
+    InstructionsModal, // Register the modal
   },
   // ... (name, components)
   data() {
@@ -303,6 +317,11 @@ export default {
       coderTaskProposedPlanId: null,
       coderTaskProposedSteps: [],
       isCoderTaskAwaitingPlanApproval: false,
+
+      // For Instructions Modal
+      showInstructionsModal: false,
+      modalAgentType: null,
+      modalAgentRole: null,
     };
   },
   computed: {
@@ -503,26 +522,61 @@ export default {
     },
 
     // Handles the event when a user uploads a task file.
-    // Reads the file, parses its content into steps using RoadmapParser, and adds it as a new task to the session.
+    // Reads the file, parses its content into steps using RoadmapParser (for specific formats),
+    // or creates generic steps for other file types, then adds it as a new task to the session.
     handleFileUpload(event) {
       const file = event.target.files[0];
       if (file) {
         const reader = new FileReader();
         reader.onload = (e) => {
           const fileContent = e.target.result;
-          const parser = new RoadmapParser(fileContent);
-          const parsedSteps = parser.parse();
+          let taskDescription = '';
+          let stepsToUse = [];
 
-          if (parsedSteps.length === 0) { /* ... error handling ... */ return; }
+          // Check if the file is a .md or .txt file
+          if (file.name.endsWith('.md') || file.name.endsWith('.txt')) {
+            // Attempt to parse with RoadmapParser
+            const parser = new RoadmapParser(fileContent);
+            const parsedOutput = parser.parse(); // RoadmapParser returns an object, not an array of steps directly
+
+            // Check if parsedOutput is a valid array of steps (e.g., parsedOutput.steps)
+            // For now, RoadmapParser returns an object, so this condition will likely not be met.
+            // This structure anticipates a future where RoadmapParser might return { description: '...', steps: [...] }
+            if (parsedOutput && Array.isArray(parsedOutput.steps) && parsedOutput.steps.length > 0) {
+              stepsToUse = parsedOutput.steps;
+              taskDescription = parsedOutput.description || `Uploaded: ${file.name}`;
+              this.executorOutput.unshift({ message: `Task file "${file.name}" parsed successfully by RoadmapParser.`, type: 'info', timestamp: new Date() });
+            } else {
+              // Fallback for .md/.txt files that don't parse into steps or if RoadmapParser's output isn't as expected
+              this.executorOutput.unshift({ message: `File "${file.name}" (${file.type}) was not parsable into direct steps by RoadmapParser or parser returned an empty/invalid result. Creating generic file task.`, type: 'info', timestamp: new Date() });
+              taskDescription = `Process uploaded file: ${file.name}`;
+              stepsToUse = [
+                { type: "createFile", details: { filePath: file.name, content: fileContent } },
+                { type: "generic_step", details: { description: `The file '${file.name}' has been uploaded. What would you like to do with it? (e.g., execute it if it's a script, summarize it if it's text)` } }
+              ];
+            }
+          } else {
+            // Generic file handling for non-.md/.txt files
+            this.executorOutput.unshift({ message: `Uploaded generic file "${file.name}" (${file.type}). Creating generic file task.`, type: 'info', timestamp: new Date() });
+            taskDescription = `Process uploaded file: ${file.name}`;
+            stepsToUse = [
+              { type: "createFile", details: { filePath: file.name, content: fileContent } },
+              { type: "generic_step", details: { description: `The file '${file.name}' has been uploaded. What would you like to do with it? (e.g., execute it if it's a script, summarize it if it's text)` } }
+            ];
+          }
 
           this.addTaskToSession({
-              description: `Uploaded: ${file.name}`,
-              steps: parsedSteps
+            description: taskDescription,
+            steps: stepsToUse
           });
-          // ... (rest of existing handleFileUpload logic like clearing other states)
-          event.target.value = null;
+
+          event.target.value = null; // Reset the file input
         };
-        reader.onerror = (e) => { /* ... error handling ... */ };
+        reader.onerror = (error) => {
+          console.error('Error reading file:', error);
+          this.executorOutput.unshift({ message: `Error reading file "${file.name}": ${error.message}`, type: 'error', timestamp: new Date() });
+          event.target.value = null; // Reset the file input even on error
+        };
         reader.readAsText(file);
       }
     },
@@ -729,6 +783,16 @@ export default {
       return 'No active task';
     },
     // ... (rest of methods: copyLog, exportLog, IPC handlers, etc.)
+    openCoderInstructions() {
+      this.modalAgentType = 'coder_agent';
+      this.modalAgentRole = null;
+      this.showInstructionsModal = true;
+    },
+    openBrainstormingInstructions() {
+      this.modalAgentType = 'brainstorming_agent';
+      this.modalAgentRole = null;
+      this.showInstructionsModal = true;
+    },
 
     // Sends the user's message from the Brainstorming tab to the main Electron process via IPC for LLM interaction.
     // Manages streaming state and adds placeholders for model responses.
