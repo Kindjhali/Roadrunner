@@ -2,6 +2,7 @@
     <div class="tyrannidae-main-card">
       <div class="furnariidae-inner-panel">
         <div class="accipiter-header">
+          <img src="./icons/Roadrunner.png" alt="App Logo" class="app-logo" />
           <span class="accipiter-title">Roadrunner AI Executor</span>
           <button @click="closeWindow" class="fringilla-close-button">X</button>
         </div>
@@ -340,50 +341,89 @@ export default {
       // Ensure unique models if IDs might overlap (though they shouldn't if IDs are unique)
       return Array.from(new Map(models.map(m => [m.id, m])).values());
     },
-     defaultModelConfig() {
-        if (this.selectedModelId) {
-            for (const category in this.categorizedCoderModels) {
-                const model = this.categorizedCoderModels[category].find(m => m.id === this.selectedModelId);
-                if (model) return { ...model }; // Return a copy
-            }
+    defaultModelConfig() {
+      // Priority 1: Current selectedModelId if valid
+      if (this.selectedModelId) {
+        const selectedModel = this.allAvailableModelsForTasks.find(m => m.id === this.selectedModelId);
+        if (selectedModel) return { ...selectedModel };
+      }
+
+      // Priority 2: First available model from configured defaultOllamaModels
+      const configuredDefaultModels = this.$store.getters.getSettings?.defaultOllamaModels || [];
+      if (configuredDefaultModels.length > 0) {
+        for (const defaultModelId of configuredDefaultModels) {
+          const model = this.allAvailableModelsForTasks.find(m => m.id === defaultModelId);
+          if (model) return { ...model };
         }
-        // Fallback if selectedModelId is not set or not found
-        if (this.allAvailableModelsForTasks.length > 0) {
-            return { ...this.allAvailableModelsForTasks[0] }; // Default to the first available model
-        }
-        return { id: 'default/unknown', name: 'Unknown/Default', type: 'unknown' }; // Absolute fallback
+      }
+
+      // Priority 3: Fallback to the first available model in the entire list
+      if (this.allAvailableModelsForTasks.length > 0) {
+        return { ...this.allAvailableModelsForTasks[0] };
+      }
+
+      // Absolute fallback
+      return { id: 'default/unknown', name: 'Unknown/Default', type: 'unknown' };
     }
   },
   watch: {
     selectedModule(newModule, oldModule) { /* ... */ },
     categorizedCoderModels: {
-      // Watch for changes in available models to set sensible defaults
       handler(newModels) {
-        console.log('[Watcher categorizedCoderModels] newModels:', JSON.stringify(newModels));
-        const firstCategory = Object.keys(newModels)[0];
-        const firstModel = newModels[firstCategory]?.[0];
-        console.log('[Watcher categorizedCoderModels] firstCategory:', firstCategory);
-        console.log('[Watcher categorizedCoderModels] firstModel:', JSON.stringify(firstModel));
-        if (firstModel) {
-          console.log('[Watcher categorizedCoderModels] firstModel.id:', JSON.stringify(firstModel.id));
-        } else {
-          console.log('[Watcher categorizedCoderModels] firstModel is undefined or null.');
-        }
         if (newModels && Object.keys(newModels).length > 0) {
-          // const firstCategory = Object.keys(newModels)[0]; // Already defined above
-          // const firstModel = newModels[firstCategory]?.[0]; // Already defined above
-          if (!this.selectedModelId && firstModel && firstModel.id) {
-            this.selectedModelId = firstModel.id;
-            console.log('[Watcher categorizedCoderModels] Default selectedModelId set to:', firstModel.id);
+          let defaultModelSet = false;
+          const configuredDefaultModels = this.$store.getters.getSettings?.defaultOllamaModels || [];
+
+          // Try to set based on configured default models
+          if (configuredDefaultModels.length > 0) {
+            for (const defaultModelId of configuredDefaultModels) {
+              for (const category in newModels) {
+                const foundModel = newModels[category].find(m => m.id === defaultModelId);
+                if (foundModel) {
+                  if (!this.selectedModelId) {
+                    this.selectedModelId = foundModel.id;
+                    console.log('[Watcher categorizedCoderModels] Default selectedModelId set from configured defaults to:', foundModel.id);
+                  }
+                  if (!this.selectedBrainstormingModelId) {
+                    this.selectedBrainstormingModelId = foundModel.id;
+                    console.log('[Watcher categorizedCoderModels] Default selectedBrainstormingModelId set from configured defaults to:', foundModel.id);
+                  }
+                  // If both are set, or if we only care about setting them once if they are empty.
+                  // For now, let's assume we set both if a configured default is found and they are empty.
+                  if (this.selectedModelId && this.selectedBrainstormingModelId) {
+                     // If we want to stop after finding the *first* configured default that matches, set a flag.
+                     // For now, this logic implies that if multiple configured defaults are present,
+                     // the one appearing earliest in the `configuredDefaultModels` array and available will be chosen.
+                     defaultModelSet = true; // A configured default was found and applied if slots were empty.
+                     break; // Exit inner loop (categories)
+                  }
+                }
+              }
+              if (defaultModelSet && this.selectedModelId && this.selectedBrainstormingModelId) break; // Exit outer loop (configured defaults) if both set
+            }
           }
-          if (!this.selectedBrainstormingModelId && firstModel && firstModel.id) {
-            this.selectedBrainstormingModelId = firstModel.id;
-            console.log('[Watcher categorizedCoderModels] Default selectedBrainstormingModelId set to:', firstModel.id);
+
+          // Fallback: If no configured default was suitable or if lists were empty initially
+          if (!this.selectedModelId || !this.allAvailableModelsForTasks.find(m => m.id === this.selectedModelId)) {
+            const firstCategory = Object.keys(newModels)[0];
+            const firstModelInNew = newModels[firstCategory]?.[0];
+            if (firstModelInNew && firstModelInNew.id) {
+              this.selectedModelId = firstModelInNew.id;
+              console.log('[Watcher categorizedCoderModels] Fallback: Default selectedModelId set to first available:', firstModelInNew.id);
+            }
+          }
+          if (!this.selectedBrainstormingModelId || !this.allAvailableModelsForTasks.find(m => m.id === this.selectedBrainstormingModelId)) {
+            const firstCategory = Object.keys(newModels)[0];
+            const firstModelInNew = newModels[firstCategory]?.[0]; // Re-evaluate in case selectedModelId took it
+            if (firstModelInNew && firstModelInNew.id) {
+              this.selectedBrainstormingModelId = firstModelInNew.id;
+              console.log('[Watcher categorizedCoderModels] Fallback: Default selectedBrainstormingModelId set to first available:', firstModelInNew.id);
+            }
           }
         }
       },
       deep: true,
-      immediate: true
+      immediate: true,
     }
   },
   methods: {
@@ -911,3 +951,26 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+/* Add specific styles for App.vue if needed, otherwise global styles apply */
+.app-logo {
+  height: 24px; /* Adjust as needed */
+  width: auto;
+  margin-right: 8px;
+  vertical-align: middle; /* Helps align if not using flex */
+}
+
+.accipiter-header {
+  display: flex; /* Use flexbox for easier alignment */
+  align-items: center; /* Vertically align items in the center */
+  -webkit-app-region: drag; /* Make the header draggable */
+  cursor: move; /* Indicate draggable area */
+}
+
+.fringilla-close-button {
+  /* Assuming this class is unique to the close button in the header */
+  -webkit-app-region: no-drag; /* Make the button clickable, not draggable */
+  cursor: default; /* Or its original cursor if different */
+}
+</style>

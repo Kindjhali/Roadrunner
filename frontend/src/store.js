@@ -6,7 +6,7 @@ const store = createStore({
     settings: {
       llmProvider: 'ollama', // Default provider
       apiKey: '',
-      defaultOllamaModel: 'codellama', // Default Ollama model
+      defaultOllamaModels: ['codellama'], // Default Ollama models
     },
     backendPort: 3030, // Default backend port
     ollamaStatus: { isConnected: false, message: 'Initializing...' },
@@ -24,7 +24,15 @@ const store = createStore({
       // Ensure all expected keys are present in state.settings after mutation
       state.settings.llmProvider = newSettings.llmProvider !== undefined ? newSettings.llmProvider : state.settings.llmProvider;
       state.settings.apiKey = newSettings.apiKey !== undefined ? newSettings.apiKey : state.settings.apiKey;
-      state.settings.defaultOllamaModel = newSettings.defaultOllamaModel !== undefined ? newSettings.defaultOllamaModel : state.settings.defaultOllamaModel;
+
+      // Handle defaultOllamaModels (array)
+      if (newSettings.defaultOllamaModels !== undefined) {
+        state.settings.defaultOllamaModels = Array.isArray(newSettings.defaultOllamaModels) ? newSettings.defaultOllamaModels : [newSettings.defaultOllamaModels];
+      } else if (newSettings.defaultOllamaModel !== undefined) {
+        // Backward compatibility: if old singular defaultOllamaModel is provided
+        state.settings.defaultOllamaModels = [newSettings.defaultOllamaModel];
+      }
+      // If neither is provided, state.settings.defaultOllamaModels remains unchanged by default assignment logic
     },
     SET_BACKEND_PORT(state, port) {
       state.backendPort = port;
