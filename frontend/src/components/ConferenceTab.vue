@@ -45,7 +45,7 @@
       <label for="conference-prompt">Enter your prompt:</label>
       <textarea id="conference-prompt" v-model="prompt" rows="5" placeholder="e.g., What is the best strategy to reduce technical debt?"></textarea>
       <button @click="startConference" :disabled="isLoading || isStreaming">
-        {{ isLoading || isStreaming ? (isStreaming ? 'Streaming...' : 'Processing...') : 'Start Conference' }}
+        {{ isLoading || isStreaming ? (isStreaming ? 'Streaming...' : 'Processing...') : (conferenceLog.length === 0 ? 'Start Conference' : 'Send Message') }}
       </button>
     </div>
 

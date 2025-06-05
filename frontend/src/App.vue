@@ -855,10 +855,21 @@ export default {
 
       console.log('[App.vue] sendBrainstormingMessage: Determined modelIdToSend:', modelIdToSend);
 
+      // Transform brainstormingHistory for the backend
+      const processedHistory = this.brainstormingHistory.map(message => {
+        return {
+          role: message.sender === 'user' ? 'user' : 'assistant',
+          content: message.text
+        };
+      });
+      // Note: The current user's message (messageText) is already included in brainstormingHistory
+      // before this transformation, so processedHistory will contain it as the last element.
+
       if (window.electronAPI && window.electronAPI.sendBrainstormingChat) {
         window.electronAPI.sendBrainstormingChat({
           modelId: modelIdToSend, // Use the adjusted modelId
-          prompt: messageText
+          // prompt: messageText, // Prompt is now part of the history
+          history: processedHistory
         });
       } else {
         console.error("electronAPI or sendBrainstormingChat not available.");
