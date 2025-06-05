@@ -2894,53 +2894,58 @@ app.post('/api/ollama/pull-model', async (req, res) => {
 // Re-implemented based on roadrunner.model_conference.md for single-round debate
 app.post('/execute-conference-task', async (req, res) => {
   const conferenceId = uuidv4(); // Generate unique ID for this conference
-  console.log(`[Conference ${conferenceId}] Received POST /execute-conference-task request.`);
+  const logMessages = [];
+  const log = (msg, level = 'log') => {
+    logMessages.push(msg);
+    console[level](msg);
+  };
+  log(`[Conference ${conferenceId}] Received POST /execute-conference-task request.`);
 
   try {
     const { prompt: userPrompt, modelName: requestedModelName, modelARole: requestedModelARole, modelBRole: requestedModelBRole, arbiterModelRole: requestedArbiterModelRole } = req.body;
 
     if (!userPrompt) {
-      console.log(`[Conference ${conferenceId}] Error: Missing "prompt" in request body.`);
-      return res.status(400).json({ error: 'Missing "prompt" in request body.', conference_id: conferenceId });
+      log(`[Conference ${conferenceId}] Error: Missing "prompt" in request body.`);
+      return res.status(400).json({ error: 'Missing "prompt" in request body.', conference_id: conferenceId, log_messages: logMessages });
     }
-    console.log(`[Conference ${conferenceId}] User Prompt: "${userPrompt.substring(0, 100)}..."`);
+    log(`[Conference ${conferenceId}] User Prompt: "${userPrompt.substring(0, 100)}..."`);
 
     // Determine model and roles
     const currentModelName = requestedModelName || backendSettings.defaultOllamaModel || 'llama3';
     const roleA = requestedModelARole || 'Logical Reasoner';
     const roleB = requestedModelBRole || 'Creative Problem Solver';
     const roleArbiter = requestedArbiterModelRole || 'Arbiter and Synthesizer';
-    console.log(`[Conference ${conferenceId}] Model: ${currentModelName}, Role A: ${roleA}, Role B: ${roleB}, Arbiter: ${roleArbiter}`);
+    log(`[Conference ${conferenceId}] Model: ${currentModelName}, Role A: ${roleA}, Role B: ${roleB}, Arbiter: ${roleArbiter}`);
 
     // Model A Interaction
     const promptA = `You are ${roleA}. The user's question is: "${userPrompt}". Provide your analysis and response.`;
-    console.log(`[Conference ${conferenceId}] Prompting Model A (${roleA})...`);
+    log(`[Conference ${conferenceId}] Prompting Model A (${roleA})...`);
     const responseA = await generateFromLocal(promptA, currentModelName, null); // null for expressRes as we need the full response
     if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
-      console.error(`[Conference ${conferenceId}] Error from Model A: ${responseA}`);
-      return res.status(500).json({ error: 'Error in Model A response.', conference_id: conferenceId, details: responseA });
+      log(`[Conference ${conferenceId}] Error from Model A: ${responseA}`, 'error');
+      return res.status(500).json({ error: 'Error in Model A response.', conference_id: conferenceId, details: responseA, log_messages: logMessages });
     }
-    console.log(`[Conference ${conferenceId}] Model A Response (first 100 chars): "${responseA.substring(0, 100)}..."`);
+    log(`[Conference ${conferenceId}] Model A Response (first 100 chars): "${responseA.substring(0, 100)}..."`);
 
     // Model B Interaction
     const promptB = `You are ${roleB}. The user's question is: "${userPrompt}". Provide your analysis and response.`;
-    console.log(`[Conference ${conferenceId}] Prompting Model B (${roleB})...`);
+    log(`[Conference ${conferenceId}] Prompting Model B (${roleB})...`);
     const responseB = await generateFromLocal(promptB, currentModelName, null);
     if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
-      console.error(`[Conference ${conferenceId}] Error from Model B: ${responseB}`);
-      return res.status(500).json({ error: 'Error in Model B response.', conference_id: conferenceId, details: responseB });
+      log(`[Conference ${conferenceId}] Error from Model B: ${responseB}`, 'error');
+      return res.status(500).json({ error: 'Error in Model B response.', conference_id: conferenceId, details: responseB, log_messages: logMessages });
     }
-    console.log(`[Conference ${conferenceId}] Model B Response (first 100 chars): "${responseB.substring(0, 100)}..."`);
+    log(`[Conference ${conferenceId}] Model B Response (first 100 chars): "${responseB.substring(0, 100)}..."`);
 
     // Arbiter Interaction
     const promptArbiter = `You are ${roleArbiter}. The user's original question was: "${userPrompt}".\n\nModel A (${roleA}) responded: "${responseA}"\n\nModel B (${roleB}) responded: "${responseB}"\n\nBased on the user's question and both responses, provide a comprehensive synthesized answer.`;
-    console.log(`[Conference ${conferenceId}] Prompting Arbiter Model (${roleArbiter})...`);
+    log(`[Conference ${conferenceId}] Prompting Arbiter Model (${roleArbiter})...`);
     const finalResponse = await generateFromLocal(promptArbiter, currentModelName, null);
     if (finalResponse.startsWith('// LLM_ERROR:') || finalResponse.startsWith('// LLM_WARNING:')) {
-      console.error(`[Conference ${conferenceId}] Error from Arbiter Model: ${finalResponse}`);
-      return res.status(500).json({ error: 'Error in Arbiter Model response.', conference_id: conferenceId, details: finalResponse });
+      log(`[Conference ${conferenceId}] Error from Arbiter Model: ${finalResponse}`, 'error');
+      return res.status(500).json({ error: 'Error in Arbiter Model response.', conference_id: conferenceId, details: finalResponse, log_messages: logMessages });
     }
-    console.log(`[Conference ${conferenceId}] Arbiter Response (first 100 chars): "${finalResponse.substring(0, 100)}..."`);
+    log(`[Conference ${conferenceId}] Arbiter Response (first 100 chars): "${finalResponse.substring(0, 100)}..."`);
 
     // Logging
     const logEntry = {
@@ -2969,7 +2974,7 @@ app.post('/execute-conference-task', async (req, res) => {
         }
       }
     } catch (readError) {
-      console.warn(`[Conference ${conferenceId}] Error reading or parsing ${CONFERENCES_LOG_FILE}. Initializing with new array. Error: ${readError.message}`);
+      log(`[Conference ${conferenceId}] Error reading or parsing ${CONFERENCES_LOG_FILE}. Initializing with new array. Error: ${readError.message}`);
       // Log a warning but proceed with an empty array, so the current conference can still be logged.
       conferences = [];
     }
@@ -2977,28 +2982,30 @@ app.post('/execute-conference-task', async (req, res) => {
     conferences.push(logEntry);
     try {
       fs.writeFileSync(CONFERENCES_LOG_FILE, JSON.stringify(conferences, null, 2));
-      console.log(`[Conference ${conferenceId}] Logged successfully to ${CONFERENCES_LOG_FILE}`);
+      log(`[Conference ${conferenceId}] Logged successfully to ${CONFERENCES_LOG_FILE}`);
     } catch (writeError) {
-      console.error(`[Conference ${conferenceId}] Failed to write conference log to ${CONFERENCES_LOG_FILE}: ${writeError.message}`);
+      log(`[Conference ${conferenceId}] Failed to write conference log to ${CONFERENCES_LOG_FILE}: ${writeError.message}`, 'error');
       // Do not fail the request if logging fails, but log the error.
     }
 
     // Response
-    console.log(`[Conference ${conferenceId}] Task completed successfully. Sending response to client.`);
+    log(`[Conference ${conferenceId}] Task completed successfully. Sending response to client.`);
     res.json({
       conference_id: conferenceId,
       final_response: finalResponse,
       model_a_response: responseA,
-      model_b_response: responseB
+      model_b_response: responseB,
+      log_messages: logMessages
     });
 
   } catch (error) {
-    console.error(`[Conference ${conferenceId}] Unhandled error processing conference task:`, error.message, error.stack);
+    log(`[Conference ${conferenceId}] Unhandled error processing conference task: ${error.message}`, 'error');
     // Ensure conferenceId is included in the error response if available
     res.status(500).json({
         error: 'Failed to execute conference task due to an internal server error.',
-        conference_id: conferenceId, // Include conferenceId even in general errors
-        details: error.message
+        conference_id: conferenceId,
+        details: error.message,
+        log_messages: logMessages
     });
   }
 });
