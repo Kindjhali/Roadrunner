@@ -123,8 +123,7 @@ function createWindow() {
     console.error(`[Main-WebContents] Renderer did-fail-load: ${validatedURL}, Code: ${errorCode}, Desc: ${errorDescription}`);
   });
 
-  mainWindow.webContents.on('console-message', (event, messageInfo) => {
-    const { level, message, line, sourceId } = messageInfo;
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
     const levelStr = ['VERBOSE', 'INFO', 'WARNING', 'ERROR'][level] || `LEVEL${level}`;
     console.log(`[Main-WebContents-Console] [${levelStr}] ${message} (source: ${sourceId}:${line})`);
   });
@@ -208,6 +207,18 @@ ipcMain.handle('get-backend-port', async () => {
   return currentBackendPort;
 });
 
+app.on('before-quit', () => {
+  isAppQuitting = true;
+  if (coderTaskEventSource) {
+    coderTaskEventSource.close();
+    coderTaskEventSource = null;
+  }
+  if (conferenceEventSource) {
+    conferenceEventSource.close();
+    conferenceEventSource = null;
+  }
+});
+
 app.on('quit', () => {
   console.log(`[Electron Main] 'app.quit' event triggered. Attempting to terminate backend process (PID: ${backendProcess ? backendProcess.pid : 'N/A'}, Exists: ${!!backendProcess})`); // Enhanced log
   if (backendProcess) {
@@ -244,6 +255,8 @@ ipcMain.handle('select-directory', async () => {
 // The duplicated handlers below have been removed.
 
 let conferenceEventSource = null; // Variable to hold the EventSource for conference streams
+let coderTaskEventSource = null;  // EventSource for coder task execution
+let isAppQuitting = false;        // Track app shutdown to suppress benign errors
 
 ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt, history }) => {
   // At the beginning of the handler
@@ -410,8 +423,22 @@ ipcMain.on('start-conference-stream', (event, payload) => {
 
   // Enhance conferenceEventSource.onopen (as per subtask)
   conferenceEventSource.onopen = () => {
+
     console.log('[Electron IPC] start-conference-stream: EventSource connection successfully opened to URL:', eventSourceUrl);
     const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
+
+
+    console.log('[Electron IPC] start-conference-stream: EventSource connection successfully opened to URL:', eventSourceUrl);
+    const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
+
+    console.log('[Electron IPC] start-conference-stream: EventSource connection opened.');
+    // For onopen, the data is static, so we can log it directly here or ensure forwardEvent handles it.
+    // To stick to the plan, ensure forwardEvent is called for all relevant events.
+    const openData = { type: 'log_entry', message: 'Connection to backend for conference established.', speaker: 'System' };
+    // Log before sending (as per plan, though forwardEvent will log again)
+    // console.log(`[Electron IPC] Forwarding to ConferenceTab - Channel: conference-stream-log-entry, Payload: ${JSON.stringify(openData)}`);
+
+
     forwardEvent('conference-stream-log-entry', openData);
   };
 
@@ -421,6 +448,7 @@ ipcMain.on('start-conference-stream', (event, payload) => {
       let msg = JSON.parse(e.data); // Use 'let' to allow modification
       let channelToSend;
       let dataToSend;
+
 
       // Apply defaults and determine channel and data based on msg.type
       switch (msg.type) {
@@ -438,6 +466,46 @@ ipcMain.on('start-conference-stream', (event, payload) => {
           break;
         case 'error':
           msg.error = msg.error || 'An unknown error occurred';
+
+
+      // Apply defaults and determine channel and data based on msg.type
+      switch (msg.type) {
+        case 'llm_chunk':
+          msg.content = msg.content || '';
+          msg.speaker = msg.speaker || 'Unknown Speaker';
+          channelToSend = 'conference-stream-llm-chunk';
+          dataToSend = msg;
+          break;
+        case 'log_entry':
+          msg.message = msg.message || '';
+          msg.speaker = msg.speaker || 'System';
+          channelToSend = 'conference-stream-log-entry';
+          dataToSend = msg;
+          break;
+        case 'error':
+          msg.error = msg.error || 'An unknown error occurred';
+
+      // Adapt message types based on expected backend output for conference tasks
+      switch (msg.type) {
+        case 'llm_chunk':
+          // Ensure msg.content and msg.speaker are defined
+          msg.content = msg.content || '';
+          msg.speaker = msg.speaker || 'Unknown Speaker';
+          forwardEvent('conference-stream-llm-chunk', msg);
+          break;
+        case 'log_entry':
+          // Ensure msg.message and msg.speaker are defined
+          msg.message = msg.message || '';
+          msg.speaker = msg.speaker || 'System';
+          forwardEvent('conference-stream-log-entry', msg);
+          break;
+        case 'error':
+          // Ensure msg.error is defined
+          msg.error = msg.error || 'An unknown error occurred';
+          // msg.details can also be checked or defaulted if necessary
+
+
+
           msg.details = msg.details || '';
           console.error('[Electron IPC] start-conference-stream: Received error event:', msg);
           channelToSend = 'conference-stream-error';
@@ -455,6 +523,10 @@ ipcMain.on('start-conference-stream', (event, payload) => {
           // For unknown types, structure it like a log_entry for forwarding
           dataToSend = { type: 'log_entry', message: `Received event: ${msg.type || 'unknown'}`, data: msg, speaker: 'System' };
           channelToSend = 'conference-stream-log-entry';
+
+
+
+
       }
 
       // Now call the modified forwardEvent which includes the detailed logging
@@ -467,6 +539,24 @@ ipcMain.on('start-conference-stream', (event, payload) => {
         if (conferenceEventSource) conferenceEventSource.close();
         conferenceEventSource = null;
       }
+
+
+
+
+      }
+
+      // Now call the modified forwardEvent which includes the detailed logging
+      if (channelToSend && dataToSend) {
+        forwardEvent(channelToSend, dataToSend);
+      }
+
+      // Specific handling for execution_complete to close EventSource
+      if (msg.type === 'execution_complete') {
+        if (conferenceEventSource) conferenceEventSource.close();
+        conferenceEventSource = null;
+      }
+
+
 
     } catch (err) {
       console.error('[Electron IPC] start-conference-stream: Failed to parse SSE message:', e.data, err);
@@ -559,6 +649,7 @@ ipcMain.on('execute-task-with-events', (event, payload) => {
   const eventSourceUrl = `http://127.0.0.1:${currentBackendPort}/execute-autonomous-task?${params.toString()}`;
   console.log('[Electron IPC] execute-task-with-events: Connecting to EventSource URL:', eventSourceUrl);
   const es = new (require('eventsource'))(eventSourceUrl);
+  coderTaskEventSource = es; // track for cleanup on app quit
 
   const forward = (channel, data) => event.sender.send(channel, data);
 
@@ -600,13 +691,24 @@ ipcMain.on('execute-task-with-events', (event, payload) => {
   };
 
   es.onerror = (err) => {
-    console.error('[Electron IPC] execute-task-with-events: EventSource es.onerror, error:', err);
-    forward('coder-task-error', { error: 'EventSource connection error or stream failure.', details: err ? JSON.stringify(err, Object.getOwnPropertyNames(err)) : 'Unknown EventSource error' });
+    if (isAppQuitting && err && err.message && err.message.includes('ECONNRESET')) {
+      console.log('[Electron IPC] execute-task-with-events: EventSource closed due to app quit.');
+    } else {
+      console.error('[Electron IPC] execute-task-with-events: EventSource es.onerror, error:', err);
+      forward('coder-task-error', {
+        error: 'EventSource connection error or stream failure.',
+        details: err ? JSON.stringify(err, Object.getOwnPropertyNames(err)) : 'Unknown EventSource error'
+      });
+    }
     es.close();
+    coderTaskEventSource = null;
   };
 
   ipcMain.once('remove-coder-task-listeners', () => {
-    es.close();
+    if (coderTaskEventSource) {
+      coderTaskEventSource.close();
+      coderTaskEventSource = null;
+    }
   });
 });
 

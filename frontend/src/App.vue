@@ -4,7 +4,9 @@
         <div class="accipiter-header">
           <img src="./icons/Roadrunner.svg" alt="App Logo" class="app-logo" />
           <span class="accipiter-title">Roadrunner AI Executor</span>
-          <button @click="closeWindow" class="fringilla-close-button">X</button>
+          <button @click="closeWindow" class="fringilla-close-button">
+            <img :src="icons.close" class="icon" alt="Close" />
+          </button>
         </div>
 
         <div v-if="$store.getters.getOllamaStatus && $store.getters.getOllamaStatus.message"
@@ -51,13 +53,16 @@
               </p>
             </div>
             <button @click="loadAvailableModels" title="Refresh Models" class="pelecanus-button-action">
-              🔄
+              <img :src="icons.refresh" class="icon" alt="Refresh" />
             </button>
           </div>
 
-          <div>
-            <label for="taskFileUpload" class="emberiza-label">Custom Task File (.md, .txt):</label>
-            <input type="file" id="taskFileUpload" @change="handleFileUpload" accept=".md,.txt" class="turdus-select">
+          <div class="chat-file-input-container">
+            <label for="taskFileUpload" class="chat-file-input-label" title="Upload Task File">
+              <img :src="icons.upload" class="icon" alt="Upload" />
+              Custom Task File (.md, .txt)
+            </label>
+            <input type="file" id="taskFileUpload" @change="handleFileUpload" accept=".md,.txt" class="chat-file-input">
           </div>
 
           <!-- Safety Mode Toggle -->
@@ -75,8 +80,14 @@
               <input type="text" id="newSessionName" v-model="newSessionName" placeholder="Optional, e.g., my-feature-session" class="turdus-select flex-grow">
             </div>
             <div class="flex space-x-2">
-              <button @click="saveCurrentSession" class="pelecanus-button-action">Save Session</button>
-              <button @click="listSessions" class="pelecanus-button-action">Refresh Sessions List</button>
+              <button @click="saveCurrentSession" class="pelecanus-button-action">
+                <img :src="icons.save" class="icon" alt="Save" />
+                Save Session
+              </button>
+              <button @click="listSessions" class="pelecanus-button-action">
+                <img :src="icons.refresh" class="icon" alt="Refresh" />
+                Refresh Sessions List
+              </button>
             </div>
             <div v-if="availableSessions.length > 0" class="piciformes-input-row items-center">
               <label for="availableSessionsDropdown" class="emberiza-label">Load Session:</label>
@@ -154,6 +165,7 @@
 
           <button @click="runExecutor" class="cardinalis-button-primary"
                   :disabled="(!activeSessionTaskId && sessionTasks.length === 0) || !$store.getters.getOllamaStatus.isConnected">
+            <img :src="icons.run" class="icon" alt="Run" />
             Run Active Task
           </button>
 
@@ -232,7 +244,7 @@
             <textarea v-model="brainstormingInput" @keyup.enter.exact="sendBrainstormingMessage" placeholder="Type your message or drop a file..." class="hirundo-text-input"></textarea>
 
             <label for="brainstormingFileUpload" class="chat-file-upload-button" title="Attach File">
-              <!-- Icon is in CSS ::before, or can be text/SVG here -->
+              <img :src="icons.upload" class="icon" alt="Upload" />
             </label>
             <input type="file" id="brainstormingFileUpload" @change="handleBrainstormingFileUpload" class="hidden">
 
@@ -270,6 +282,11 @@ import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
 import ConferenceTab from './components/ConferenceTab.vue';
 import InstructionsModal from './components/InstructionsModal.vue'; // Import the modal
+import runIcon from './icons/run.svg';
+import refreshIcon from './icons/refresh.svg';
+import saveIcon from './icons/save.svg';
+import uploadIcon from './icons/upload.svg';
+import closeIcon from './icons/close.svg';
 
 export default {
   components: {
@@ -282,6 +299,13 @@ export default {
     const isIntegrated = !!(window.electronAPI && window.electronAPI.tokomakRoadrunner);
     return {
       isIntegratedMode: isIntegrated,
+      icons: {
+        run: runIcon,
+        refresh: refreshIcon,
+        save: saveIcon,
+        upload: uploadIcon,
+        close: closeIcon,
+      },
       activeTab: 'coder',
       selectedModule: '',
       selectedModelId: '', // ID of the globally selected default model for new tasks
