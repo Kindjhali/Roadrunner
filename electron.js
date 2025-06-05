@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs'); // fs.promises will be used via fs.promises
 const fsPromises = fs.promises;
+const EventSource = require('eventsource');
 
 let currentBackendPort = 3030; // Default port
 let backendProcess = null;
@@ -350,6 +351,85 @@ ipcMain.on('remove-conference-listeners', (event) => {
   event.sender.removeAllListeners('conference-stream-chunk');
   event.sender.removeAllListeners('conference-stream-error');
   event.sender.removeAllListeners('conference-stream-end');
+});
+
+// Execute coder tasks with SSE event forwarding
+ipcMain.on('execute-task-with-events', (event, payload) => {
+  const params = new URLSearchParams();
+  if (payload.task_description) params.append('task_description', payload.task_description);
+  if (payload.steps) params.append('steps', payload.steps);
+  if (payload.modelId) params.append('modelId', payload.modelId);
+  if (payload.modelType) params.append('modelType', payload.modelType);
+  params.append('safetyMode', payload.safetyMode);
+  params.append('isAutonomousMode', payload.isAutonomousMode);
+  if (payload.sessionId) params.append('sessionId', payload.sessionId);
+  if (payload.sessionTaskId) params.append('sessionTaskId', payload.sessionTaskId);
+  params.append('useOpenAIFromStorage', payload.useOpenAIFromStorage);
+
+  const es = new (require('eventsource'))(`http://127.0.0.1:${currentBackendPort}/execute-autonomous-task?${params.toString()}`);
+
+  const forward = (channel, data) => event.sender.send(channel, data);
+
+  es.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      switch (msg.type) {
+        case 'log_entry':
+        case 'llm_chunk':
+        case 'file_written':
+          forward('coder-task-log', msg);
+          break;
+        case 'error':
+          forward('coder-task-error', msg);
+          break;
+        case 'execution_complete':
+          forward('coder-task-complete', msg);
+          es.close();
+          break;
+        case 'confirmation_required':
+          forward('coder-task-confirmation-required', msg);
+          break;
+        case 'proposed_plan':
+          forward('coder-task-proposed-plan', msg);
+          break;
+        default:
+          forward('coder-task-log', msg);
+      }
+    } catch (err) {
+      console.error('[Main] Failed to parse coder task SSE:', e.data, err);
+      forward('coder-task-error', { error: err.message, details: e.data });
+    }
+  };
+
+  es.onerror = (err) => {
+    console.error('[Main] Coder task EventSource error:', err);
+    forward('coder-task-error', { error: 'EventSource error', details: err });
+    es.close();
+  };
+
+  ipcMain.once('remove-coder-task-listeners', () => {
+    es.close();
+  });
+});
+
+// Confirmation response handler from renderer
+ipcMain.on('task-confirmation-response', async (event, { confirmationId, confirmed }) => {
+  try {
+    const response = await fetch(`http://127.0.0.1:${currentBackendPort}/api/confirm-action/${confirmationId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmed })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      event.sender.send('coder-task-error', { error: `HTTP ${response.status}`, details: result });
+    } else {
+      event.sender.send('coder-task-log', { type: 'log_entry', message: result.message || 'Confirmation processed' });
+    }
+  } catch (err) {
+    console.error('[Main] Error sending confirmation:', err);
+    event.sender.send('coder-task-error', { error: err.message });
+  }
 });
 
 app.on('window-all-closed', () => {
