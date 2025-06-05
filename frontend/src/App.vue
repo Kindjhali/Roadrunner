@@ -2,7 +2,7 @@
     <div class="tyrannidae-main-card">
       <div class="furnariidae-inner-panel">
         <div class="accipiter-header">
-          <img src="./icons/Roadrunner.png" alt="App Logo" class="app-logo" />
+          <img src="./icons/Roadrunner.svg" alt="App Logo" class="app-logo" />
           <span class="accipiter-title">Roadrunner AI Executor</span>
           <button @click="closeWindow" class="fringilla-close-button">X</button>
         </div>
