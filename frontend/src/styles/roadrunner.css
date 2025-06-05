@@ -82,6 +82,16 @@ textarea:focus {
   filter: drop-shadow(0 0 10px var(--theme-orange));
 }
 
+/* App.vue status banner */
+.ollama-status-banner {
+  padding: 10px;
+  text-align: center;
+  font-weight: bold;
+  border-bottom: 1px solid #4a5568;
+}
+.status-connected { background-color: #2f855a; color: white; }
+.status-disconnected { background-color: #c53030; color: white; }
+
 /* Temporary styles for App.vue highlightSyntax method. */
 /* TODO: Refactor highlightSyntax to use semantic classes. */
 .sylvia-task-description .text-cyan-400 { color: #22d3ee; }
@@ -474,6 +484,15 @@ textarea:focus {
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
+
+/* Executor log entry styles */
+.log-entry { margin-bottom: 4px; white-space: pre-wrap; word-break: break-all; }
+.log-timestamp { color: #757575; margin-right: 8px; font-size: 0.85em; }
+.log-error-message { color: red; font-weight: bold; }
+.log-confirmation-message { color: #FFA500; }
+.log-plan-message { color: #007bff; }
+.log-llm-chunk { color: #2E8B57; }
+.log-llm-chunk-details { margin-left: 20px; font-style: italic; color: #555; }
 
 /* Tab Navigation */
 .tab-navigation {

@@ -194,9 +194,9 @@
               </div>
             </div>
             <div class="brainstorming-log-area h-72 overflow-y-auto mb-2 border border-gray-300 p-2.5 bg-gray-100 text-black">
-              <div v-for="(message, index) in brainstormingChatHistory" :key="index" :class="message.role === 'user' ? 'chat-user' : 'chat-assistant'" class="mb-2">
-                <strong class="capitalize">{{ message.role }}:</strong>
-                <pre class="whitespace-pre-wrap mt-1" style="font-family: inherit;">{{ message.content }}</pre>
+              <div v-for="(message, index) in brainstormingChatHistory" :key="index" :class="message.role === 'user' ? 'user-message' : 'model-message'" class="mb-2">
+                <strong class="capitalize sender-label">{{ message.role }}:</strong>
+                <pre class="whitespace-pre-wrap mt-1 message-text">{{ message.content }}</pre>
               </div>
             </div>
             <textarea v-model="brainstormingCurrentInput" placeholder="Type your message..." class="hirundo-text-input mb-2" rows="3"></textarea>
@@ -750,66 +750,3 @@ export default {
 };
 </script>
 
-<style scoped>
-/* ... (existing styles, condensed for brevity) ... */
-.geococcyx-executor-page { /* ... */ }
-.bubo-executor-card { /* ... */ }
-.furnariidae-inner-panel { /* ... */ }
-/* ... */
-.log-entry {
-  margin-bottom: 4px;
-  white-space: pre-wrap; /* Allow wrapping for long lines but preserve other whitespace */
-  word-break: break-all; /* Break long words/strings if necessary */
-}
-.log-timestamp {
-  color: #757575; /* Lighter color for timestamp */
-  margin-right: 8px;
-  font-size: 0.85em;
-}
-.log-error-message {
-  color: red;
-  font-weight: bold; /* Make errors more prominent */
-}
-.log-confirmation-message {
-  color: #FFA500; /* Orange for confirmations */
-}
-.log-plan-message {
-  color: #007bff; /* Blue for plan messages */
-}
-.log-llm-chunk {
-  color: #2E8B57; /* SeaGreen for LLM chunks for differentiation */
-}
-.log-llm-chunk-details { /* If you decide to show details directly for LLM chunks */
-  margin-left: 20px;
-  font-style: italic;
-  color: #555;
-}
-.otus-log-area {
-  background-color: #f8f9fa; /* Light grey background for log area */
-  border: 1px solid #dee2e6; /* Subtle border */
-  border-radius: 4px;
-  padding: 10px;
-  max-height: 400px; /* Or your preferred max height */
-  overflow-y: auto;   /* Enable vertical scrolling */
-  font-family: 'Courier New', Courier, monospace; /* Monospaced font for logs */
-  font-size: 0.9em;
-  color: #343a40; /* Darker text for readability */
-  text-align: left;
-}
-
-/* Chat specific styles */
-.chat-user {
-  text-align: right;
-  margin-left: 20%;
-  background-color: #e1f5fe; /* Light blue for user */
-  padding: 6px 10px;
-  border-radius: 10px 10px 0 10px;
-}
-.chat-assistant {
-  text-align: left;
-  margin-right: 20%;
-  background-color: #f1f1f1; /* Light grey for assistant */
-  padding: 6px 10px;
-  border-radius: 10px 10px 10px 0;
-}
-</style>

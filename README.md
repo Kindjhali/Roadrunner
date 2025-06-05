@@ -42,6 +42,7 @@ It is designed for indie developers, tinkerers, and non-coders who work outside 
 
 ### `frontend/`
 - Interface code for displaying input forms, execution logs, and step controls
+- All component styles live in `frontend/src/styles/`; Vue files contain no `<style>` blocks.
 
 ### `logs/`
 - Stores detailed execution logs for each task run. Logs are saved as markdown files in the format `logs/task-YYYY-MM-DDTHH-MM-SS-MSZ.log.md`.

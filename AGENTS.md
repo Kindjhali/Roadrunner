@@ -80,6 +80,7 @@ At the end of your output, provide a verification section like the following:
 * Use Tailwind for layout, spacing, sizing
 * Add custom rules in `src/styles/<module>.css`
 * DO NOT style inside Vue files
+* All styles belong in `frontend/src/styles/`; Vue components may not contain `<style>` blocks or inline styles
 * No inline styles or overrides allowed
 * No use of `!important`
 * Use BEM-style naming for custom classes if needed

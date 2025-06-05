@@ -162,6 +162,9 @@
     utility classes in `src/styles/roadrunner.css` to comply with the new
     `AGENTS.md` guidelines.
 13. Added conversation serializer module for chat history.
+14. Purged remaining `<style>` blocks and inline styles from Vue components,
+    consolidated log styling in `roadrunner.css`, and deduplicated
+    `conference.css` rules.
 
 ---
 
