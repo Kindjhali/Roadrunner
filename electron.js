@@ -104,6 +104,8 @@ function createWindow() {
     }
   });
 
+  mainWindow.setIcon(path.join(__dirname, 'frontend', 'src', 'icons', 'Roadrunner.png'));
+
   // Add these listeners for more detailed renderer logging
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     console.error(`[Main-WebContents] Renderer did-fail-load: ${validatedURL}, Code: ${errorCode}, Desc: ${errorDescription}`);

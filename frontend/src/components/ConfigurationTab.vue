@@ -21,8 +21,16 @@
         <input type="password" id="api-key" v-model="computedApiKey" class="hirundo-text-input w-full" />
       </div>
       <div class="form-group">
-        <label for="default-ollama-model" class="emberiza-label">Default Ollama Model (if Ollama is provider):</label>
-        <input type="text" id="default-ollama-model" v-model="computedDefaultOllamaModel" class="hirundo-text-input w-full" />
+        <label for="default-ollama-model-1" class="emberiza-label">Default Ollama Model 1 (if Ollama is provider):</label>
+        <input type="text" id="default-ollama-model-1" v-model="defaultModel1" @input="handleDefaultModelsChange" class="hirundo-text-input w-full" />
+      </div>
+      <div class="form-group">
+        <label for="default-ollama-model-2" class="emberiza-label">Default Ollama Model 2 (Optional):</label>
+        <input type="text" id="default-ollama-model-2" v-model="defaultModel2" @input="handleDefaultModelsChange" class="hirundo-text-input w-full" />
+      </div>
+      <div class="form-group">
+        <label for="default-ollama-model-3" class="emberiza-label">Default Ollama Model 3 (Optional):</label>
+        <input type="text" id="default-ollama-model-3" v-model="defaultModel3" @input="handleDefaultModelsChange" class="hirundo-text-input w-full" />
       </div>
       <div class="form-group">
         <button @click="refreshSettings" class="cardinalis-button-action mt-2">Refresh Settings</button>
@@ -84,7 +92,27 @@ export default {
       useStoredOpenAIKey: false, // For the toggle/checkbox
       configStatusMessage: '', // For feedback messages (e.g., save success/failure)
       configStatusIsSuccess: false, // To control the color of the status message
+      defaultModel1: '',
+      defaultModel2: '',
+      defaultModel3: '',
     };
+  },
+  watch: {
+    currentSettings: {
+      handler(newSettings) {
+        if (newSettings && newSettings.defaultOllamaModels) {
+          this.defaultModel1 = newSettings.defaultOllamaModels[0] || '';
+          this.defaultModel2 = newSettings.defaultOllamaModels[1] || '';
+          this.defaultModel3 = newSettings.defaultOllamaModels[2] || '';
+        } else {
+          this.defaultModel1 = '';
+          this.defaultModel2 = '';
+          this.defaultModel3 = '';
+        }
+      },
+      deep: true,
+      immediate: true, // Populate on component load
+    },
   },
   computed: {
     ...mapGetters({
@@ -110,22 +138,15 @@ export default {
         this.saveSettings(newSettings);
       },
     },
-    computedDefaultOllamaModel: {
-      get() {
-        return this.currentSettings ? this.currentSettings.defaultOllamaModel : ''; // Return empty string as default
-      },
-      set(value) {
-        const newSettings = { ...(this.currentSettings || {}) };
-        newSettings.defaultOllamaModel = value;
-        this.saveSettings(newSettings);
-      },
-    },
+    // computedDefaultOllamaModel removed
   },
   mounted() {
     console.log('[ConfigurationTab] Mounted. Initial currentSettings:', JSON.stringify(this.currentSettings));
     this.loadOpenAIConfig();
+    // loadSettings is called, and the watcher for currentSettings will populate defaultModel1, etc.
     this.loadSettings().then(() => {
       console.log('[ConfigurationTab] After loadSettings(). currentSettings:', JSON.stringify(this.currentSettings));
+      // Watcher for currentSettings should handle populating defaultModel1, defaultModel2, defaultModel3
     }).catch(error => {
       console.error('[ConfigurationTab] Error during loadSettings:', error);
     });
@@ -134,6 +155,17 @@ export default {
     ...mapActions(['saveSettings', 'loadSettings']),
     refreshSettings() {
       this.loadSettings(); // This will dispatch the loadSettings action from Vuex
+                          // The watcher for currentSettings will update the local model fields.
+    },
+    handleDefaultModelsChange() {
+      const models = [this.defaultModel1, this.defaultModel2, this.defaultModel3].filter(model => model.trim() !== '');
+      const newSettings = {
+        ...(this.currentSettings || {}),
+        defaultOllamaModels: models,
+      };
+      // Remove the old singular key if it exists to avoid confusion
+      delete newSettings.defaultOllamaModel;
+      this.saveSettings(newSettings);
     },
     async openDirectoryDialog() {
       this.selectionError = ''; // Clear previous errors
