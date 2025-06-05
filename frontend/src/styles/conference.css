@@ -209,3 +209,14 @@
   margin-top: 0;
   color: #D1D5DB;
 }
+
+.conference-log-terminal {
+  background-color: var(--log-bg);
+  padding: 0.5rem;
+  border-radius: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+}
