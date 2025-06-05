@@ -2817,164 +2817,117 @@ app.post('/api/ollama/pull-model', async (req, res) => {
 });
 
 // --- Multi-Model Conference Endpoint ---
+// Re-implemented based on roadrunner.model_conference.md for single-round debate
 app.post('/execute-conference-task', async (req, res) => {
-  const { prompt: userPrompt, modelName: requestedModelName, model_a_role: requestedModelARole, model_b_role: requestedModelBRole, arbiter_model_role: requestedArbiterModelRole, num_rounds: requestedNumRounds } = req.body;
-
-  if (!userPrompt) {
-    return res.status(400).json({ error: 'Missing "prompt" in request body.' });
-  }
-
-  const conferenceId = uuidv4();
-  const num_rounds = (typeof requestedNumRounds === 'number' && requestedNumRounds > 0) ? requestedNumRounds : 1;
-  console.log(`[Conference ${conferenceId}] Received task with prompt: "${userPrompt.substring(0, 100)}...", Rounds: ${num_rounds}`);
-
-  const modelName = requestedModelName || 'llama3';
-  const modelA_role_final = requestedModelARole || "Logical Reasoner";
-  const modelB_role_final = requestedModelBRole || "Creative Problem Solver";
-  const arbiter_role_final = requestedArbiterModelRole || "Arbiter";
-
-  let arbiterResponse = '';
-  let debate_history = [];
-  let model_a_prompt_for_log = "";
-  let model_b_prompt_for_log = "";
-  let arbiter_prompt_for_log = "";
+  const conferenceId = uuidv4(); // Generate unique ID for this conference
+  console.log(`[Conference ${conferenceId}] Received POST /execute-conference-task request.`);
 
   try {
-    if (num_rounds === 1) {
-      // Model A
-      const systemPromptA = `You are a ${modelA_role_final}. Analyze the following prompt and provide a concise, logical answer.`;
-      const fullPromptA = `${systemPromptA}\n\nUser Prompt: "${userPrompt}"`;
-      model_a_prompt_for_log = fullPromptA;
-      console.log(`[Conference ${conferenceId}] Calling Model A (${modelName}) with role: ${modelA_role_final}`);
-      const responseA = await generateFromLocal(fullPromptA, modelName, null);
-      if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
-        throw new Error(`Model A (${modelA_role_final}) failed: ${responseA}`);
-      }
-      console.log(`[Conference ${conferenceId}] Model A response (first 100 chars): "${responseA.substring(0, 100)}..."`);
-      debate_history.push({ round: 1, model_a_response: responseA, model_b_response: "" });
+    const { prompt: userPrompt, modelName: requestedModelName, modelARole: requestedModelARole, modelBRole: requestedModelBRole, arbiterModelRole: requestedArbiterModelRole } = req.body;
 
-      // Model B
-      const systemPromptB = `You are a ${modelB_role_final}. Analyze the following prompt and provide an innovative and imaginative answer.`;
-      const fullPromptB = `${systemPromptB}\n\nUser Prompt: "${userPrompt}"`;
-      model_b_prompt_for_log = fullPromptB;
-      console.log(`[Conference ${conferenceId}] Calling Model B (${modelName}) with role: ${modelB_role_final}`);
-      const responseB = await generateFromLocal(fullPromptB, modelName, null);
-      if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
-        throw new Error(`Model B (${modelB_role_final}) failed: ${responseB}`);
-      }
-      console.log(`[Conference ${conferenceId}] Model B response (first 100 chars): "${responseB.substring(0, 100)}..."`);
-      debate_history[0].model_b_response = responseB;
-
-      // Arbiter
-      const arbiterSystemPrompt = `You are an ${arbiter_role_final}. Given the original prompt and the two responses below, evaluate them. Determine which response is better or synthesize a comprehensive answer that combines the best elements of both.`;
-      const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nResponse A (${modelA_role_final}): "${responseA}"\n\nResponse B (${modelB_role_final}): "${responseB}"\n\nYour evaluation and synthesized answer:`;
-      arbiter_prompt_for_log = arbiterFullPrompt;
-      console.log(`[Conference ${conferenceId}] Calling Arbiter (${modelName}) as ${arbiter_role_final}`);
-      arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, null);
-      if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
-        throw new Error(`Arbiter (${arbiter_role_final}) failed: ${arbiterResponse}`);
-      }
-    } else { // num_rounds > 1
-      let lastResponseA = "";
-      let lastResponseB = "";
-
-      for (let round = 1; round <= num_rounds; round++) {
-        console.log(`[Conference ${conferenceId}] Round ${round}/${num_rounds} starting...`);
-        // Model A's turn
-        let promptA;
-        if (round === 1) {
-          promptA = `You are ${modelA_role_final}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
-        } else {
-          promptA = `You are ${modelA_role_final}. The original request was: "${userPrompt}". Your opponent (Model B) previously said: "${lastResponseB}". Based on this, provide your updated argument or rebuttal as ${modelA_role_final}.`;
-        }
-        model_a_prompt_for_log = promptA;
-        console.log(`[Conference ${conferenceId} R${round}] Calling Model A (${modelA_role_final})`);
-        const currentResponseA = await generateFromLocal(promptA, modelName, null);
-        if (currentResponseA.startsWith('// LLM_ERROR:') || currentResponseA.startsWith('// LLM_WARNING:')) {
-          throw new Error(`Model A (${modelA_role_final}) failed in Round ${round}: ${currentResponseA}`);
-        }
-        lastResponseA = currentResponseA;
-        console.log(`[Conference ${conferenceId} R${round}] Model A response: ${lastResponseA.substring(0,50)}...`);
-
-        // Model B's turn
-        let promptB;
-        if (round === 1) {
-          promptB = `You are ${modelB_role_final}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
-        } else {
-          promptB = `You are ${modelB_role_final}. The original request was: "${userPrompt}". Your opponent (Model A) just said: "${lastResponseA}". Based on this, provide your updated argument or rebuttal as ${modelB_role_final}.`;
-        }
-        model_b_prompt_for_log = promptB;
-        console.log(`[Conference ${conferenceId} R${round}] Calling Model B (${modelB_role_final})`);
-        const currentResponseB = await generateFromLocal(promptB, modelName, null);
-        if (currentResponseB.startsWith('// LLM_ERROR:') || currentResponseB.startsWith('// LLM_WARNING:')) {
-          throw new Error(`Model B (${modelB_role_final}) failed in Round ${round}: ${currentResponseB}`);
-        }
-        lastResponseB = currentResponseB;
-        console.log(`[Conference ${conferenceId} R${round}] Model B response: ${lastResponseB.substring(0,50)}...`);
-
-        debate_history.push({ round: round, model_a_response: lastResponseA, model_b_response: lastResponseB });
-      }
-
-      // Arbiter after all rounds
-      let formattedDebateHistory = debate_history.map(r => `Round ${r.round}:\n  Model A (${modelA_role_final}): ${r.model_a_response}\n  Model B (${modelB_role_final}): ${r.model_b_response}`).join('\n\n');
-      const arbiterSystemPrompt = `You are an ${arbiter_role_final}. You have observed a debate between Model A (${modelA_role_final}) and Model B (${modelB_role_final}) over several rounds.`;
-      const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nFull Debate History:\n${formattedDebateHistory}\n\nBased on the entire debate, provide a comprehensive synthesized answer as ${arbiter_role_final}.`;
-      arbiter_prompt_for_log = arbiterFullPrompt;
-      console.log(`[Conference ${conferenceId}] Calling Arbiter Model (${arbiter_role_final}) with full debate history.`);
-      arbiterResponse = await generateFromLocal(arbiterFullPrompt, modelName, null);
-      if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
-        throw new Error(`Arbiter Model (${arbiter_role_final}) failed after debate: ${arbiterResponse}`);
-      }
+    if (!userPrompt) {
+      console.log(`[Conference ${conferenceId}] Error: Missing "prompt" in request body.`);
+      return res.status(400).json({ error: 'Missing "prompt" in request body.', conference_id: conferenceId });
     }
-    console.log(`[Conference ${conferenceId}] Arbiter response (first 100 chars): "${arbiterResponse.substring(0, 100)}..."`);
+    console.log(`[Conference ${conferenceId}] User Prompt: "${userPrompt.substring(0, 100)}..."`);
 
+    // Determine model and roles
+    const currentModelName = requestedModelName || backendSettings.defaultOllamaModel || 'llama3';
+    const roleA = requestedModelARole || 'Logical Reasoner';
+    const roleB = requestedModelBRole || 'Creative Problem Solver';
+    const roleArbiter = requestedArbiterModelRole || 'Arbiter and Synthesizer';
+    console.log(`[Conference ${conferenceId}] Model: ${currentModelName}, Role A: ${roleA}, Role B: ${roleB}, Arbiter: ${roleArbiter}`);
+
+    // Model A Interaction
+    const promptA = `You are ${roleA}. The user's question is: "${userPrompt}". Provide your analysis and response.`;
+    console.log(`[Conference ${conferenceId}] Prompting Model A (${roleA})...`);
+    const responseA = await generateFromLocal(promptA, currentModelName, null); // null for expressRes as we need the full response
+    if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
+      console.error(`[Conference ${conferenceId}] Error from Model A: ${responseA}`);
+      return res.status(500).json({ error: 'Error in Model A response.', conference_id: conferenceId, details: responseA });
+    }
+    console.log(`[Conference ${conferenceId}] Model A Response (first 100 chars): "${responseA.substring(0, 100)}..."`);
+
+    // Model B Interaction
+    const promptB = `You are ${roleB}. The user's question is: "${userPrompt}". Provide your analysis and response.`;
+    console.log(`[Conference ${conferenceId}] Prompting Model B (${roleB})...`);
+    const responseB = await generateFromLocal(promptB, currentModelName, null);
+    if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
+      console.error(`[Conference ${conferenceId}] Error from Model B: ${responseB}`);
+      return res.status(500).json({ error: 'Error in Model B response.', conference_id: conferenceId, details: responseB });
+    }
+    console.log(`[Conference ${conferenceId}] Model B Response (first 100 chars): "${responseB.substring(0, 100)}..."`);
+
+    // Arbiter Interaction
+    const promptArbiter = `You are ${roleArbiter}. The user's original question was: "${userPrompt}".\n\nModel A (${roleA}) responded: "${responseA}"\n\nModel B (${roleB}) responded: "${responseB}"\n\nBased on the user's question and both responses, provide a comprehensive synthesized answer.`;
+    console.log(`[Conference ${conferenceId}] Prompting Arbiter Model (${roleArbiter})...`);
+    const finalResponse = await generateFromLocal(promptArbiter, currentModelName, null);
+    if (finalResponse.startsWith('// LLM_ERROR:') || finalResponse.startsWith('// LLM_WARNING:')) {
+      console.error(`[Conference ${conferenceId}] Error from Arbiter Model: ${finalResponse}`);
+      return res.status(500).json({ error: 'Error in Arbiter Model response.', conference_id: conferenceId, details: finalResponse });
+    }
+    console.log(`[Conference ${conferenceId}] Arbiter Response (first 100 chars): "${finalResponse.substring(0, 100)}..."`);
+
+    // Logging
     const logEntry = {
       conference_id: conferenceId,
       timestamp: new Date().toISOString(),
-      original_prompt: userPrompt,
-      num_rounds: num_rounds,
-      model_name_override: requestedModelName,
-      model_a_name: modelName,
-      model_a_role: modelA_role_final,
-      model_a_prompt: model_a_prompt_for_log,
-      model_b_name: modelName,
-      model_b_role: modelB_role_final,
-      model_b_prompt: model_b_prompt_for_log,
-      debate_history: debate_history,
-      arbiter_model_name: modelName,
-      arbiter_model_role: arbiter_role_final,
-      arbiter_model_prompt: arbiter_prompt_for_log,
-      arbiter_model_response: arbiterResponse,
-      source: 'direct_api_call'
+      user_prompt: userPrompt,
+      model_used: currentModelName,
+      model_a_role: roleA,
+      model_a_prompt: promptA,
+      model_a_response: responseA,
+      model_b_role: roleB,
+      model_b_prompt: promptB,
+      model_b_response: responseB,
+      arbiter_model_role: roleArbiter,
+      arbiter_model_prompt: promptArbiter,
+      arbiter_model_response: finalResponse,
+      source: "direct_api_call_v2" // Indicate new version
     };
 
     let conferences = [];
     try {
       if (fs.existsSync(CONFERENCES_LOG_FILE)) {
         const fileContent = fs.readFileSync(CONFERENCES_LOG_FILE, 'utf-8');
-        if (fileContent.trim() !== "") { // Check if file is not empty
+        if (fileContent.trim() !== "") {
           conferences = JSON.parse(fileContent);
         }
       }
     } catch (readError) {
       console.warn(`[Conference ${conferenceId}] Error reading or parsing ${CONFERENCES_LOG_FILE}. Initializing with new array. Error: ${readError.message}`);
-      conferences = []; // Initialize if file is corrupt or unparsable
+      // Log a warning but proceed with an empty array, so the current conference can still be logged.
+      conferences = [];
     }
 
     conferences.push(logEntry);
-    fs.writeFileSync(CONFERENCES_LOG_FILE, JSON.stringify(conferences, null, 2));
-    console.log(`[Conference ${conferenceId}] Logged successfully to ${CONFERENCES_LOG_FILE}`);
+    try {
+      fs.writeFileSync(CONFERENCES_LOG_FILE, JSON.stringify(conferences, null, 2));
+      console.log(`[Conference ${conferenceId}] Logged successfully to ${CONFERENCES_LOG_FILE}`);
+    } catch (writeError) {
+      console.error(`[Conference ${conferenceId}] Failed to write conference log to ${CONFERENCES_LOG_FILE}: ${writeError.message}`);
+      // Do not fail the request if logging fails, but log the error.
+    }
 
-    res.json({ conference_id: conferenceId, final_response: arbiterResponse, debate_history: debate_history, num_rounds: num_rounds });
+    // Response
+    console.log(`[Conference ${conferenceId}] Task completed successfully. Sending response to client.`);
+    res.json({
+      conference_id: conferenceId,
+      final_response: finalResponse,
+      model_a_response: responseA,
+      model_b_response: responseB
+    });
 
   } catch (error) {
-    console.error(`[Conference ${conferenceId}] Error processing conference task:`, error.message, error.stack);
-    res.status(500).json({ error: 'Failed to execute conference task.', conference_id: conferenceId, details: error.message });
+    console.error(`[Conference ${conferenceId}] Unhandled error processing conference task:`, error.message, error.stack);
+    // Ensure conferenceId is included in the error response if available
+    res.status(500).json({
+        error: 'Failed to execute conference task due to an internal server error.',
+        conference_id: conferenceId, // Include conferenceId even in general errors
+        details: error.message
+    });
   }
 });
-
-
-
 
 (async () => {
   try {
