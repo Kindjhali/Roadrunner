@@ -22,8 +22,9 @@
 1. ✅ Set up Express.js backend endpoint `/execute-autonomous-task` (now supports GET for SSE and POST).
 2. ✅ Accept JSON payload: `{ task_description: string, steps: object[] }` (via POST body or GET query params).
 3. ✅ Establish backend connection logic for Ollama (local model) and OpenAI (as an optional fallback).
-4. ✅ Process task steps, send instructions to the appropriate LLM for relevant steps, and utilize LLM outputs (e.g., for generating file content).
-5. ✅ Stream LLM responses to frontend for real-time logging (SSE implemented).
+4. ✅ Read and parse `agent-profile.md` (e.g., from the root directory) into a structured format. Use this profile to modify/augment prompts sent to LLMs to align agent behavior with defined rules and preferences.
+5. ✅ Process task steps, send instructions to the appropriate LLM for relevant steps, and utilize LLM outputs (e.g., for generating file content).
+6. ✅ Stream LLM responses to frontend for real-time logging (SSE implemented).
 
 ---
 
@@ -72,7 +73,7 @@
 
 **General Autonomous Capabilities:**
 1. Plan and implement "autonomous" mode, including a UI checkbox, to:
-    - Interpret the overall Goal using an LLM.
+    - Interpret the overall Goal using an LLM (guided by `agent-profile.md` rules and preferences).
     - Autogenerate a proposed sequence of steps.
 2. Implement looped execution or iterative refinement of task chains.
 3. Enable LLM-based result evaluation and re-prompting for ambiguous tasks or error correction.
