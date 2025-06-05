@@ -380,6 +380,7 @@ ipcMain.on('remove-conference-listeners', (event) => {
 
 // Execute coder tasks with SSE event forwarding
 ipcMain.on('execute-task-with-events', (event, payload) => {
+  console.log('[Electron IPC] execute-task-with-events: Received payload:', JSON.stringify(payload));
   const params = new URLSearchParams();
   if (payload.task_description) params.append('task_description', payload.task_description);
   if (payload.steps) {
@@ -397,11 +398,26 @@ ipcMain.on('execute-task-with-events', (event, payload) => {
   if (payload.sessionTaskId) params.append('sessionTaskId', payload.sessionTaskId);
   params.append('useOpenAIFromStorage', payload.useOpenAIFromStorage);
 
-  const es = new (require('eventsource'))(`http://127.0.0.1:${currentBackendPort}/execute-autonomous-task?${params.toString()}`);
+  console.log('[Electron IPC] execute-task-with-events: Current backend port for EventSource:', currentBackendPort);
+  if (!currentBackendPort || currentBackendPort === 0) {
+    console.error('[Electron IPC] execute-task-with-events: Critical: Backend port is not set or invalid:', currentBackendPort);
+    event.sender.send('coder-task-error', { error: 'Backend connection error', details: 'Backend port not configured in Electron main process.' });
+    return;
+  }
+
+  const eventSourceUrl = `http://127.0.0.1:${currentBackendPort}/execute-autonomous-task?${params.toString()}`;
+  console.log('[Electron IPC] execute-task-with-events: Connecting to EventSource URL:', eventSourceUrl);
+  const es = new (require('eventsource'))(eventSourceUrl);
 
   const forward = (channel, data) => event.sender.send(channel, data);
 
+  es.onopen = () => {
+    console.log('[Electron IPC] execute-task-with-events: EventSource connection opened.');
+    forward('coder-task-log', { type: 'log_entry', message: 'Connection to backend for task execution established.' });
+  };
+
   es.onmessage = (e) => {
+    console.log('[Electron IPC] execute-task-with-events: EventSource es.onmessage, data:', e.data);
     try {
       const msg = JSON.parse(e.data);
       switch (msg.type) {
@@ -433,8 +449,8 @@ ipcMain.on('execute-task-with-events', (event, payload) => {
   };
 
   es.onerror = (err) => {
-    console.error('[Main] Coder task EventSource error:', err);
-    forward('coder-task-error', { error: 'EventSource error', details: err });
+    console.error('[Electron IPC] execute-task-with-events: EventSource es.onerror, error:', err);
+    forward('coder-task-error', { error: 'EventSource connection error or stream failure.', details: err ? JSON.stringify(err, Object.getOwnPropertyNames(err)) : 'Unknown EventSource error' });
     es.close();
   };
 

@@ -3231,6 +3231,7 @@ app.post('/execute-conference-task', async (req, res) => {
 
   try {
     const { prompt: userPrompt, modelName: requestedModelName, modelARole: requestedModelARole, modelBRole: requestedModelBRole, arbiterModelRole: requestedArbiterModelRole, history } = req.body;
+    console.log(`[Backend Conference] /execute-conference-task: Received request. Prompt: ${userPrompt ? userPrompt.substring(0, 50) + '...' : 'N/A'}`);
 
     if (!userPrompt) {
       log(`[Conference ${conferenceId}] Error: Missing "prompt" in request body.`);
@@ -3244,12 +3245,14 @@ app.post('/execute-conference-task', async (req, res) => {
     const roleB = requestedModelBRole || 'Creative Problem Solver';
     const roleArbiter = requestedArbiterModelRole || 'Arbiter and Synthesizer';
     log(`[Conference ${conferenceId}] Model: ${currentModelName}, Role A: ${roleA}, Role B: ${roleB}, Arbiter: ${roleArbiter}`);
+    console.log(`[Backend Conference] /execute-conference-task: Model A: ${currentModelName}, Role: ${roleA}`);
 
     const historyText = Array.isArray(history) ? history.map(h => `${h.role}: ${h.content || h.message}`).join('\n') : '';
 
     // Model A Interaction
     const promptA = `You are ${roleA}.${historyText ? ` The conversation so far:\n${historyText}\n` : ' '}The user's question is: "${userPrompt}". Provide your analysis and response.`;
     log(`[Conference ${conferenceId}] Prompting Model A (${roleA})...`);
+    console.log('[Backend Conference] /execute-conference-task: Preparing to call Model A.');
     const responseA = await generateFromLocal(promptA, currentModelName, null, { agentType: 'conference_agent', agentRole: 'model_a' }); // null for expressRes
     if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
       log(`[Conference ${conferenceId}] Error from Model A: ${responseA}`, 'error');
