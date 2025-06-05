@@ -4,181 +4,106 @@
 
 ---
 
-## Phase 1: Foundation and UI
+## 1. Foundation & UI
+- [x] Scaffold Electron + Vue 3 + Vite application with Tailwind CSS
+- [x] Apply Neo Art Deco 2132 style system and font-ui-strange
+- [x] Create UI input fields for task goal and step list
+- [x] Add "Execute Autonomous Task" button
+- [x] Build log output panel for execution results
 
-- [x] Scaffold Electron + Vue 3 + Vite application with Tailwind CSS.
-- [x] Apply Neo Art Deco 2132 style system and font-ui-strange.
-- [x] Create UI input fields for:
-  - Task Goal (Overall task objective)
-  - Task Steps (newline-separated commands/instructions)
-- [x] Add "Execute Autonomous Task" button.
-- [x] Build log output panel to display execution flow and results.
+## 2. Backend & LLM Interface
+- [x] Create Express endpoint `/execute-autonomous-task` supporting POST and SSE
+- [x] Accept JSON `{ task_description: string, steps: object[] }`
+- [x] Connect to Ollama with OpenAI fallback
+- [x] Parse `agent-profile.md` to shape prompts
+- [x] Process steps through the LLM and stream results to the UI
 
-## Phase 2: Backend Routing and LLM Interface
+## 3. Task Execution & Safety
+- [x] Parse steps into commands (`generic_step`, `create_file_with_llm_content`, `git_operation`)
+- [x] Implement file generation using LLM output
+- [x] Support step chaining via `{{outputs.var}}` templating
+- [x] Enforce path traversal guardrails and destructive step warnings
+- [x] Confirmation system integrated with Safety Mode
 
-- [x] Set up Express.js backend endpoint `/execute-autonomous-task` supporting GET (SSE) and POST.
-- [x] Accept JSON payload `{ task_description: string, steps: object[] }` via POST body or GET params.
-- [x] Establish backend connection logic for Ollama (local model) and OpenAI as fallback.
-- [x] Read and parse `agent-profile.md` to modify prompts for LLMs.
-- [x] Process task steps, send instructions to the appropriate LLM, and utilize LLM outputs.
-- [x] Stream LLM responses to frontend for real-time logging (SSE).
+## 4. Filesystem Operations
+- [ ] Allow user selection/confirmation of the workspace directory
+- [x] Create `fsAgent.js` to manage filesystem commands
+- [x] Implement safe file and directory operations with path validation
+- [x] Provide directory tree preview via `show_workspace_tree`
 
-## Phase 3: Task Execution Logic
+## 5. Git Integration
+- [x] Implement `git_operation` step for add/commit/push/pull
+  - [x] Auto-stage changes for `git add`
+  - [x] Generate commit messages
+  - [x] Optional push to remote
+- [x] Stream Git logs to the frontend
+- [x] Require confirmation for Git operations in Safety Mode
+- [x] Support `revert_last_commit` with UI control
 
-- [x] Parse steps into actionable commands such as `generic_step`, `create_file_with_llm_content`, and `git_operation`.
-- [x] Implement LLM-generated file operations like `create_file_with_llm_content`.
-- [x] Allow step chaining using previous results via `{{outputs.var}}` templating.
-- [x] Include safety guardrails for path traversal prevention and destructive warnings.
-- [x] Add a confirmation system integrated with Safety Mode for potentially destructive steps.
+## 6. Autonomous Agent & Coder Tab
+### General Capabilities
+- [ ] UI checkbox for autonomous mode to generate steps automatically
+- [ ] Loop execution or iterative refinement of tasks
+- [ ] LLM-based result evaluation and re-prompting
+- [ ] Plan validation before execution
 
-## Phase 4: Filesystem Integration
+### "Coder" Tab
+- [ ] Advanced Sniper document parsing
+- [ ] Module scaffolding and code generation
+- [ ] UI element generation for UI modules
+- [ ] Automated documentation for new modules
+- [ ] UI to manage the autonomous coding process and generated files
 
-- [ ] Allow user selection/confirmation of the workspace directory for agent operations.
-- [x] Create `fsAgent.js` to manage filesystem commands.
-- [x] Implement logic in `fsAgent.js` to check, create, read, update, and delete files and directories with path validation.
-- [x] Provide directory tree preview via `show_workspace_tree` step (text-based output via SSE).
+## 7. Error Handling & Fallbacks
+- [x] Wrap file and Git commands in try/catch blocks with logs
+- [x] Auto-backup files before changes (`.bak`)
+- [x] Display errors in red with hover details via SSE
+- [ ] Offer retry options or manual mode on failure
 
-## Phase 5: Git Integration
+## 8. Multi-Model Integration
+- [ ] OpenAI API toggle with key entry via Owlcore
+- [ ] Model switch UI (e.g., `mistral`, `codellama`, custom)
+- [ ] Route task types to different models
 
-- [x] Integrate Git commands through the `git_operation` step (add, commit, push, pull).
-  - [x] Auto-stage changes for `git add`.
-  - [x] Generate commit messages per step or goal.
-  - [x] Optionally push to remote branches.
-- [x] Display Git result logs via SSE to the frontend log panel.
-- [x] Require confirmation for key Git operations when Safety Mode is active.
-- [x] Implement `revert_last_commit` operation with backend logic, UI button, and task step support.
-
-## Phase 6: Autonomous Agent Logic & Coder Tab Development
-
-**General Autonomous Capabilities**
-
-- [ ] Implement an "autonomous" mode with a UI checkbox to interpret the overall goal using LLMs and autogenerate steps.
-- [ ] Add looped execution or iterative refinement of task chains.
-- [ ] Enable LLM-based result evaluation and re-prompting for ambiguous tasks or error correction.
-- [ ] Add plan validation before execution in autonomous mode (display proposed steps for approval).
-
-**"Coder" Tab: Autonomous Coding Agent Implementation**
-
-- [ ] Advanced Sniper document understanding and parsing.
-- [ ] Module scaffolding and code generation based on parsed specs.
-- [ ] UI element generation for UI-focused modules.
-- [ ] Automated documentation generation for new modules.
-- [ ] UI to manage autonomous coding process, display progress, and show generated files.
-
-## Phase 7: Error Handling & Fallbacks
-
-- [x] Wrap file and Git commands in try/catch blocks with visible logs.
-- [x] Auto-backup touched files before changes using `.bak` files.
-- [x] Display errors in red with hoverable details via SSE messages.
-- [ ] Offer retry options or manual mode upon failure.
-
-## Phase 8: Multi-Model Integration (Future)
-
-- [ ] Add an OpenAI API toggle with key entry via Owlcore.
-- [ ] Provide a model switch UI (e.g., choose between `mistral`, `codellama`, or custom models).
-- [ ] Route different task types to different models.
-
-## Phase 9: Advanced UX & Feature Layer
-
-- [ ] Implement a user settings/preferences panel to manage:
+## 9. Advanced UX & Feature Layer
+- [ ] User settings/preferences panel
   - Default workspace path
   - UI theme preferences
   - Primary model preferences
   - API key storage/management
-- [ ] Add task history with save/load per session.
-- [ ] Implement copy/export of task result logs.
-- [ ] Allow user annotations on each step post-run.
-- [ ] Display summary success/failure statistics per task.
-- [ ] Implement tab-specific model filtering using `/api/ollama-models/categorized`.
-- [x] Implement direct Ollama model downloading from the UI with progress streaming and error handling.
+- [ ] Task history with save/load per session
+- [ ] Copy/export task result logs
+- [ ] User annotations on each step
+- [ ] Summary success/failure statistics per task
+- [ ] Tab-specific model filtering (`/api/ollama-models/categorized`)
+- [x] Direct Ollama model downloading with SSE progress
 
----
+## 10. Brainstorming Tab Enhancements
+- [ ] Integrate remote AI APIs for chat
+- [ ] Allow contextual file or image uploads in chat
+- [ ] Save and load chat conversations
+- [ ] Stream responses for local and remote models
+- [x] Remove inline CSS from Vue components; use `src/styles/roadrunner.css`
+- [x] Add conversation serializer module for chat history
 
-#### 🎨 Phase 9: Advanced UX + Feature Layer
+## 11. Documentation & Metadata
+- [x] Update README with current features
+- [x] Store each task execution as a `.log.md` file in `roadrunner/logs/`
+- [x] Remove deprecated `roadrunner.roadmap.md` file
 
-1. Implement a user settings/preferences panel for managing global application configurations:
-    - Default workspace path
-    - UI theme preferences
-    - Primary model preferences
-    - API key storage/management (including remote model API keys/endpoints)
-2. Add task history with save/load per session.
-3. Implement copy/export of task result logs.
-4. Allow user annotations on each step post-run.
-5. Display summary success/failure statistics per task.
-6. Implement Tab-Specific Model Filtering (Backend Driven):
-    - Create backend endpoint `/api/ollama-models/categorized` in `roadrunner/backend/server.js`.
-    - Fetch models from local Ollama (`/api/tags`).
-    - Categorize models based on `roadrunner/backend/config/model_categories.json` (keywords for `coder`, `language`, `default_category`).
-    - Return JSON with models grouped by category.
-    - Frontend calls new endpoint to populate "Coder" and "Brainstorming" tab dropdowns.
-    - Model list refresh button triggers refetch from this backend endpoint.
-7. ✅ Implement Direct Ollama Model Downloading from UI:
-    - Added UI elements (input field for model name, "Download Model" button) in `RoadrunnerExecutor.vue`.
-    - Created a new backend `POST` endpoint `/api/ollama/pull-model` in `server.js` to receive download requests.
-    - The backend endpoint interacts with the local Ollama instance's `/api/pull` endpoint (using `stream: true`).
-    - Download progress and status (including errors from Ollama) are streamed back from `/api/ollama/pull-model` to the Roadrunner frontend using Server-Sent Events (SSE).
-    - Frontend `RoadrunnerExecutor.vue` uses `fetch` to initiate the POST request and then manually parses the SSE stream from the response to display real-time progress and status messages in the UI log.
-    - Enhanced error handling for various scenarios (Ollama unreachable, model not found, etc.).
+## 12. `taskAgent` Decision Support Integration
+- [ ] Endpoint `/api/request-decision-pathway` for proposals from `taskAgent`
+- [ ] Implement decision logic using available Tokomak modules
+- [ ] Return structured pathway proposal to `ActionResolver`
+- [ ] Robust logging and clear error responses
+- [ ] Store renderer logs in the OS temporary directory
 
-**"Brainstorming" Tab Enhancements:**
-8. **Full Remote Model Integration for Chat:**
-    - Implement backend logic to connect to and interact with remote AI APIs (e.g., OpenAI) for chat functionality in the Brainstorming tab, using configured API keys.
-9. **Contextual File/Image Understanding in Chat:**
-    - Allow uploaded files (text, code) to be sent as context to the selected language model in the Brainstorming tab.
-    - (Future) Allow uploaded images to be sent as context (for multimodal models).
-    - Display summaries or references to file/image content in the chat history.
-10. **Conversation Management for Chat:**
-    - Implement features to save and load chat conversations.
-    - Allow users to clear chat history.
-    - Implement robust conversation context management for longer interactions (e.g., sending appropriate message history to the model).
-11. **Streaming Responses for Chat:**
-    - Implement response streaming for Ollama models in the Brainstorming tab.
-    - Implement response streaming for remote models in the Brainstorming tab once integrated.
-12. Removed inline CSS from `RoadrunnerExecutor.vue` and `App.vue`. Added matching
-    utility classes in `src/styles/roadrunner.css` to comply with the new
-    `AGENTS.md` guidelines.
-13. Added conversation serializer module for chat history.
-14. Purged remaining `<style>` blocks and inline styles from Vue components,
-    consolidated log styling in `roadrunner.css`, and deduplicated
-    `conference.css` rules.
-
----
-
-**"Brainstorming" Tab Enhancements**
-
-
-- [ ] Integrate remote AI APIs for chat functionality.
-- [ ] Allow contextual file or image uploads in chat.
-- [ ] Save and load chat conversations with history management.
-- [ ] Stream responses for both local and remote models.
-- [x] Remove inline CSS from `RoadrunnerExecutor.vue` and `App.vue`; add matching utility classes in `src/styles/roadrunner.css`.
-- [x] Add conversation serializer module for chat history.
-
-## Phase 10: Documentation & Metadata
-
-- [x] Update `Roadrunner.README.md` to reflect current features.
-- [x] Store each task execution as a `.log.md` file in `roadrunner/logs/`.
-- [x] Remove deprecated `roadrunner.roadmap.md` file.
-
-## Phase 11: `taskAgent` Decision Support Integration
-
-- [ ] Define an API endpoint `/api/request-decision-pathway` for pathway proposals from `taskAgent`.
-- [ ] Implement decision logic analyzing input from `taskAgent` using available Tokomak modules.
-- [ ] Return a structured pathway proposal to `taskAgent`'s `ActionResolver`.
-- [ ] Add robust logging and clear error responses for this integration.
-- [ ] Store renderer logs in the OS temporary directory to avoid path errors on Windows.
-
----
-
-### Status
-
+## Status
 - [x] UI and LLM connectivity working
-- [x] Filesystem execution & Interactive Safety Confirmation System active
+- [x] Filesystem execution & interactive safety confirmation active
 - [x] Git automation operational
 - [x] Step chaining & templating available
 - [ ] Autonomous loop logic (early prototyping)
 
 Target Version: **v1.3.0**
-
-- Added terminal-style conference log display per model in ConferenceTab.
-
+- Added terminal-style conference log display per model in ConferenceTab
