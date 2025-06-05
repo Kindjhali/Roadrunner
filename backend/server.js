@@ -2988,5 +2988,7 @@ module.exports = {
   loadBackendConfig, // The function to load/reload settings
   handleExecuteAutonomousTask, // Existing export
   generateFromLocal, // Export for testing
+  resolveTemplates, // Export for testing
+  executeStepsInternal, // Export for testing
   // Add any other functions or variables you might need to test or use externally
 };
