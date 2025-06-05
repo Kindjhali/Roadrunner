@@ -127,6 +127,7 @@ export default {
       selectedModelB: null,
       selectedArbiter: null,
       conferenceLog: [], // To store conversation turns { speaker, message }
+      conversationHistory: [], // History sent to backend { role, content }
       logMessages: [],
       generalBackendLogs: [], // Added for general backend logs
       // For Instructions Modal
@@ -162,7 +163,6 @@ export default {
       this.error = null;
       this.isLoading = true;
       this.isStreaming = false; // Reset streaming state
-      this.conferenceLog = [];
       this.logMessages = [];
 
       if (!this.prompt.trim()) {
@@ -177,12 +177,16 @@ export default {
         return;
       }
 
+      this.conferenceLog.push({ speaker: 'User', message: this.prompt });
+      this.conversationHistory.push({ role: 'user', content: this.prompt });
       const payload = {
         prompt: this.prompt,
         model_a_id: this.selectedModelA,
         model_b_id: this.selectedModelB,
         arbiter_model_id: this.selectedArbiter,
+        history: this.conversationHistory,
       };
+      this.prompt = '';
 
       if (window.electronAPI && window.electronAPI.startConferenceStream) {
         console.log('[ConferenceTab] Calling startConferenceStream with payload:', payload);
@@ -225,14 +229,27 @@ export default {
           this.isLoading = false;
           this.isStreaming = false;
           break;
-        case 'complete':
+       case 'complete':
           this.result = eventData.summary; // This should contain final_response, model_a_response, model_b_response
           if (eventData.summary && Array.isArray(eventData.summary.log_messages)) {
             this.logMessages = eventData.summary.log_messages;
           }
+          if (eventData.summary) {
+            if (eventData.summary.model_a_response) {
+              this.conferenceLog.push({ speaker: 'Model A', message: eventData.summary.model_a_response });
+              this.conversationHistory.push({ role: 'model_a', content: eventData.summary.model_a_response });
+            }
+            if (eventData.summary.model_b_response) {
+              this.conferenceLog.push({ speaker: 'Model B', message: eventData.summary.model_b_response });
+              this.conversationHistory.push({ role: 'model_b', content: eventData.summary.model_b_response });
+            }
+            if (eventData.summary.final_response) {
+              this.conferenceLog.push({ speaker: 'Arbiter', message: eventData.summary.final_response });
+              this.conversationHistory.push({ role: 'arbiter', content: eventData.summary.final_response });
+            }
+          }
           this.isLoading = false;
           this.isStreaming = false;
-          // Optionally, add a final "Conference Complete" message to the log
           this.conferenceLog.push({ speaker: 'System', message: 'Conference complete. Final summary generated.' });
           break;
         default:

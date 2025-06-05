@@ -43,7 +43,8 @@ describe('ConferenceTab.vue', () => {
       prompt: 'Hello',
       model_a_id: 'a',
       model_b_id: 'b',
-      arbiter_model_id: 'c'
+      arbiter_model_id: 'c',
+      history: [{ role: 'user', content: 'Hello' }]
     });
   });
 
