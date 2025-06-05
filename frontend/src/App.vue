@@ -911,20 +911,3 @@ export default {
   }
 };
 </script>
-
-<style>
-.ollama-status-banner {
-  padding: 10px;
-  text-align: center;
-  font-weight: bold;
-  border-bottom: 1px solid #4a5568; /* Example border, adjust as needed */
-}
-.status-connected {
-  background-color: #2f855a; /* Green */
-  color: white;
-}
-.status-disconnected {
-  background-color: #c53030; /* Red */
-  color: white;
-}
-</style>

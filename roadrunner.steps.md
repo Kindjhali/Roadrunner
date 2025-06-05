@@ -92,7 +92,60 @@
 - [ ] Implement tab-specific model filtering using `/api/ollama-models/categorized`.
 - [x] Implement direct Ollama model downloading from the UI with progress streaming and error handling.
 
+---
+
+#### 🎨 Phase 9: Advanced UX + Feature Layer
+
+1. Implement a user settings/preferences panel for managing global application configurations:
+    - Default workspace path
+    - UI theme preferences
+    - Primary model preferences
+    - API key storage/management (including remote model API keys/endpoints)
+2. Add task history with save/load per session.
+3. Implement copy/export of task result logs.
+4. Allow user annotations on each step post-run.
+5. Display summary success/failure statistics per task.
+6. Implement Tab-Specific Model Filtering (Backend Driven):
+    - Create backend endpoint `/api/ollama-models/categorized` in `roadrunner/backend/server.js`.
+    - Fetch models from local Ollama (`/api/tags`).
+    - Categorize models based on `roadrunner/backend/config/model_categories.json` (keywords for `coder`, `language`, `default_category`).
+    - Return JSON with models grouped by category.
+    - Frontend calls new endpoint to populate "Coder" and "Brainstorming" tab dropdowns.
+    - Model list refresh button triggers refetch from this backend endpoint.
+7. ✅ Implement Direct Ollama Model Downloading from UI:
+    - Added UI elements (input field for model name, "Download Model" button) in `RoadrunnerExecutor.vue`.
+    - Created a new backend `POST` endpoint `/api/ollama/pull-model` in `server.js` to receive download requests.
+    - The backend endpoint interacts with the local Ollama instance's `/api/pull` endpoint (using `stream: true`).
+    - Download progress and status (including errors from Ollama) are streamed back from `/api/ollama/pull-model` to the Roadrunner frontend using Server-Sent Events (SSE).
+    - Frontend `RoadrunnerExecutor.vue` uses `fetch` to initiate the POST request and then manually parses the SSE stream from the response to display real-time progress and status messages in the UI log.
+    - Enhanced error handling for various scenarios (Ollama unreachable, model not found, etc.).
+
+**"Brainstorming" Tab Enhancements:**
+8. **Full Remote Model Integration for Chat:**
+    - Implement backend logic to connect to and interact with remote AI APIs (e.g., OpenAI) for chat functionality in the Brainstorming tab, using configured API keys.
+9. **Contextual File/Image Understanding in Chat:**
+    - Allow uploaded files (text, code) to be sent as context to the selected language model in the Brainstorming tab.
+    - (Future) Allow uploaded images to be sent as context (for multimodal models).
+    - Display summaries or references to file/image content in the chat history.
+10. **Conversation Management for Chat:**
+    - Implement features to save and load chat conversations.
+    - Allow users to clear chat history.
+    - Implement robust conversation context management for longer interactions (e.g., sending appropriate message history to the model).
+11. **Streaming Responses for Chat:**
+    - Implement response streaming for Ollama models in the Brainstorming tab.
+    - Implement response streaming for remote models in the Brainstorming tab once integrated.
+12. Removed inline CSS from `RoadrunnerExecutor.vue` and `App.vue`. Added matching
+    utility classes in `src/styles/roadrunner.css` to comply with the new
+    `AGENTS.md` guidelines.
+13. Added conversation serializer module for chat history.
+14. Purged remaining `<style>` blocks and inline styles from Vue components,
+    consolidated log styling in `roadrunner.css`, and deduplicated
+    `conference.css` rules.
+
+---
+
 **"Brainstorming" Tab Enhancements**
+
 
 - [ ] Integrate remote AI APIs for chat functionality.
 - [ ] Allow contextual file or image uploads in chat.

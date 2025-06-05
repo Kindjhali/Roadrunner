@@ -138,6 +138,7 @@ All log boxes use dark backgrounds and small monospace fonts.
 * Theming assumes **dark mode only**
 * System is **component-modular and scalable**
 * File Upload and Chat are **fully styled** but minimally scripted—expect them to be used in agent output interaction
+* Place all CSS in `frontend/src/styles/`; `.vue` files must not include `<style>` sections or inline styles
 
 ---
 
