@@ -1695,7 +1695,6 @@ async function executeStepsInternal(
         // Try-catch blocks for each model call will go here, removing the outer try-catch
         if (num_rounds === 1) {
           // Model A
-          try {
             const systemPromptA = `You are ${finalModelARole}. Analyze the following prompt and provide a concise, logical answer.`;
             const fullPromptA = `${systemPromptA}\n\nUser Prompt: "${userPrompt}"`;
             model_a_prompt_for_log = fullPromptA;
@@ -1709,14 +1708,8 @@ async function executeStepsInternal(
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Model A (${finalModelARole}) response received.`}, expressHttpRes);
             overallExecutionLog.push(`  -> [Conference ${conferenceId}] Model A (${finalModelARole}) response (full length ${responseA.length}): ${responseA.substring(0,100)}...`);
             debate_history.push({ round: 1, model_a_response: responseA, model_b_response: "" });
-          // } catch (modelAError) { // This catch block is removed by the new error handling
-          //   const errorMsg = `Conference Model A (${finalModelARole}) failed: ${modelAError.message}`;
-          //   triggerStepFailure(errorMsg, modelAError, currentStep.type, stepNumber, {i});
-          //   return; // Stop processing this conference task
-          // }
 
           // Model B
-          // try { // This try block is part of the outer try-catch of the step
             const systemPromptB = `You are ${finalModelBRole}. Analyze the following prompt and provide an innovative and imaginative answer.`;
             const fullPromptB = `${systemPromptB}\n\nUser Prompt: "${userPrompt}"`;
             model_b_prompt_for_log = fullPromptB;
@@ -1737,7 +1730,6 @@ async function executeStepsInternal(
           // }
 
           // Arbiter Model
-          // try { // This try block is part of the outer try-catch of the step
             const arbiterSystemPrompt = `You are an ${finalArbiterModelRole}. Given the original prompt and the two responses below, evaluate them. Determine which response is better or synthesize a comprehensive answer that combines the best elements of both.`;
             const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nResponse A (${finalModelARole}): "${responseA}"\n\nResponse B (${finalModelBRole}): "${responseB}"\n\nYour evaluation and synthesized answer:`;
             arbiter_prompt_for_log = arbiterFullPrompt;
@@ -1762,7 +1754,6 @@ async function executeStepsInternal(
             conferenceLogMessagesArray.push(`Round ${round}/${num_rounds} starting.`);
 
             // Model A's turn
-            // try { // This try block is part of the outer try-catch of the step
               let promptA;
               if (round === 1) {
                 promptA = `You are ${finalModelARole}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
@@ -1780,11 +1771,6 @@ async function executeStepsInternal(
               responseA = currentResponseA;
               sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Model A response received.`}, expressHttpRes);
               overallExecutionLog.push(`  -> [Conference ${conferenceId} R${round}] Model A (full length ${responseA.length}): ${responseA.substring(0,50)}...`);
-            // } catch (modelAError) { // This catch block is removed by the new error handling
-            //   const errorMsg = `Conference Model A (${finalModelARole}) failed in Round ${round}: ${modelAError.message}`;
-            //   triggerStepFailure(errorMsg, modelAError, currentStep.type, stepNumber, {i});
-            //   return;
-            // }
 
             // Model B's turn
             // try { // This try block is part of the outer try-catch of the step
