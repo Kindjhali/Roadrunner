@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onBrainstormingChatStreamChunk: (callback) => ipcRenderer.on('brainstorming-chat-stream-chunk', callback),
   onBrainstormingChatStreamError: (callback) => ipcRenderer.on('brainstorming-chat-stream-error', callback),
   onBrainstormingChatStreamEnd: (callback) => ipcRenderer.on('brainstorming-chat-stream-end', callback),
+  onBackendLogEvent: (callback) => ipcRenderer.on('backend-log-event', callback),
   startConferenceStream: (payload) => ipcRenderer.send('start-conference-stream', payload),
   onConferenceStreamLLMChunk: (callback) => ipcRenderer.on('conference-stream-llm-chunk', callback),
   onConferenceStreamLogEntry: (callback) => ipcRenderer.on('conference-stream-log-entry', callback),
@@ -64,6 +65,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Since it does NOT explicitly list them for removal here, no direct change
     // to this function's *body* for channel removal is made. The primary action
     // is `ipcRenderer.send('remove-conference-listeners')`.
+  },
+  removeBackendLogEventListener: () => {
+    ipcRenderer.send('remove-backend-log-event-listener'); // To signal main process
+    ipcRenderer.removeAllListeners('backend-log-event'); // To clean up renderer side
   },
   executeTaskWithEvents: (payload) => ipcRenderer.send('execute-task-with-events', payload),
   onCoderTaskLog: (cb) => ipcRenderer.on('coder-task-log', cb),
