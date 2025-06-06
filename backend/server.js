@@ -1032,25 +1032,63 @@ async function executeStepsInternal(
       stepNumber: stepNumber,
     };
 
-    // If errorDetails is an object from our agents (fsAgent, gitAgent)
-    // which contains a structured .error property, use that.
-    if (errorDetails && typeof errorDetails === 'object' && errorDetails.error && typeof errorDetails.error.code === 'string') {
-      standardizedError.code = errorDetails.error.code; // Use specific code from agent
-      standardizedError.message = errorDetails.error.message || displayErrorMessage; // Prefer agent's message, fallback to displayErrorMessage
-      standardizedError.details = { ...standardizedError.details, ...errorDetails.error.details, agentReported: true };
-      // Keep the original full errorDetails in details if it's more than just the .error part
-      if (Object.keys(errorDetails).filter(k => k !== 'error' && k !== 'success' && k !== 'message').length > 0) {
-        standardizedError.details.fullAgentResponse = errorDetails;
+    // Check if errorDetails.details contains a structured error from an agent
+    if (errorDetails && typeof errorDetails === 'object' &&
+        errorDetails.details && // Check if err.details exists
+        typeof errorDetails.details === 'object' && // Ensure err.details is an object
+        errorDetails.details.error && // Check if err.details.error exists (this is the agent's error object)
+        typeof errorDetails.details.error.code === 'string') { // Check for the agent's error code
+
+      const agentError = errorDetails.details.error; // This is the structured error from the agent
+
+      standardizedError.code = agentError.code;
+      // Use agent's message if available, otherwise fallback to the existing displayErrorMessage
+      // (which is the initial value of standardizedError.message)
+      standardizedError.message = agentError.message || standardizedError.message;
+
+      // Populate originalError from the agent's originalError if available
+      if (agentError.originalError) {
+        if (agentError.originalError instanceof Error) {
+          standardizedError.details.originalError = agentError.originalError.toString();
+          // Optionally, include stack from originalError if not already captured by top-level errorDetails.stack
+          // For example: if (!standardizedError.details.stack && agentError.originalError.stack) {
+          //   standardizedError.details.originalErrorStack = agentError.originalError.stack;
+          // }
+        } else if (typeof agentError.originalError === 'object') {
+          standardizedError.details.originalError = JSON.stringify(agentError.originalError);
+        } else {
+          standardizedError.details.originalError = String(agentError.originalError);
+        }
+      } else {
+        // If agentError.originalError is not present, use agentError.message as a fallback for originalError
+        standardizedError.details.originalError = agentError.message || "No specific original error message from agent.";
       }
+
+      // Spread additional details from the agent's error.details if they exist
+      if (agentError.details && typeof agentError.details === 'object') {
+        // Be careful not to overwrite essential details like 'originalError' or 'stack' already set
+        const existingDetails = standardizedError.details;
+        standardizedError.details = { ...agentError.details, ...existingDetails };
+        // Ensure originalError is preserved if agentError.details also had an originalError field
+        if (existingDetails.originalError && agentError.details.originalError) {
+            standardizedError.details.originalError = existingDetails.originalError;
+        }
+      }
+      standardizedError.details.agentReported = true; // Mark that this error info came from an agent
+
     } else if (errorDetails instanceof Error) {
-        // For generic Error objects, try to make a more specific code if possible based on message or type
-        if (displayErrorMessage && displayErrorMessage.includes("LLM generation failed")) { // Check displayErrorMessage
+        // This is the fallback if the error isn't from an agent in the expected structure.
+        // standardizedError.code remains default or is set by displayErrorMessage checks.
+        // standardizedError.message is already set from displayErrorMessage (which is errorMessage).
+        // standardizedError.details.originalError is already set from errorDetails.toString().
+        // We can try to make the code more specific based on the error message if it's a generic Error.
+        if (standardizedError.message && standardizedError.message.includes("LLM generation failed")) {
             standardizedError.code = 'LLM_GENERATION_FAILED_IN_STEP';
-        } else if (displayErrorMessage && displayErrorMessage.includes("Loop body execution failed")) { // Check displayErrorMessage
+        } else if (standardizedError.message && standardizedError.message.includes("Loop body execution failed")) {
             standardizedError.code = 'LOOP_BODY_EXECUTION_FAILED';
         }
-        // message is already displayErrorMessage or a more specific one from agent
-        // details.originalError and details.stack are already set
+        // No changes needed to standardizedError.message or standardizedError.details.originalError here,
+        // as they are based on the properties of the 'errorDetails' (Error instance) and initial 'errorMessage'.
     }
 
 
