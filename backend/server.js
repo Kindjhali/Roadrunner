@@ -1180,8 +1180,10 @@ async function executeStepsInternal(
               // Error message already sent by executeLoopBody via SSE
               overallExecutionLog.push(`  -> ❌ ${failureMessage}`);
               console.error(failureMessage, loopBodyResult.error);
-              triggerStepFailure(failureMessage, errorDetailsForFailure, currentStep.type, loopStepNumberForLog, {i});
-              return; // Pause main execution
+              // Construct and throw an error instead of calling triggerStepFailure
+              const err = new Error(loopBodyResult.error?.message || `Loop body execution failed at Iteration ${iter + 1}`);
+              err.details = errorDetailsForFailure; // This already contains loopBodyResult.error and other details
+              throw err;
             }
 
             sendSseMessage('log_entry', { message: `[SSE] ${iterationLogPrefix}: Finished successfully.` });
@@ -1347,12 +1349,14 @@ async function executeStepsInternal(
           sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): LLM stream completed.` }, expressHttpRes);
 
           if (fileContent.startsWith('// LLM_ERROR:') || fileContent.startsWith('// LLM_WARNING:')) {
-            triggerStepFailure(`LLM generation for file content failed.`, fileContent, currentStep.type, stepNumber, {i});
-            return;
+            const err = new Error(`LLM generation for file content failed for '${filePath}'.`);
+            err.details = { llmResponse: fileContent, filePath: filePath };
+            throw err;
           }
         } else {
-          triggerStepFailure(`Requires 'details.prompt' or 'details.content_from_llm'.`, null, currentStep.type, stepNumber, {i});
-          return;
+          const err = new Error(`Requires 'details.prompt' or 'details.content_from_llm' for step '${currentStep.type}'.`);
+          err.details = currentStep.details;
+          throw err;
         }
         if (output_id) {
           taskContext.outputs[output_id] = fileContent;
@@ -1403,16 +1407,10 @@ async function executeStepsInternal(
         }
         if (createFileResult.success) {
           sendSseMessage('file_written', { path: createFileResult.fullPath, message: `  -> ✅ File created successfully at: ${createFileResult.fullPath}` }, expressHttpRes);
-        } else if (!createFileResult.confirmationNeeded) {
-          console.error(`[executeStepsInternal] fsAgent.createFile failed for path '${filePath}'. Full result:`, JSON.stringify(createFileResult, null, 2));
-          triggerStepFailure(
-              `fsAgent.createFile failed: ${createFileResult.message || 'Unspecified error from fsAgent'}`,
-              createFileResult,
-              currentStep.type,
-              stepNumber,
-              {i}
-          );
-          return;
+        } else if (!createFileResult.confirmationNeeded) { // Genuine failure from fsAgent.createFile
+            const err = new Error(`fsAgent.createFile failed for '${filePath}': ${createFileResult.message || 'Unspecified error from fsAgent'}`);
+            err.details = createFileResult; // Attach the full result from fsAgent
+            throw err; // This will be caught by the catch (stepAttemptError) block
         }
       // Handles 'git_operation' steps for executing Git commands.
       } else if (currentStep.type === 'git_operation') {
@@ -1571,9 +1569,9 @@ async function executeStepsInternal(
 
         if (!result.success && !result.confirmationNeeded) { // Genuine failure, not a confirmation pause
             const failureMessage = result.message || `Git operation '${command}' failed.`;
-            // result.error might contain more details from gitAgent
-            triggerStepFailure(failureMessage, result.error || result, currentStep.type, stepNumber, {i});
-            return; // Pause execution due to failure
+            const err = new Error(failureMessage);
+            err.details = result.error || result; // Attach the error object or the full result
+            throw err;
         }
 
         if (output_id && result.success && result.data) { // Store output if specified and available
@@ -1676,51 +1674,60 @@ async function executeStepsInternal(
             model_a_prompt_for_log = fullPromptA;
             responseA = await generateFromLocal(fullPromptA, model_a_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_a', speakerContext: finalModelARole });
             if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
-              throw new Error(responseA); // Treat LLM error strings as exceptions
+              const errorMsg = `Conference Model A (${finalModelARole}) failed: ${responseA}`;
+              const err = new Error(errorMsg);
+              err.details = { llmResponse: responseA, modelRole: finalModelARole }; // Attach relevant details
+              throw err;
             }
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Model A (${finalModelARole}) response received.`}, expressHttpRes);
             overallExecutionLog.push(`  -> [Conference ${conferenceId}] Model A (${finalModelARole}) response (full length ${responseA.length}): ${responseA.substring(0,100)}...`);
             debate_history.push({ round: 1, model_a_response: responseA, model_b_response: "" });
-          } catch (modelAError) {
-            const errorMsg = `Conference Model A (${finalModelARole}) failed: ${modelAError.message}`;
-            triggerStepFailure(errorMsg, modelAError, currentStep.type, stepNumber, {i});
-            return; // Stop processing this conference task
-          }
+          // } catch (modelAError) { // This catch block is removed by the new error handling
+          //   const errorMsg = `Conference Model A (${finalModelARole}) failed: ${modelAError.message}`;
+          //   triggerStepFailure(errorMsg, modelAError, currentStep.type, stepNumber, {i});
+          //   return; // Stop processing this conference task
+          // }
 
           // Model B
-          try {
+          // try { // This try block is part of the outer try-catch of the step
             const systemPromptB = `You are ${finalModelBRole}. Analyze the following prompt and provide an innovative and imaginative answer.`;
             const fullPromptB = `${systemPromptB}\n\nUser Prompt: "${userPrompt}"`;
             model_b_prompt_for_log = fullPromptB;
             responseB = await generateFromLocal(fullPromptB, model_b_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_b', speakerContext: finalModelBRole });
             if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
-              throw new Error(responseB);
+              const errorMsg = `Conference Model B (${finalModelBRole}) failed: ${responseB}`;
+              const err = new Error(errorMsg);
+              err.details = { llmResponse: responseB, modelRole: finalModelBRole }; // Attach relevant details
+              throw err;
             }
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Model B (${finalModelBRole}) response received.`}, expressHttpRes);
             overallExecutionLog.push(`  -> [Conference ${conferenceId}] Model B (${finalModelBRole}) response (full length ${responseB.length}): ${responseB.substring(0,100)}...`);
             if (debate_history.length > 0) debate_history[0].model_b_response = responseB; else debate_history.push({ round: 1, model_a_response: responseA, model_b_response: responseB });
-          } catch (modelBError) {
-            const errorMsg = `Conference Model B (${finalModelBRole}) failed: ${modelBError.message}`;
-            triggerStepFailure(errorMsg, modelBError, currentStep.type, stepNumber, {i});
-            return;
-          }
+          // } catch (modelBError) { // This catch block is removed by the new error handling
+          //   const errorMsg = `Conference Model B (${finalModelBRole}) failed: ${modelBError.message}`;
+          //   triggerStepFailure(errorMsg, modelBError, currentStep.type, stepNumber, {i});
+          //   return;
+          // }
 
           // Arbiter Model
-          try {
+          // try { // This try block is part of the outer try-catch of the step
             const arbiterSystemPrompt = `You are an ${finalArbiterModelRole}. Given the original prompt and the two responses below, evaluate them. Determine which response is better or synthesize a comprehensive answer that combines the best elements of both.`;
             const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nResponse A (${finalModelARole}): "${responseA}"\n\nResponse B (${finalModelBRole}): "${responseB}"\n\nYour evaluation and synthesized answer:`;
             arbiter_prompt_for_log = arbiterFullPrompt;
             arbiterResponse = await generateFromLocal(arbiterFullPrompt, arbiter_model_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'arbiter', speakerContext: finalArbiterModelRole });
             if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
-              throw new Error(arbiterResponse);
+              const errorMsg = `Conference Arbiter Model (${finalArbiterModelRole}) failed: ${arbiterResponse}`;
+              const err = new Error(errorMsg);
+              err.details = { llmResponse: arbiterResponse, modelRole: finalArbiterModelRole }; // Attach relevant details
+              throw err;
             }
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response received.`}, expressHttpRes);
             overallExecutionLog.push(`  -> [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response (full length ${arbiterResponse.length}): ${arbiterResponse.substring(0,100)}...`);
-          } catch (arbiterError) {
-            const errorMsg = `Conference Arbiter Model (${finalArbiterModelRole}) failed: ${arbiterError.message}`;
-            triggerStepFailure(errorMsg, arbiterError, currentStep.type, stepNumber, {i});
-            return;
-          }
+          // } catch (arbiterError) { // This catch block is removed by the new error handling
+          //   const errorMsg = `Conference Arbiter Model (${finalArbiterModelRole}) failed: ${arbiterError.message}`;
+          //   triggerStepFailure(errorMsg, arbiterError, currentStep.type, stepNumber, {i});
+          //   return;
+          // }
         } else { // num_rounds > 1
           for (let round = 1; round <= num_rounds; round++) {
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Starting Round ${round}/${num_rounds}`}, expressHttpRes);
@@ -1728,7 +1735,7 @@ async function executeStepsInternal(
             conferenceLogMessagesArray.push(`Round ${round}/${num_rounds} starting.`);
 
             // Model A's turn
-            try {
+            // try { // This try block is part of the outer try-catch of the step
               let promptA;
               if (round === 1) {
                 promptA = `You are ${finalModelARole}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
@@ -1738,19 +1745,22 @@ async function executeStepsInternal(
               model_a_prompt_for_log = promptA;
               const currentResponseA = await generateFromLocal(promptA, model_a_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_a', speakerContext: finalModelARole });
               if (currentResponseA.startsWith('// LLM_ERROR:') || currentResponseA.startsWith('// LLM_WARNING:')) {
-                throw new Error(currentResponseA);
+                const errorMsg = `Conference Model A (${finalModelARole}) failed in Round ${round}: ${currentResponseA}`;
+                const err = new Error(errorMsg);
+                err.details = { llmResponse: currentResponseA, modelRole: finalModelARole, round: round }; // Attach relevant details
+                throw err;
               }
               responseA = currentResponseA;
               sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Model A response received.`}, expressHttpRes);
               overallExecutionLog.push(`  -> [Conference ${conferenceId} R${round}] Model A (full length ${responseA.length}): ${responseA.substring(0,50)}...`);
-            } catch (modelAError) {
-              const errorMsg = `Conference Model A (${finalModelARole}) failed in Round ${round}: ${modelAError.message}`;
-              triggerStepFailure(errorMsg, modelAError, currentStep.type, stepNumber, {i});
-              return;
-            }
+            // } catch (modelAError) { // This catch block is removed by the new error handling
+            //   const errorMsg = `Conference Model A (${finalModelARole}) failed in Round ${round}: ${modelAError.message}`;
+            //   triggerStepFailure(errorMsg, modelAError, currentStep.type, stepNumber, {i});
+            //   return;
+            // }
 
             // Model B's turn
-            try {
+            // try { // This try block is part of the outer try-catch of the step
               let promptB;
               if (round === 1) {
                 promptB = `You are ${finalModelBRole}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
@@ -1760,36 +1770,42 @@ async function executeStepsInternal(
               model_b_prompt_for_log = promptB;
               const currentResponseB = await generateFromLocal(promptB, model_b_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_b', speakerContext: finalModelBRole });
               if (currentResponseB.startsWith('// LLM_ERROR:') || currentResponseB.startsWith('// LLM_WARNING:')) {
-                throw new Error(currentResponseB);
+                const errorMsg = `Conference Model B (${finalModelBRole}) failed in Round ${round}: ${currentResponseB}`;
+                const err = new Error(errorMsg);
+                err.details = { llmResponse: currentResponseB, modelRole: finalModelBRole, round: round }; // Attach relevant details
+                throw err;
               }
               responseB = currentResponseB;
               sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Model B response received.`}, expressHttpRes);
               overallExecutionLog.push(`  -> [Conference ${conferenceId} R${round}] Model B (full length ${responseB.length}): ${responseB.substring(0,50)}...`);
-            } catch (modelBError) {
-              const errorMsg = `Conference Model B (${finalModelBRole}) failed in Round ${round}: ${modelBError.message}`;
-              triggerStepFailure(errorMsg, modelBError, currentStep.type, stepNumber, {i});
-              return;
-            }
+            // } catch (modelBError) { // This catch block is removed by the new error handling
+            //   const errorMsg = `Conference Model B (${finalModelBRole}) failed in Round ${round}: ${modelBError.message}`;
+            //   triggerStepFailure(errorMsg, modelBError, currentStep.type, stepNumber, {i});
+            //   return;
+            // }
             debate_history.push({ round: round, model_a_response: responseA, model_b_response: responseB });
           }
 
           // Arbiter after all rounds
-          try {
+          // try { // This try block is part of the outer try-catch of the step
             let formattedDebateHistory = debate_history.map(r => `Round ${r.round}:\n  Model A (${finalModelARole}): ${r.model_a_response}\n  Model B (${finalModelBRole}): ${r.model_b_response}`).join('\n\n');
             const arbiterSystemPrompt = `You are an ${finalArbiterModelRole}. You have observed a debate between Model A (${finalModelARole}) and Model B (${finalModelBRole}) over several rounds.`;
             const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nFull Debate History:\n${formattedDebateHistory}\n\nBased on the entire debate, provide a comprehensive synthesized answer as ${finalArbiterModelRole}.`;
             arbiter_prompt_for_log = arbiterFullPrompt;
             arbiterResponse = await generateFromLocal(arbiterFullPrompt, arbiter_model_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'arbiter', speakerContext: finalArbiterModelRole });
             if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
-              throw new Error(arbiterResponse);
+              const errorMsg = `Conference Arbiter Model (${finalArbiterModelRole}) failed after debate: ${arbiterResponse}`;
+              const err = new Error(errorMsg);
+              err.details = { llmResponse: arbiterResponse, modelRole: finalArbiterModelRole }; // Attach relevant details
+              throw err;
             }
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response received.`}, expressHttpRes);
             overallExecutionLog.push(`  -> [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response (full length ${arbiterResponse.length}): ${arbiterResponse.substring(0,100)}...`);
-          } catch (arbiterError) {
-            const errorMsg = `Conference Arbiter Model (${finalArbiterModelRole}) failed after debate: ${arbiterError.message}`;
-            triggerStepFailure(errorMsg, arbiterError, currentStep.type, stepNumber, {i});
-            return;
-          }
+          // } catch (arbiterError) { // This catch block is removed by the new error handling
+          //   const errorMsg = `Conference Arbiter Model (${finalArbiterModelRole}) failed after debate: ${arbiterError.message}`;
+          //   triggerStepFailure(errorMsg, arbiterError, currentStep.type, stepNumber, {i});
+          //   return;
+          // }
         }
         // Logging and output handling remains the same, but outside the removed try-catch
         if (output_id) {
@@ -1882,8 +1898,9 @@ async function executeStepsInternal(
         if (result.success && isConfirmedAction) { operationCountSinceLastConfirmation = 0; }
         if (result.success) sendSseMessage('log_entry', { message: `✅ Directory created: ${result.fullPath}` }, expressHttpRes);
         else if (!result.confirmationNeeded) { // Genuine failure
-            triggerStepFailure(`fsAgent.createDirectory failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
-            return;
+            const err = new Error(`fsAgent.createDirectory failed for '${dirPath}': ${result.message || 'Unspecified error'}`);
+            err.details = result;
+            throw err;
         }
       } else if (currentStep.type === 'createFile') {
         const { filePath: originalFilePath_create, content } = currentStep.details || {};
@@ -1938,15 +1955,9 @@ async function executeStepsInternal(
         if (result.success) {
             sendSseMessage('file_written', { path: result.fullPath, message: `✅ File created: ${result.fullPath}` }, expressHttpRes);
         } else if (!result.confirmationNeeded) { // Genuine failure
-            console.error(`[executeStepsInternal] fsAgent.createFile (from manual step type 'createFile') failed for path '${filePath}'. Full result:`, JSON.stringify(result, null, 2));
-            triggerStepFailure(
-                `fsAgent.createFile failed: ${result.message || 'Unspecified error from fsAgent'}`,
-                result,
-                currentStep.type,
-                stepNumber,
-                {i}
-            );
-            return;
+            const err = new Error(`fsAgent.createFile failed for '${filePath}': ${result.message || 'Unspecified error from fsAgent'}`);
+            err.details = result; // Attach the full result from fsAgent
+            throw err; // This will be caught by the catch (stepAttemptError) block
         }
       } else if ( currentStep.type === 'readFile' || currentStep.type === 'read_file_to_output') {
         const { filePath: originalFilePath_read, output_id } = currentStep.details || {};
@@ -1968,8 +1979,9 @@ async function executeStepsInternal(
           if (output_id) taskContext.outputs[output_id] = result.content;
           sendSseMessage('log_entry', { message: `✅ File read: ${result.fullPath}. Stored in ${output_id || 'log'}.` }, expressHttpRes);
         } else { // Genuine failure
-            triggerStepFailure(`fsAgent.readFile failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
-            return;
+            const err = new Error(`fsAgent.readFile failed for '${filePath}': ${result.message || 'Unspecified error'}`);
+            err.details = result;
+            throw err;
         }
       } else if (currentStep.type === 'updateFile') {
         const { filePath: originalFilePath_update, content, append } = currentStep.details || {};
@@ -2022,8 +2034,9 @@ async function executeStepsInternal(
         if (result.success && isConfirmedAction) { operationCountSinceLastConfirmation = 0; }
         if (result.success) sendSseMessage('log_entry', { message: `✅ File updated: ${result.fullPath}` }, expressHttpRes);
         else if (!result.confirmationNeeded) { // Genuine failure
-            triggerStepFailure(`fsAgent.updateFile failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
-            return;
+            const err = new Error(`fsAgent.updateFile failed for '${filePath}': ${result.message || 'Unspecified error'}`);
+            err.details = result;
+            throw err;
         }
       } else if (currentStep.type === 'deleteFile') {
         const { filePath: originalFilePath_delete } = currentStep.details || {};
@@ -2062,8 +2075,9 @@ async function executeStepsInternal(
         if (result.success && isConfirmedAction) { operationCountSinceLastConfirmation = 0; }
         if (result.success) sendSseMessage('log_entry', { message: `✅ File deleted: ${result.fullPath}` }, expressHttpRes);
         else if (!result.confirmationNeeded) { // Genuine failure
-            triggerStepFailure(`fsAgent.deleteFile failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
-            return;
+            const err = new Error(`fsAgent.deleteFile failed for '${filePath}': ${result.message || 'Unspecified error'}`);
+            err.details = result;
+            throw err;
         }
       } else if (currentStep.type === 'deleteDirectory') {
         const { dirPath: originalDirPath_delete } = currentStep.details || {};
@@ -2103,8 +2117,9 @@ async function executeStepsInternal(
         if (result.success && isConfirmedAction) { operationCountSinceLastConfirmation = 0; }
         if (result.success) sendSseMessage('log_entry', { message: `✅ Directory deleted: ${result.fullPath}` }, expressHttpRes);
         else if (!result.confirmationNeeded) { // Genuine failure
-            triggerStepFailure(`fsAgent.deleteDirectory failed: ${result.message}`, result, currentStep.type, stepNumber, {i});
-            return;
+            const err = new Error(`fsAgent.deleteDirectory failed for '${dirPath}': ${result.message || 'Unspecified error'}`);
+            err.details = result;
+            throw err;
         }
         } else {
           sendSseMessage('log_entry', {
