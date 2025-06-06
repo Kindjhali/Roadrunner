@@ -1773,7 +1773,6 @@ async function executeStepsInternal(
               overallExecutionLog.push(`  -> [Conference ${conferenceId} R${round}] Model A (full length ${responseA.length}): ${responseA.substring(0,50)}...`);
 
             // Model B's turn
-            // try { // This try block is part of the outer try-catch of the step
               let promptB;
               if (round === 1) {
                 promptB = `You are ${finalModelBRole}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
@@ -1791,16 +1790,10 @@ async function executeStepsInternal(
               responseB = currentResponseB;
               sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Model B response received.`}, expressHttpRes);
               overallExecutionLog.push(`  -> [Conference ${conferenceId} R${round}] Model B (full length ${responseB.length}): ${responseB.substring(0,50)}...`);
-            // } catch (modelBError) { // This catch block is removed by the new error handling
-            //   const errorMsg = `Conference Model B (${finalModelBRole}) failed in Round ${round}: ${modelBError.message}`;
-            //   triggerStepFailure(errorMsg, modelBError, currentStep.type, stepNumber, {i});
-            //   return;
-            // }
             debate_history.push({ round: round, model_a_response: responseA, model_b_response: responseB });
           }
 
           // Arbiter after all rounds
-          // try { // This try block is part of the outer try-catch of the step
             let formattedDebateHistory = debate_history.map(r => `Round ${r.round}:\n  Model A (${finalModelARole}): ${r.model_a_response}\n  Model B (${finalModelBRole}): ${r.model_b_response}`).join('\n\n');
             const arbiterSystemPrompt = `You are an ${finalArbiterModelRole}. You have observed a debate between Model A (${finalModelARole}) and Model B (${finalModelBRole}) over several rounds.`;
             const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nFull Debate History:\n${formattedDebateHistory}\n\nBased on the entire debate, provide a comprehensive synthesized answer as ${finalArbiterModelRole}.`;
@@ -1814,11 +1807,6 @@ async function executeStepsInternal(
             }
             sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response received.`}, expressHttpRes);
             overallExecutionLog.push(`  -> [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response (full length ${arbiterResponse.length}): ${arbiterResponse.substring(0,100)}...`);
-          // } catch (arbiterError) { // This catch block is removed by the new error handling
-          //   const errorMsg = `Conference Arbiter Model (${finalArbiterModelRole}) failed after debate: ${arbiterError.message}`;
-          //   triggerStepFailure(errorMsg, arbiterError, currentStep.type, stepNumber, {i});
-          //   return;
-          // }
         }
         // Logging and output handling remains the same, but outside the removed try-catch
         if (output_id) {
