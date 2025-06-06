@@ -988,17 +988,44 @@ async function executeStepsInternal(
   // Helper function to trigger step failure
   // Standardizes error reporting, stores failure details for potential user resolution, and sends failure options to the client.
   const triggerStepFailure = (errorMessage, errorDetails, stepType, stepNumber, currentStepContext) => {
-    const fullErrorMessage = `Step ${stepNumber} (${stepType}): ${errorMessage}`;
+    let displayErrorMessage = errorMessage;
+    const currentStepForErrorMessage = steps[currentStepContext.i]; // Access step from outer scope for context
+
+    // Try to create a more specific message if the incoming one is generic
+    if (errorMessage === "Unknown error after retries/refinements." ||
+        errorMessage === "Unknown error after retries/refinements/evaluation." ||
+        errorMessage === "Step processing failed with an unspecified error before triggering failure." || // From previous changes
+        !errorMessage) {
+        if (errorDetails && errorDetails.details && errorDetails.details.originalError && errorDetails.details.originalError !== "null" && errorDetails.details.originalError.trim() !== "") {
+            displayErrorMessage = `Step failed after all attempts. Last known original error: ${errorDetails.details.originalError}`;
+        } else if (errorDetails && errorDetails.message && errorDetails.message !== errorMessage && errorDetails.message.trim() !== "") {
+            // If errorDetails.message is more specific than the generic one (and not empty)
+            displayErrorMessage = `Step failed after all attempts. Last reported reason: ${errorDetails.message}`;
+        } else if (currentStepForErrorMessage && currentStepForErrorMessage.details && currentStepForErrorMessage.details.evaluationPrompt && errorMessage.includes("Evaluation failed")) {
+            // Generic fallback for evaluation failures if other details are missing
+            displayErrorMessage = `Step ${stepNumber} (${stepType}) failed LLM evaluation after all attempts with an unspecified evaluation error.`;
+        } else {
+            displayErrorMessage = `Step ${stepNumber} (${stepType}) failed with an unspecified error after all attempts.`;
+        }
+    }
+
+    const fullErrorMessage = `Step ${stepNumber} (${stepType}): ${displayErrorMessage}`;
     overallExecutionLog.push(`  -> ❌ ${fullErrorMessage}`);
     console.error(`[executeStepsInternal] ${fullErrorMessage}`, errorDetails || '');
 
     const failureId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
 
+    let originalErrorDetailString = errorDetails instanceof Error ? errorDetails.toString() : (typeof errorDetails === 'string' ? errorDetails : JSON.stringify(errorDetails));
+    if (originalErrorDetailString === "\"null\"" || originalErrorDetailString === "null") { // Handles JSON stringified "null" or direct string "null"
+        originalErrorDetailString = "No specific original error message provided.";
+    }
+
+
     let standardizedError = {
       code: 'SERVER_STEP_EXECUTION_FAILED', // Default code
-      message: errorMessage,
+      message: displayErrorMessage, // Use the potentially improved message
       details: {
-        originalError: errorDetails instanceof Error ? errorDetails.toString() : (typeof errorDetails === 'string' ? errorDetails : JSON.stringify(errorDetails)),
+        originalError: originalErrorDetailString,
         stack: errorDetails instanceof Error ? errorDetails.stack : undefined,
       },
       stepType: stepType,
@@ -1009,7 +1036,7 @@ async function executeStepsInternal(
     // which contains a structured .error property, use that.
     if (errorDetails && typeof errorDetails === 'object' && errorDetails.error && typeof errorDetails.error.code === 'string') {
       standardizedError.code = errorDetails.error.code; // Use specific code from agent
-      standardizedError.message = errorDetails.error.message || errorMessage; // Prefer agent's message
+      standardizedError.message = errorDetails.error.message || displayErrorMessage; // Prefer agent's message, fallback to displayErrorMessage
       standardizedError.details = { ...standardizedError.details, ...errorDetails.error.details, agentReported: true };
       // Keep the original full errorDetails in details if it's more than just the .error part
       if (Object.keys(errorDetails).filter(k => k !== 'error' && k !== 'success' && k !== 'message').length > 0) {
@@ -1017,12 +1044,12 @@ async function executeStepsInternal(
       }
     } else if (errorDetails instanceof Error) {
         // For generic Error objects, try to make a more specific code if possible based on message or type
-        if (errorDetails.message && errorDetails.message.includes("LLM generation failed")) {
+        if (displayErrorMessage && displayErrorMessage.includes("LLM generation failed")) { // Check displayErrorMessage
             standardizedError.code = 'LLM_GENERATION_FAILED_IN_STEP';
-        } else if (errorDetails.message && errorDetails.message.includes("Loop body execution failed")) {
+        } else if (displayErrorMessage && displayErrorMessage.includes("Loop body execution failed")) { // Check displayErrorMessage
             standardizedError.code = 'LOOP_BODY_EXECUTION_FAILED';
         }
-        // message is already errorMessage, which is errorDetails.message
+        // message is already displayErrorMessage or a more specific one from agent
         // details.originalError and details.stack are already set
     }
 
@@ -2115,7 +2142,11 @@ async function executeStepsInternal(
         stepProcessedSuccessfully = true;
 
       } catch (stepAttemptError) {
-        lastErrorForStep = stepAttemptError; // Store error from this attempt
+        if (!stepAttemptError.message) {
+            lastErrorForStep = new Error("Step attempt failed without a specific message.");
+        } else {
+            lastErrorForStep = stepAttemptError;
+        }
         const maxRetries = currentStep.details?.maxRetries || 0;
         // const onErrorAction = currentStep.details?.onError; // For future refinement logic
 
@@ -2188,6 +2219,7 @@ Do not output the entire step, only the 'details' object.
 
     if (!stepProcessedSuccessfully) {
       // If loop finished and step was not successful (all retries/refinements failed)
+      // Ensure lastErrorForStep is used here as per subtask item 1.
       const finalErrorMessage = lastErrorForStep ? lastErrorForStep.message : "Unknown error after retries/refinements.";
       triggerStepFailure(finalErrorMessage, lastErrorForStep, currentStep.type, stepNumber, {i});
       return; // Pause main execution, pass to user
@@ -2244,7 +2276,11 @@ Do not output the entire step, only the 'details' object.
           sendSseMessage('error', { content: `[SSE] ${llmErrorMsg}` });
           overallExecutionLog.push(`  -> ❌ ${llmErrorMsg}`);
           console.error(llmErrorMsg);
-          lastErrorForStep = new Error(llmErrorMsg);
+          if (evaluationResultString && evaluationResultString.replace('// LLM_ERROR:', '').replace('// LLM_WARNING:', '').trim()) {
+              lastErrorForStep = new Error(evaluationResultString);
+          } else {
+              lastErrorForStep = new Error(`${evalLogPrefix} LLM failed to provide evaluation and returned an empty error/warning message.`);
+          }
           stepProcessedSuccessfully = false; // Mark step as failed
           // Potentially increment _internalEvalRetryCount here if we want LLM failure to count as an attempt.
                           currentStep._internalEvalRetryCount++;
@@ -2269,7 +2305,11 @@ Do not output the entire step, only the 'details' object.
           break; // Exit evaluation loop
         } else { // Evaluation failed
           currentStep._internalEvalRetryCount++;
-          lastErrorForStep = new Error(`${evalLogPrefix} Evaluation failed. LLM response: ${evaluationResult}`);
+          if (evaluationResult && evaluationResult.trim()) {
+              lastErrorForStep = new Error(`${evalLogPrefix} Evaluation failed. LLM response: ${evaluationResult}`);
+          } else {
+              lastErrorForStep = new Error(`${evalLogPrefix} Evaluation failed with an empty or non-descriptive LLM response.`);
+          }
           stepProcessedSuccessfully = false; // Mark step as failed for this attempt cycle
 
           const onEvalFailureAction = currentStep.details.onEvaluationFailure || 'fail_step';
@@ -2311,7 +2351,7 @@ Do not output the entire step, only the 'details' object.
       if (!evaluationPassed) {
         stepProcessedSuccessfully = false; // Ensure step is marked as failed if all eval retries are exhausted and it didn't pass
         if (!lastErrorForStep) { // Should be set, but as a fallback
-             lastErrorForStep = new Error(`${evalLogPrefix} Step failed LLM evaluation after all attempts.`);
+            lastErrorForStep = new Error(`${evalLogPrefix} Step failed LLM evaluation after all attempts with an unspecified error.`);
         }
         sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Step FAILED evaluation after all attempts.` }, expressHttpRes);
         console.log(`${evalLogPrefix} Step FAILED evaluation after all attempts.`);
@@ -2319,6 +2359,10 @@ Do not output the entire step, only the 'details' object.
     } // End of if currentStep.details.evaluationPrompt
 
     // This existing block will now catch failures from main processing OR from evaluation.
+    if (!stepProcessedSuccessfully && !lastErrorForStep) {
+        lastErrorForStep = new Error("Step processing failed with an unspecified error before triggering failure.");
+        console.warn(`[executeStepsInternal] Step ${stepNumber} (${currentStep.type}) failed without lastErrorForStep being set. Defaulting error.`);
+    }
     if (!stepProcessedSuccessfully) {
       // If loop finished and step was not successful (all retries/refinements/evaluations failed)
       const finalErrorMessage = lastErrorForStep ? lastErrorForStep.message : "Unknown error after retries/refinements/evaluation.";
