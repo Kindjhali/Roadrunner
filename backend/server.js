@@ -1403,11 +1403,11 @@ async function executeStepsInternal(
         }
         if (createFileResult.success) {
           sendSseMessage('file_written', { path: createFileResult.fullPath, message: `  -> ✅ File created successfully at: ${createFileResult.fullPath}` }, expressHttpRes);
-        } else if (!createFileResult.confirmationNeeded) {
-          console.error(`[executeStepsInternal] fsAgent.createFile failed for path '${filePath}'. Full result:`, JSON.stringify(createFileResult, null, 2));
+        } else if (!result.confirmationNeeded) { // Genuine failure
+            console.error(`[executeStepsInternal] fsAgent.createFile (from manual step type 'createFile') failed for path '${filePath}'. Full result:`, JSON.stringify(result, null, 2));
           triggerStepFailure(
-              `fsAgent.createFile failed: ${createFileResult.message || 'Unspecified error from fsAgent'}`,
-              createFileResult,
+                `fsAgent.createFile failed: ${result.message || 'Unspecified error from fsAgent'}`,
+                result,
               currentStep.type,
               stepNumber,
               {i}
