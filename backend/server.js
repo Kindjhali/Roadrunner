@@ -105,28 +105,69 @@ let backendSettings = {
 
 // Function to load backend settings
 function loadBackendConfig() {
+  const defaultConfig = { llmProvider: null, apiKey: '', defaultOllamaModel: 'codellama' };
+  let settingsSource = 'hardcoded defaults'; // Assume defaults initially
+
   try {
+    console.log(`[Config] Attempting to load backend settings from ${BACKEND_CONFIG_FILE_PATH}`);
     if (fs.existsSync(BACKEND_CONFIG_FILE_PATH)) {
       const configFileContent = fs.readFileSync(BACKEND_CONFIG_FILE_PATH, 'utf-8');
-      backendSettings = JSON.parse(configFileContent);
-      console.log(`[Config] Loaded backend settings from ${BACKEND_CONFIG_FILE_PATH}`);
-    } else if (fs.existsSync(BACKEND_CONFIG_EXAMPLE_PATH)) {
-      console.log(`[Config] Backend config not found. Copying from ${BACKEND_CONFIG_EXAMPLE_PATH}`);
-      const exampleContent = fs.readFileSync(BACKEND_CONFIG_EXAMPLE_PATH, 'utf-8');
-      fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, exampleContent, 'utf-8');
-      backendSettings = JSON.parse(exampleContent);
-      console.log(`[Config] Copied backend settings from example to ${BACKEND_CONFIG_FILE_PATH}`);
+      try {
+        backendSettings = JSON.parse(configFileContent);
+        settingsSource = `file (${BACKEND_CONFIG_FILE_PATH})`;
+        console.log(`[Config] Successfully loaded backend settings from ${BACKEND_CONFIG_FILE_PATH}`);
+      } catch (parseError) {
+        console.error(`[Config] Failed to parse JSON from ${BACKEND_CONFIG_FILE_PATH}. Error: ${parseError.message}. Falling back...`);
+        // Fallback logic continues below
+      }
     } else {
-      console.log(`[Config] Backend config and example not found. Creating default ${BACKEND_CONFIG_FILE_PATH}`);
-      fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(backendSettings, null, 2), 'utf-8');
-      console.log(`[Config] Created default backend settings file at ${BACKEND_CONFIG_FILE_PATH}`);
+      console.log(`[Config] File ${BACKEND_CONFIG_FILE_PATH} not found. Checking for example config.`);
     }
-  } catch (error) {
-    console.error(`[Config] Error loading/creating backend_config.json:`, error);
-    // Fallback to default settings in case of error
-    backendSettings = { llmProvider: null, apiKey: '', defaultOllamaModel: 'codellama' };
-    console.warn('[Config] Using default backend settings due to error.');
+
+    // If settings were not loaded from main file (either it didn't exist or failed to parse)
+    if (settingsSource === 'hardcoded defaults' && fs.existsSync(BACKEND_CONFIG_EXAMPLE_PATH)) {
+      console.log(`[Config] Attempting to load backend settings from example ${BACKEND_CONFIG_EXAMPLE_PATH}`);
+      const exampleFileContent = fs.readFileSync(BACKEND_CONFIG_EXAMPLE_PATH, 'utf-8');
+      try {
+        backendSettings = JSON.parse(exampleFileContent);
+        settingsSource = `example file (${BACKEND_CONFIG_EXAMPLE_PATH})`;
+        console.log(`[Config] Successfully loaded backend settings from example ${BACKEND_CONFIG_EXAMPLE_PATH}.`);
+        // Attempt to write the example content to the main config file
+        try {
+          fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(backendSettings, null, 2), 'utf-8');
+          console.log(`[Config] Copied settings from example to ${BACKEND_CONFIG_FILE_PATH}`);
+        } catch (writeError) {
+          console.error(`[Config] Failed to write settings from example to ${BACKEND_CONFIG_FILE_PATH}. Error: ${writeError.message}`);
+        }
+      } catch (parseError) {
+        console.error(`[Config] Failed to parse JSON from example ${BACKEND_CONFIG_EXAMPLE_PATH}. Error: ${parseError.message}. Falling back to hardcoded defaults.`);
+        backendSettings = { ...defaultConfig }; // Ensure it's a fresh copy
+        settingsSource = 'hardcoded defaults (example parse failed)';
+      }
+    } else if (settingsSource === 'hardcoded defaults') { // Main file didn't exist/parse and example also didn't exist
+      console.log(`[Config] Neither main config nor example config found or parsed. Using hardcoded defaults.`);
+      backendSettings = { ...defaultConfig }; // Ensure it's a fresh copy
+      // Attempt to create the default config file
+      try {
+        fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(backendSettings, null, 2), 'utf-8');
+        console.log(`[Config] Created default backend settings file at ${BACKEND_CONFIG_FILE_PATH} with hardcoded defaults.`);
+      } catch (writeError) {
+        console.error(`[Config] Failed to write hardcoded default settings to ${BACKEND_CONFIG_FILE_PATH}. Error: ${writeError.message}`);
+      }
+    }
+  } catch (error) { // Catch errors from fs.readFileSync or other unexpected issues
+    console.error(`[Config] Critical error during backend config loading: ${error.message}. Using hardcoded defaults.`);
+    backendSettings = { ...defaultConfig }; // Ensure it's a fresh copy
+    settingsSource = 'hardcoded defaults (critical error)';
   }
+  // Ensure backendSettings is always a valid object.
+  if (typeof backendSettings !== 'object' || backendSettings === null) {
+    console.warn(`[Config] backendSettings ended up invalid (type: ${typeof backendSettings}). Resetting to hardcoded defaults.`);
+    backendSettings = { ...defaultConfig };
+    settingsSource = 'hardcoded defaults (post-load validation)';
+  }
+
+  console.log(`[Config] Final backend settings determined. Source: ${settingsSource}. Settings:`, JSON.stringify(backendSettings));
 }
 
 // Load backend settings on server startup
@@ -171,38 +212,61 @@ const getConfiguredPath = (envVarName, jsonKey, defaultValue, isDir = true, isCr
   let value;
   let source = ''; // Will be set to 'environment variable', 'JSON config', or 'default'
 
+  let value;
+  let source = '';
+  let originalRelativePath = null; // For logging if path is resolved
+
   if (process.env[envVarName]) {
     value = process.env[envVarName];
     source = `environment variable (${envVarName})`;
-  } else if (jsonConfig[jsonKey]) {
-    value = jsonConfig[jsonKey];
-    source = `JSON config (${CONFIG_FILE_PATH} -> ${jsonKey})`;
-    // Paths from JSON config, if relative, are relative to __dirname (backend directory)
-    value = resolveConfigPath(value);
-  } else {
+  } else if (jsonConfig && jsonConfig[jsonKey]) {
+    if (typeof jsonConfig[jsonKey] !== 'string') {
+      console.warn(`[Config] Value for '${jsonKey}' in JSON config is not a string (type: ${typeof jsonConfig[jsonKey]}), ignoring. Value:`, jsonConfig[jsonKey]);
+      // value remains undefined, will proceed to default
+    } else {
+      value = jsonConfig[jsonKey];
+      source = `JSON config (${CONFIG_FILE_PATH} -> ${jsonKey})`;
+      if (!path.isAbsolute(value)) {
+        originalRelativePath = value; // Store original relative path for logging
+      }
+      // Paths from JSON config, if relative, are relative to __dirname (backend directory)
+      value = resolveConfigPath(value);
+    }
+  }
+
+  // If value is still undefined (not found in env or valid JSON), use default
+  if (value === undefined) {
     value = defaultValue;
     source = `default ('${defaultValue}')`;
+    if (!path.isAbsolute(value) && typeof value === 'string') { // Check if default is relative
+        originalRelativePath = value;
+    }
     // Default paths, if relative, are also relative to __dirname
     value = resolveConfigPath(value);
   }
 
-  console.log(`[Config] Resolved ${jsonKey}: Final path is '${value}' (Source: ${source}).`);
+  if (originalRelativePath && originalRelativePath !== value) {
+    console.log(`[Config] Resolved ${jsonKey}: Path '${originalRelativePath}' (from ${source}) resolved to absolute path '${value}'.`);
+  } else {
+    console.log(`[Config] Resolved ${jsonKey}: Final path is '${value}' (Source: ${source}).`);
+  }
 
   if (isDir && !fs.existsSync(value)) {
     try {
       fs.mkdirSync(value, { recursive: true });
-      console.log(`[Config] Created directory for ${jsonKey} at: '${value}' (Source: ${source})`);
+      console.log(`[Config] Created directory for ${jsonKey} at: '${value}' (Original source: ${source})`);
     } catch (err) {
-      const errorMessage = `[Config] CRITICAL ERROR: Failed to create directory for ${jsonKey} at '${value}' (Source: ${source}). Error: ${err.message}`;
+      const errorMessage = `[Config] CRITICAL ERROR: Failed to create directory for ${jsonKey} at '${value}' (Original source: ${source}). Error: ${err.message}`;
       console.error(errorMessage);
       if (isCritical) {
-        throw new Error(errorMessage); // Propagate error for critical paths
+        throw new Error(errorMessage);
       }
-      // If not critical, attempt to fallback to default (if not already using default)
-      if (source !== `default ('${defaultValue}')`) {
-        console.warn(`[Config] Falling back to default for ${jsonKey} due to creation error: '${resolveConfigPath(defaultValue)}'`);
-        value = resolveConfigPath(defaultValue);
-        source = `default (fallback after error)`;
+      // Fallback for non-critical paths if not already using the default value from the start
+      if (defaultValue !== value) { // Check if we weren't already trying the default
+        const defaultResolvedPath = resolveConfigPath(defaultValue);
+        console.warn(`[Config] Falling back to default for ${jsonKey} due to creation error: '${defaultResolvedPath}'`);
+        value = defaultResolvedPath; // Assign resolved default path
+        // Source is now 'default (fallback after error)'
         if (!fs.existsSync(value)) {
           try {
             fs.mkdirSync(value, { recursive: true });
@@ -210,17 +274,15 @@ const getConfiguredPath = (envVarName, jsonKey, defaultValue, isDir = true, isCr
           } catch (fallbackErr) {
             const fallbackErrorMessage = `[Config] CRITICAL ERROR: Failed to create even the fallback default directory for ${jsonKey} at '${value}'. Error: ${fallbackErr.message}`;
             console.error(fallbackErrorMessage);
-            // For critical paths, even fallback failure is fatal.
             if (isCritical) {
                 throw new Error(fallbackErrorMessage);
             }
-            // For non-critical, we log the error and the application might run in a degraded state.
           }
         }
       }
     }
   } else if (isDir) {
-    console.log(`[Config] Directory for ${jsonKey} already exists at '${value}' (Source: ${source})`);
+    console.log(`[Config] Directory for ${jsonKey} already exists at '${value}' (Original source: ${source})`);
   }
   return value;
 };
@@ -228,37 +290,49 @@ const getConfiguredPath = (envVarName, jsonKey, defaultValue, isDir = true, isCr
 
 // Load model categories configuration
 let modelCategories = { categories: {}, default_category: 'language' }; // Default fallback
-const categoriesPath = path.join(__dirname, 'config', 'model_categories.json');
+const categoriesPath = path.resolve(__dirname, 'config', 'model_categories.json'); // Ensure absolute path for logging
+console.log(`[Config] Attempting to load model categories from: ${categoriesPath}`);
 try {
   if (fs.existsSync(categoriesPath)) {
     const categoriesFileContent = fs.readFileSync(categoriesPath, 'utf-8');
     modelCategories = JSON.parse(categoriesFileContent);
-    console.log('[Config] Loaded model categories from model_categories.json');
+    console.log(`[Config] Successfully loaded model categories from ${categoriesPath}`);
   } else {
-    console.warn('[Config] model_categories.json not found. Using default empty categories.');
+    console.warn(`[Config] model_categories.json not found at ${categoriesPath}. Using default empty categories:`, modelCategories);
     // fs.writeFileSync(categoriesPath, JSON.stringify(modelCategories, null, 2)); // Optionally create default
   }
 } catch (error) {
-  console.error('[Config] Error loading model_categories.json:', error);
+  console.error(`[Config] Error loading or parsing model_categories.json from ${categoriesPath}: ${error.message}. Using default categories.`, modelCategories);
+  modelCategories = { categories: {}, default_category: 'language' }; // Ensure it's reset to a valid default
 }
+console.log("[Config] Final modelCategories:", JSON.stringify(modelCategories).substring(0,200) + "...");
+
 
 // Load agent persona instructions
 let agentInstructions = { global_instructions: [], ollama_specific_instructions: { default: [] }, openai_specific_instructions: { default: [] }, conference_participant_instructions: {} }; // Default
-const instructionsPath = path.join(__dirname, 'config', 'agent_instructions_template.json');
+const instructionsPath = path.resolve(__dirname, 'config', 'agent_instructions_template.json'); // Ensure absolute path for logging
+console.log(`[Config] Attempting to load agent instructions from: ${instructionsPath}`);
 try {
   if (fs.existsSync(instructionsPath)) {
     const instructionsFileContent = fs.readFileSync(instructionsPath, 'utf-8');
     agentInstructions = JSON.parse(instructionsFileContent);
-    console.log('[Config] Loaded agent instructions from agent_instructions_template.json');
+    console.log(`[Config] Successfully loaded agent instructions from ${instructionsPath}`);
   } else {
-    console.warn('[Config] agent_instructions_template.json not found. Using default empty instructions.');
+    console.warn(`[Config] agent_instructions_template.json not found at ${instructionsPath}. Using default empty instructions:`, agentInstructions);
     // Optionally, create a default one if it doesn't exist.
     // fs.writeFileSync(instructionsPath, JSON.stringify(agentInstructions, null, 2));
   }
 } catch (error) {
-  console.error('[Config] Error loading agent_instructions_template.json:', error);
-  // agentInstructions will retain its default value
+  console.error(`[Config] Error loading or parsing agent_instructions_template.json from ${instructionsPath}: ${error.message}. Using default instructions.`, agentInstructions);
+  agentInstructions = { global_instructions: [], ollama_specific_instructions: { default: [] }, openai_specific_instructions: { default: [] }, conference_participant_instructions: {} }; // Ensure reset
 }
+console.log("[Config] Final agentInstructions (summary):", {
+    global_instructions_count: agentInstructions.global_instructions.length,
+    ollama_specific_instructions_keys: Object.keys(agentInstructions.ollama_specific_instructions || {}),
+    openai_specific_instructions_keys: Object.keys(agentInstructions.openai_specific_instructions || {}),
+    conference_participant_instructions_keys: Object.keys(agentInstructions.conference_participant_instructions || {})
+});
+
 
 // Helper function to categorize Ollama models
 function categorizeOllamaModels(ollamaModels, config) {
@@ -397,7 +471,16 @@ try {
     CONFERENCES_LOG_DIR = getConfiguredPath(
         null, // No dedicated env var for this sub-path
         'conferencesLogDir', // Optional: could be in backend_config.json for this specific sub-directory
-        path.join(WORKSPACE_DIR, 'roadrunner_workspace'), // Default: relative to WORKSPACE_DIR
+        // Default: relative to WORKSPACE_DIR
+        (() => { // IIFE to ensure WORKSPACE_DIR is valid before path.join
+            if (!WORKSPACE_DIR || typeof WORKSPACE_DIR !== 'string') {
+                // This should ideally not happen if WORKSPACE_DIR's getConfiguredPath is called first and is critical.
+                // However, this provides an additional safeguard specific to CONFERENCES_LOG_DIR derivation.
+                console.error("[Config] CRITICAL: WORKSPACE_DIR is not valid for deriving CONFERENCES_LOG_DIR. This indicates a severe configuration problem.");
+                throw new Error("WORKSPACE_DIR is not valid for deriving CONFERENCES_LOG_DIR");
+            }
+            return path.join(WORKSPACE_DIR, 'roadrunner_workspace');
+        })(),
         true, // It's a directory
         true  // Critical: if WORKSPACE_DIR is set, this sub-directory must also be settable/creatable.
     );
@@ -425,15 +508,38 @@ app.get('/api/settings', (req, res) => {
 });
 
 app.post('/api/settings', (req, res) => {
+  const endpointName = '[POST /api/settings]';
+  console.log(`${endpointName} Request received. Body:`, req.body);
+
   const { llmProvider, apiKey, defaultOllamaModel } = req.body;
-  console.log('[API /api/settings] Received settings update request:', req.body);
+
+  // Basic validation: Ensure if keys are provided, they are of expected types (string or null for apiKey)
+  // More specific validation (e.g., llmProvider being one of known values) could be added if necessary.
+  if (llmProvider !== undefined && typeof llmProvider !== 'string') {
+    console.warn(`${endpointName} Invalid llmProvider type: ${typeof llmProvider}. Body:`, req.body);
+    return res.status(400).json({ message: 'Invalid llmProvider type. Must be a string if provided.' });
+  }
+  if (apiKey !== undefined && !(typeof apiKey === 'string' || apiKey === null)) {
+    // Allow apiKey to be explicitly set to null to clear it, but otherwise expect string.
+    console.warn(`${endpointName} Invalid apiKey type: ${typeof apiKey}. Body:`, req.body);
+    return res.status(400).json({ message: 'Invalid apiKey type. Must be a string or null if provided.' });
+  }
+  if (defaultOllamaModel !== undefined && typeof defaultOllamaModel !== 'string') {
+    console.warn(`${endpointName} Invalid defaultOllamaModel type: ${typeof defaultOllamaModel}. Body:`, req.body);
+    return res.status(400).json({ message: 'Invalid defaultOllamaModel type. Must be a string if provided.' });
+  }
 
   const newSettings = {
     ...backendSettings, // Preserve existing settings not being updated
   };
 
+  // Update settings if the new values are explicitly provided in the request.
+  // The `undefined` check means that if a key is not in req.body, its value in backendSettings remains unchanged.
+  // If a key is provided as `null` (e.g. apiKey: null), it will be set to null.
+  // If a key is provided as an empty string (e.g. llmProvider: ""), it will be set to an empty string.
+  // This behavior seems acceptable based on the audit task description.
   if (llmProvider !== undefined) newSettings.llmProvider = llmProvider;
-  if (apiKey !== undefined) newSettings.apiKey = apiKey;
+  if (apiKey !== undefined) newSettings.apiKey = apiKey; // Allows setting to null or empty string
   if (defaultOllamaModel !== undefined) newSettings.defaultOllamaModel = defaultOllamaModel;
 
   try {
@@ -448,15 +554,25 @@ app.post('/api/settings', (req, res) => {
 });
 
 app.post('/api/config/openai-key', (req, res) => {
+  const endpointName = '[POST /api/config/openai-key]';
   const { apiKey } = req.body;
-  const logPrefix = '[API /api/config/openai-key]';
+
+  // Log presence and type of apiKey, not the key itself for security.
+  console.log(`${endpointName} Request received. apiKey type: ${typeof apiKey}, apiKey provided: ${apiKey !== undefined}`);
 
   if (typeof apiKey !== 'string') {
-    console.warn(`${logPrefix} Received invalid API key format.`);
+    console.warn(`${endpointName} Received invalid API key format. Type: ${typeof apiKey}. Body:`, req.body);
     return res.status(400).json({ success: false, message: 'Invalid API key format. String expected.' });
   }
 
-  console.log(`${logPrefix} Received request to save OpenAI API Key.`);
+  // Optional: Consider if an empty string for apiKey should be disallowed.
+  // For now, as per audit, allowing empty string.
+  // if (apiKey.trim() === "") {
+  //   console.warn(`${endpointName} Received empty API key.`);
+  //   return res.status(400).json({ success: false, message: 'API key cannot be an empty string.' });
+  // }
+
+  console.log(`${endpointName} Processing request to save OpenAI API Key.`);
 
   // Create a new settings object to avoid direct mutation issues if backendSettings is complex
   const newSettings = {
@@ -760,53 +876,69 @@ function resolveTemplates(text, contextOutputs, sendSseMessage) {
       if (contextOutputs.hasOwnProperty(variableName)) {
         return contextOutputs[variableName];
       }
-      const warningMsg = `[Templating] Warning: Output variable '${variableName}' not found in context. Leaving template as is.`;
-      console.warn(warningMsg);
-      if (sendSseMessage) sendSseMessage('log_entry', { message: warningMsg });
-      return match;
+      const criticalWarningMsg = `[Templating] CRITICAL: Output variable '${variableName}' not found in context. Template '${match}' will remain unresolved!`;
+      console.error(criticalWarningMsg); // Changed to console.error for more visibility
+      if (sendSseMessage) {
+        // Send as an error type to frontend for potential highlighting
+        sendSseMessage('error', { content: `Template variable error: '${variableName}' not found in context. Step might fail or misbehave.` });
+      }
+      return match; // Return the original template string, relying on subsequent validation
     }
   );
 }
 
 function parseTaskPayload(req) {
+  const logPrefix = `[parseTaskPayload Method: ${req.method}]`;
   let task_description, stepsString, safetyModeString, isAutonomousModeString;
+
   if (req.method === 'POST') {
-    // For POST, data is in req.body
+    console.log(`${logPrefix} Parsing POST body:`, req.body);
     ({ task_description, steps: stepsString, safetyMode: safetyModeString, isAutonomousMode: isAutonomousModeString } = req.body);
   } else if (req.method === 'GET') {
-    // For GET, data is in req.query
+    console.log(`${logPrefix} Parsing GET query:`, req.query);
     ({ task_description, steps: stepsString, safetyMode: safetyModeString, isAutonomousMode: isAutonomousModeString } = req.query);
   } else {
+    console.warn(`${logPrefix} Unsupported request method.`);
     return { error: 'Unsupported request method.' };
   }
 
-  // isAutonomousMode defaults to false if not 'true'
+  // Validate task_description
+  if (task_description === null || task_description === undefined || String(task_description).trim() === '') {
+    console.warn(`${logPrefix} task_description is missing or empty.`);
+    return { error: 'task_description is required and cannot be empty.' };
+  }
+
+  // isAutonomousMode defaults to false if not 'true'.
+  // Current behavior: any string other than 'true' results in false.
   const isAutonomousMode = isAutonomousModeString === 'true';
-  console.log(`[parseTaskPayload] Autonomous Mode: ${isAutonomousMode} (raw string: '${isAutonomousModeString}')`);
+  console.log(`${logPrefix} Autonomous Mode: ${isAutonomousMode} (raw string: '${isAutonomousModeString}')`);
 
-  // Steps are not strictly required if in autonomous mode, as they will be generated.
-  // However, if not in autonomous mode, stepsString is required.
-  if (!task_description) {
-    return { error: 'Missing task_description in parameters.' };
-  }
-  if (!isAutonomousMode && !stepsString) {
-    return { error: 'Missing steps in parameters (and not in Autonomous Mode).' };
-  }
-
-  let steps = []; // Default to empty array, especially for autonomous mode
-  if (stepsString) { // Try to parse steps if provided (for non-autonomous or if frontend sends empty array string)
+  let steps = [];
+  if (stepsString) {
     try {
       steps = JSON.parse(stepsString);
+      if (!Array.isArray(steps)) {
+        console.warn(`${logPrefix} Parsed steps is not an array. Value:`, steps);
+        return { error: 'Invalid steps format. Must be a JSON stringified array.' };
+      }
     } catch (e) {
-      console.error('[parseTaskPayload] Error parsing steps:', e);
-      return { error: 'Invalid steps format. Must be JSON stringified array.' };
+      console.error(`${logPrefix} Error parsing stepsString: "${stepsString}". Error:`, e);
+      return { error: 'Invalid steps format. Must be a JSON stringified array.' };
     }
   }
 
-  // safetyMode defaults to true if not provided or if it's not 'false'.
-  // Only 'false' (string) explicitly turns it off.
+  // If not in autonomous mode, steps must be provided and be a non-empty array.
+  if (!isAutonomousMode && (!stepsString || steps.length === 0)) {
+    // This also covers cases where stepsString was provided but parsed to an empty array.
+    console.warn(`${logPrefix} Non-autonomous mode requires non-empty steps. Provided stepsString: "${stepsString}", Parsed steps count: ${steps.length}`);
+    return { error: 'Missing or empty steps in parameters (and not in Autonomous Mode).' };
+  }
+
+
+  // safetyMode defaults to true if not explicitly 'false'.
+  // Current behavior: any string other than 'false' (e.g., 'true', 'on', an empty string, or undefined) results in true.
   const safetyMode = safetyModeString !== 'false';
-  console.log(`[parseTaskPayload] Safety Mode: ${safetyMode} (raw string: '${safetyModeString}')`);
+  console.log(`${logPrefix} Safety Mode: ${safetyMode} (raw string: '${safetyModeString}')`);
 
   return { task_description, steps, safetyMode, isAutonomousMode };
 }
@@ -830,34 +962,47 @@ async function executeLoopBody(
   loopIterationNumber, // For logging context
   initialOperationCount // Current operation count from parent
 ) {
-  let operationCount = initialOperationCount; // This will track operations *within this loop body execution*
+  let operationCount = initialOperationCount;
   const loopBodyLogPrefix = `[Loop Body in Parent Step ${parentStepNumber}, Iteration ${loopIterationNumber + 1}]`;
+
+  if (!Array.isArray(loopSteps)) {
+    const errorMsg = `${loopBodyLogPrefix} loop_steps is not an array. Cannot execute.`;
+    console.error(errorMsg);
+    sendSseMessage('error', { content: `[SSE] ${errorMsg}` });
+    // This is a structural issue with the plan, return failure for the whole loop_iterations step.
+    return { status: 'failed', error: new Error(errorMsg), operationCount, failingInnerStepType: 'loop_iterations_setup', failingInnerStepDetails: { loop_steps: loopSteps } };
+  }
 
   sendSseMessage('log_entry', { message: `[SSE] ${loopBodyLogPrefix} Starting execution of ${loopSteps.length} inner steps. Initial op count for this iteration: ${operationCount}` });
   console.log(`${loopBodyLogPrefix} Starting with ${loopSteps.length} inner steps. Initial op count for this iteration: ${operationCount}`);
 
   for (let idx = 0; idx < loopSteps.length; idx++) {
-    let currentLoopStep = JSON.parse(JSON.stringify(loopSteps[idx])); // Deep clone for modification
+    let currentLoopStep = JSON.parse(JSON.stringify(loopSteps[idx])); // Deep clone
     const innerStepNumber = idx + 1;
     const innerStepLogPrefix = `${loopBodyLogPrefix} Inner Step ${innerStepNumber}/${loopSteps.length} (Type: ${currentLoopStep.type})`;
 
-    // Resolve templates in currentLoopStep.details
+    // Guard template resolution
     if (currentLoopStep.details) {
       for (const key in currentLoopStep.details) {
         if (typeof currentLoopStep.details[key] === 'string') {
           currentLoopStep.details[key] = resolveTemplates(
             currentLoopStep.details[key],
-            taskContext.outputs, // taskContext.outputs includes the iterator_var
+            taskContext.outputs,
             sendSseMessage
           );
         }
       }
+    } else { // No details object at all
+        const missingDetailsMsg = `${innerStepLogPrefix}: Step details are missing.`;
+        console.warn(missingDetailsMsg);
+        // This is a failure for this inner step
+        return { status: 'failed', error: new Error(missingDetailsMsg), operationCount, failingInnerStepType: currentLoopStep.type, failingInnerStepDetails: null };
     }
 
-    const processingMessage = `[SSE] ${innerStepLogPrefix}: Processing with details: ${JSON.stringify(currentLoopStep.details)}`;
-    sendSseMessage('log_entry', { message: processingMessage });
-    overallExecutionLog.push(processingMessage.replace('[SSE] ', '').trim()); // Add to main log
-    console.log(`${innerStepLogPrefix}: Processing with details: ${JSON.stringify(currentLoopStep.details)}`);
+    console.log(`${innerStepLogPrefix} Processing. Validated Details: ${JSON.stringify(currentLoopStep.details)}`);
+    // No SSE for validated details to avoid too much noise, server log is sufficient.
+    overallExecutionLog.push(`${innerStepLogPrefix} Validated Details: ${JSON.stringify(currentLoopStep.details)}`);
+
 
     try {
       // IMPORTANT: Operations inside executeLoopBody are considered non-interactive for confirmation purposes *for now*.
@@ -867,26 +1012,30 @@ async function executeLoopBody(
       const isConfirmedActionWithinLoop = true; // Effectively, all actions inside a loop iteration are treated as confirmed in batch.
 
       if (currentLoopStep.type === 'generic_step' || currentLoopStep.type === 'execute_generic_task_with_llm') {
-        const promptText = currentLoopStep.details?.prompt || currentLoopStep.details?.description;
-        if (!promptText) throw new Error("Missing prompt/description for step.");
-
-        sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: LLM prompt: "${promptText.substring(0, 70)}..."` });
-        // Assuming generic steps in a loop are coder-like for now
+        const promptText = currentLoopStep.details.prompt || currentLoopStep.details.description;
+        if (!promptText || typeof promptText !== 'string' || promptText.trim() === '') {
+          throw new Error("Missing or invalid 'prompt' or 'description' in details for generic_step.");
+        }
+        if (currentLoopStep.details.output_id && (typeof currentLoopStep.details.output_id !== 'string' || currentLoopStep.details.output_id.trim() === '')) {
+            throw new Error("Invalid 'output_id' in details for generic_step: must be a non-empty string if provided.");
+        }
+        console.log(`${innerStepLogPrefix} Executing LLM. Prompt: "${promptText.substring(0,50)}...", Output ID: ${currentLoopStep.details.output_id || 'N/A'}`);
         const llmFullResponse = await generateFromLocal(promptText, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes, { agentType: 'coder_agent' });
         if (llmFullResponse.startsWith('// LLM_ERROR:') || llmFullResponse.startsWith('// LLM_WARNING:')) {
           throw new Error(`LLM generation failed: ${llmFullResponse}`);
         }
         if (currentLoopStep.details.output_id) {
-          taskContext.outputs[currentLoopStep.details.output_id] = llmFullResponse;
-          sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: Stored LLM output to '${currentLoopStep.details.output_id}'.` });
+          taskContext.outputs[currentLoopStep.details.output_id.trim()] = llmFullResponse;
+          sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: Stored LLM output to '${currentLoopStep.details.output_id.trim()}'.` });
         }
         operationCount++;
         overallExecutionLog.push(`  ${innerStepLogPrefix}: LLM call completed. Operation count: ${operationCount}`);
       } else if (currentLoopStep.type === 'createFile') {
-        const { filePath, content } = currentLoopStep.details || {};
-        if (!filePath || content === undefined) throw new Error("Missing filePath or content for createFile.");
+        const { filePath, content } = currentLoopStep.details;
+        if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') throw new Error("Missing or invalid 'filePath' for createFile.");
+        if (content === undefined || typeof content !== 'string') throw new Error("Missing or invalid 'content' for createFile (must be a string, can be empty).");
 
-        // Inside loop, requireConfirmation is false, isConfirmedAction is true for fsAgent purposes
+        console.log(`${innerStepLogPrefix} Creating file. Path: ${filePath}, Content Length: ${content.length}`);
         const createFileResult = fsAgent.createFile(filePath, content, { requireConfirmation: false, isConfirmedAction: isConfirmedActionWithinLoop });
         if (!createFileResult.success) throw new Error(`Failed to create file: ${createFileResult.message}`);
 
@@ -894,18 +1043,19 @@ async function executeLoopBody(
         operationCount++;
         overallExecutionLog.push(`  ${innerStepLogPrefix}: File created. Path: ${createFileResult.fullPath}. Operation count: ${operationCount}`);
       } else if (currentLoopStep.type === 'create_file_with_llm_content') {
-        const { filePath, prompt, output_id } = currentLoopStep.details || {};
-        if (!filePath || !prompt) throw new Error("Missing filePath or prompt for create_file_with_llm_content.");
+        const { filePath, prompt, output_id } = currentLoopStep.details;
+        if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') throw new Error("Missing or invalid 'filePath' for create_file_with_llm_content.");
+        if (!prompt || typeof prompt !== 'string' || prompt.trim() === '') throw new Error("Missing or invalid 'prompt' for create_file_with_llm_content.");
+        if (output_id && (typeof output_id !== 'string' || output_id.trim() === '')) throw new Error("Invalid 'output_id' for create_file_with_llm_content (must be non-empty string if provided).");
 
-        sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: LLM for file content (path: ${filePath}) prompt: "${prompt.substring(0, 70)}..."` });
-        // Assuming file content generation is coder-like for now
+        console.log(`${innerStepLogPrefix} Creating file with LLM. Path: ${filePath}, Prompt: "${prompt.substring(0,50)}...", Output ID: ${output_id || 'N/A'}`);
         const fileContent = await generateFromLocal(prompt, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes, { agentType: 'coder_agent' });
         if (fileContent.startsWith('// LLM_ERROR:') || fileContent.startsWith('// LLM_WARNING:')) {
           throw new Error(`LLM generation for file content failed: ${fileContent}`);
         }
         if (output_id) {
-          taskContext.outputs[output_id] = fileContent;
-           sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: Stored generated file content to '${output_id}'.` });
+          taskContext.outputs[output_id.trim()] = fileContent;
+           sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: Stored generated file content to '${output_id.trim()}'.` });
         }
 
         const createFileResult = fsAgent.createFile(filePath, fileContent, { requireConfirmation: false, isConfirmedAction: isConfirmedActionWithinLoop });
@@ -915,27 +1065,30 @@ async function executeLoopBody(
         operationCount++;
         overallExecutionLog.push(`  ${innerStepLogPrefix}: File with LLM content created. Path: ${createFileResult.fullPath}. Operation count: ${operationCount}`);
       } else if (currentLoopStep.type === 'readFile' || currentLoopStep.type === 'read_file_to_output') {
-        const { filePath, output_id } = currentLoopStep.details || {};
-        if (!filePath || !output_id) throw new Error("Missing filePath or output_id for readFile.");
+        const { filePath, output_id } = currentLoopStep.details;
+        if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') throw new Error("Missing or invalid 'filePath' for readFile.");
+        if (!output_id || typeof output_id !== 'string' || output_id.trim() === '') throw new Error("Missing or invalid 'output_id' for readFile.");
+
+        console.log(`${innerStepLogPrefix} Reading file. Path: ${filePath}, Output ID: ${output_id}`);
         const readFileResult = fsAgent.readFile(filePath);
         if (!readFileResult.success) throw new Error(`Failed to read file: ${readFileResult.message}`);
-        taskContext.outputs[output_id] = readFileResult.content;
-        sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: File read: ${readFileResult.fullPath}, content stored in '${output_id}'.`});
-        // Reading is not typically counted as a "modifying" operation for batch confirmation, so operationCount might not be incremented.
-        // If it should be, add operationCount++;
+        taskContext.outputs[output_id.trim()] = readFileResult.content;
+        sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: File read: ${readFileResult.fullPath}, content stored in '${output_id.trim()}'.`});
         overallExecutionLog.push(`  ${innerStepLogPrefix}: File read. Path: ${readFileResult.fullPath}.`);
       } else if (currentLoopStep.type === 'updateFile') {
-        const { filePath, content, append } = currentLoopStep.details || {};
-        if (!filePath || content === undefined) throw new Error("Missing filePath or content for updateFile.");
-        const updateFileResult = fsAgent.updateFile(filePath, content, { append, requireConfirmation: false, isConfirmedAction: isConfirmedActionWithinLoop });
+        const { filePath, content, append } = currentLoopStep.details;
+        if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') throw new Error("Missing or invalid 'filePath' for updateFile.");
+        if (content === undefined || typeof content !== 'string') throw new Error("Missing or invalid 'content' for updateFile (must be a string, can be empty).");
+        if (append !== undefined && typeof append !== 'boolean') throw new Error("Invalid 'append' value for updateFile (must be boolean if provided).");
+
+        const effectiveAppend = append === undefined ? false : append; // Default append to false if not provided
+        console.log(`${innerStepLogPrefix} Updating file. Path: ${filePath}, Content Length: ${content.length}, Append: ${effectiveAppend}`);
+        const updateFileResult = fsAgent.updateFile(filePath, content, { append: effectiveAppend, requireConfirmation: false, isConfirmedAction: isConfirmedActionWithinLoop });
         if(!updateFileResult.success) throw new Error(`Failed to update file: ${updateFileResult.message}`);
         sendSseMessage('log_entry', { message: `[SSE] ${innerStepLogPrefix}: File updated: ${updateFileResult.fullPath}`});
         operationCount++;
         overallExecutionLog.push(`  ${innerStepLogPrefix}: File updated. Path: ${updateFileResult.fullPath}. Operation count: ${operationCount}`);
-      }
-      // Add other relevant, non-interactive step types here, mirroring their logic from executeStepsInternal
-      // Ensure they increment `operationCount` if they are modifying operations.
-      else {
+      } else {
         const unknownStepMsg = `[SSE] ${innerStepLogPrefix}: Unknown or unsupported step type '${currentLoopStep.type}' within loop body. Skipping.`;
         sendSseMessage('log_entry', { message: unknownStepMsg });
         overallExecutionLog.push(`  ${innerStepLogPrefix}: WARNING - ${unknownStepMsg.replace('[SSE] ', '')}`);
@@ -988,17 +1141,44 @@ async function executeStepsInternal(
   // Helper function to trigger step failure
   // Standardizes error reporting, stores failure details for potential user resolution, and sends failure options to the client.
   const triggerStepFailure = (errorMessage, errorDetails, stepType, stepNumber, currentStepContext) => {
-    const fullErrorMessage = `Step ${stepNumber} (${stepType}): ${errorMessage}`;
+    let displayErrorMessage = errorMessage;
+    const currentStepForErrorMessage = steps[currentStepContext.i]; // Access step from outer scope for context
+
+    // Try to create a more specific message if the incoming one is generic
+    if (errorMessage === "Unknown error after retries/refinements." ||
+        errorMessage === "Unknown error after retries/refinements/evaluation." ||
+        errorMessage === "Step processing failed with an unspecified error before triggering failure." || // From previous changes
+        !errorMessage) {
+        if (errorDetails && errorDetails.details && errorDetails.details.originalError && errorDetails.details.originalError !== "null" && errorDetails.details.originalError.trim() !== "") {
+            displayErrorMessage = `Step failed after all attempts. Last known original error: ${errorDetails.details.originalError}`;
+        } else if (errorDetails && errorDetails.message && errorDetails.message !== errorMessage && errorDetails.message.trim() !== "") {
+            // If errorDetails.message is more specific than the generic one (and not empty)
+            displayErrorMessage = `Step failed after all attempts. Last reported reason: ${errorDetails.message}`;
+        } else if (currentStepForErrorMessage && currentStepForErrorMessage.details && currentStepForErrorMessage.details.evaluationPrompt && errorMessage.includes("Evaluation failed")) {
+            // Generic fallback for evaluation failures if other details are missing
+            displayErrorMessage = `Step ${stepNumber} (${stepType}) failed LLM evaluation after all attempts with an unspecified evaluation error.`;
+        } else {
+            displayErrorMessage = `Step ${stepNumber} (${stepType}) failed with an unspecified error after all attempts.`;
+        }
+    }
+
+    const fullErrorMessage = `Step ${stepNumber} (${stepType}): ${displayErrorMessage}`;
     overallExecutionLog.push(`  -> ❌ ${fullErrorMessage}`);
     console.error(`[executeStepsInternal] ${fullErrorMessage}`, errorDetails || '');
 
     const failureId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
 
+    let originalErrorDetailString = errorDetails instanceof Error ? errorDetails.toString() : (typeof errorDetails === 'string' ? errorDetails : JSON.stringify(errorDetails));
+    if (originalErrorDetailString === "\"null\"" || originalErrorDetailString === "null") { // Handles JSON stringified "null" or direct string "null"
+        originalErrorDetailString = "No specific original error message provided.";
+    }
+
+
     let standardizedError = {
       code: 'SERVER_STEP_EXECUTION_FAILED', // Default code
-      message: errorMessage,
+      message: displayErrorMessage, // Use the potentially improved message
       details: {
-        originalError: errorDetails instanceof Error ? errorDetails.toString() : (typeof errorDetails === 'string' ? errorDetails : JSON.stringify(errorDetails)),
+        originalError: originalErrorDetailString,
         stack: errorDetails instanceof Error ? errorDetails.stack : undefined,
       },
       stepType: stepType,
@@ -1009,7 +1189,7 @@ async function executeStepsInternal(
     // which contains a structured .error property, use that.
     if (errorDetails && typeof errorDetails === 'object' && errorDetails.error && typeof errorDetails.error.code === 'string') {
       standardizedError.code = errorDetails.error.code; // Use specific code from agent
-      standardizedError.message = errorDetails.error.message || errorMessage; // Prefer agent's message
+      standardizedError.message = errorDetails.error.message || displayErrorMessage; // Prefer agent's message, fallback to displayErrorMessage
       standardizedError.details = { ...standardizedError.details, ...errorDetails.error.details, agentReported: true };
       // Keep the original full errorDetails in details if it's more than just the .error part
       if (Object.keys(errorDetails).filter(k => k !== 'error' && k !== 'success' && k !== 'message').length > 0) {
@@ -1017,12 +1197,12 @@ async function executeStepsInternal(
       }
     } else if (errorDetails instanceof Error) {
         // For generic Error objects, try to make a more specific code if possible based on message or type
-        if (errorDetails.message && errorDetails.message.includes("LLM generation failed")) {
+        if (displayErrorMessage && displayErrorMessage.includes("LLM generation failed")) { // Check displayErrorMessage
             standardizedError.code = 'LLM_GENERATION_FAILED_IN_STEP';
-        } else if (errorDetails.message && errorDetails.message.includes("Loop body execution failed")) {
+        } else if (displayErrorMessage && displayErrorMessage.includes("Loop body execution failed")) { // Check displayErrorMessage
             standardizedError.code = 'LOOP_BODY_EXECUTION_FAILED';
         }
-        // message is already errorMessage, which is errorDetails.message
+        // message is already displayErrorMessage or a more specific one from agent
         // details.originalError and details.stack are already set
     }
 
@@ -1045,25 +1225,30 @@ async function executeStepsInternal(
   // Main loop for iterating through each step in the task.
   for (let i = startingStepIndex; i < steps.length; i++) {
     let currentStep = JSON.parse(JSON.stringify(steps[i])); // Deep clone current step
-
     const stepNumber = i + 1;
+    const stepLogPrefix = `[executeStepsInternal Step ${stepNumber} (${currentStep.type})]`;
 
-    // Resolve templates in step details (outside the loop_iterations block this is fine)
+    // Resolve templates in step details if details exist
     if (currentStep.details) {
       for (const key in currentStep.details) {
         if (typeof currentStep.details[key] === 'string') {
           currentStep.details[key] = resolveTemplates(
             currentStep.details[key],
             taskContext.outputs,
-            (type, data) => sendSseMessage(type, data, expressHttpRes)
+            (type, data) => sendSseMessage(type, data, expressHttpRes) // Pass sendSseMessage correctly
           );
         }
       }
+    } else if (currentStep.type !== 'show_workspace_tree') { // show_workspace_tree can have null details
+      // For most steps, details are required.
+      triggerStepFailure("Step details are missing.", null, currentStep.type, stepNumber, {i});
+      return; // Stop processing this task
     }
-    const processingMessage = `\n[SSE] Processing Step ${stepNumber}: Type: ${currentStep.type}, Initial Details: ${JSON.stringify(currentStep.details)}`;
-    sendSseMessage('log_entry', { message: processingMessage }, expressHttpRes);
-    overallExecutionLog.push(processingMessage.replace('[SSE] ', ''));
-    console.log(`[executeStepsInternal] Processing Step ${stepNumber}: Type: ${currentStep.type}, Initial Details: ${JSON.stringify(currentStep.details)}`);
+
+    // Log initial details before validation specific to step type might modify/fail
+    console.log(`${stepLogPrefix} Initial Details after template resolution: ${JSON.stringify(currentStep.details)}`);
+    sendSseMessage('log_entry', { message: `\n[SSE] Processing Step ${stepNumber}: Type: ${currentStep.type}, Initial Details: ${JSON.stringify(currentStep.details)}` }, expressHttpRes);
+    overallExecutionLog.push(`${stepLogPrefix} Initial Details: ${JSON.stringify(currentStep.details)}`);
 
     // Initialize retry and refinement counts for the current step
     currentStep._internalRetryCount = currentStep._internalRetryCount || 0;
@@ -1115,25 +1300,29 @@ async function executeStepsInternal(
 
         // --- Actual Step Execution Logic (moved inside the while loop) ---
         if (currentStep.type === 'loop_iterations') {
-          const { count, loop_steps, iterator_var } = currentStep.details || {};
-          const loopStepNumberForLog = stepNumber; // To refer to the loop_iterations step itself
-          const logLoopPrefix = `[Step ${loopStepNumberForLog} (loop_iterations)]`;
+          if (!currentStep.details) { // Should have been caught earlier, but as a safeguard
+            triggerStepFailure("Step details are missing for loop_iterations.", null, currentStep.type, stepNumber, {i});
+            return;
+          }
+          const { count, loop_steps, iterator_var } = currentStep.details; // No || {} here, details must exist.
 
           if (typeof count !== 'number' || count <= 0) {
-            const errorMsg = `${logLoopPrefix} 'count' must be a positive number. Found: ${count}`;
-            triggerStepFailure(errorMsg, { count }, currentStep.type, loopStepNumberForLog, {i});
-            return; // Pause execution
+            triggerStepFailure("Missing or invalid 'count' in details for loop_iterations step: must be a positive number.", { count }, currentStep.type, stepNumber, {i});
+            return;
           }
-
           if (!Array.isArray(loop_steps) || loop_steps.length === 0) {
-            const errorMsg = `${logLoopPrefix} 'loop_steps' must be a non-empty array.`;
-            triggerStepFailure(errorMsg, { loop_steps }, currentStep.type, loopStepNumberForLog, {i});
-            return; // Pause execution
+            triggerStepFailure("Missing or invalid 'loop_steps' in details for loop_iterations step: must be a non-empty array.", { loop_steps }, currentStep.type, stepNumber, {i});
+            return;
           }
-
-          sendSseMessage('log_entry', { message: `[SSE] ${logLoopPrefix} Starting loop for ${count} iterations.` });
-          overallExecutionLog.push(`  -> ${logLoopPrefix} Iterations: ${count}. Iterator Var: ${iterator_var || 'N/A'}`);
-          console.log(`${logLoopPrefix} Starting loop for ${count} iterations. Iterator: ${iterator_var || 'N/A'}`);
+          if (iterator_var !== undefined && (typeof iterator_var !== 'string' || iterator_var.trim() === '')) {
+            // Log a warning and proceed without it, or fail if it should be critical
+            console.warn(`${stepLogPrefix} Invalid 'iterator_var': "${iterator_var}". Must be a non-empty string if provided. Proceeding without setting iterator variable.`);
+            // To make it critical: triggerStepFailure(...) and return. For now, warning.
+            currentStep.details.iterator_var = undefined; // Effectively disable it if invalid
+          }
+          console.log(`${stepLogPrefix} Validated Details: Count=${count}, Loop Steps Count=${loop_steps.length}, Iterator Var=${currentStep.details.iterator_var || 'N/A'}`);
+          overallExecutionLog.push(`${stepLogPrefix} Validated Details - Count: ${count}, Loop Steps Count: ${loop_steps.length}, Iterator Var: ${currentStep.details.iterator_var || 'N/A'}`);
+          sendSseMessage('log_entry', { message: `[SSE] ${stepLogPrefix} Starting loop for ${count} iterations.` });
 
           const originalIteratorValue = iterator_var ? taskContext.outputs[iterator_var] : undefined;
 
@@ -1249,60 +1438,68 @@ async function executeStepsInternal(
         currentStep.type === 'generic_step' ||
         currentStep.type === 'execute_generic_task_with_llm'
       ) {
-        overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
-        const promptText =
-          currentStep.details?.prompt || currentStep.details?.description;
-        if (promptText) {
-          overallExecutionLog.push(`  -> Prompt for LLM: "${promptText}"`);
-          sendSseMessage('log_entry', {
-            message: `[SSE] Step ${stepNumber} (${currentStep.type}): Sending prompt to LLM: "${promptText.substring(0, 100)}..."`,
-          }, expressHttpRes);
-          // Temporarily assume coder_agent for generic_step
-          let llmFullResponse = await generateFromLocal(promptText, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes, { agentType: 'coder_agent' });
+        if (!currentStep.details) { triggerStepFailure("Step details are missing.", null, currentStep.type, stepNumber, {i}); return; }
+        const promptText = currentStep.details.prompt || currentStep.details.description;
+        const outputId = currentStep.details.output_id;
 
-          if (llmFullResponse.startsWith('// LLM_ERROR:') || llmFullResponse.startsWith('// LLM_WARNING:')) {
-            triggerStepFailure(`LLM generation failed.`, llmFullResponse, currentStep.type, stepNumber, {i});
-            return;
-          }
+        if (!promptText || typeof promptText !== 'string' || promptText.trim() === '') {
+          triggerStepFailure("Missing or invalid 'prompt' or 'description' in details for generic_step.", {promptText}, currentStep.type, stepNumber, {i}); return;
+        }
+        if (outputId !== undefined && (typeof outputId !== 'string' || outputId.trim() === '')) {
+          triggerStepFailure("Invalid 'output_id' in details for generic_step: must be a non-empty string if provided.", {outputId}, currentStep.type, stepNumber, {i}); return;
+        }
 
-          overallExecutionLog.push(`  -> LLM Response (summary): ${llmFullResponse.substring(0, 200)}...`);
-          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): LLM stream completed.` }, expressHttpRes);
+        console.log(`${stepLogPrefix} Validated Details - Prompt length: ${promptText.length}, Output ID: ${outputId || 'N/A'}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - Prompt length: ${promptText.length}, Output ID: ${outputId || 'N/A'}`);
+        sendSseMessage('log_entry', { message: `[SSE] ${stepLogPrefix} Sending prompt to LLM: "${promptText.substring(0, 100)}..."` }, expressHttpRes);
 
-          if (currentStep.details.output_id) {
-            taskContext.outputs[currentStep.details.output_id] =
-              llmFullResponse;
-            sendSseMessage('log_entry', {
-              message: `[SSE] Stored LLM response in context as output_id: '${currentStep.details.output_id}'`,
-            }, expressHttpRes);
-            overallExecutionLog.push(
-              `  -> Stored LLM response in context as output_id: '${currentStep.details.output_id}'`
-            );
-          }
-        } else {
-          const errorMsg = `Missing 'details.prompt' or 'details.description'.`;
-          triggerStepFailure(errorMsg, null, currentStep.type, stepNumber, {i});
+        console.log(`${stepLogPrefix} Calling generateFromLocal with prompt: "${promptText.substring(0,50)}...", model: ${backendSettings.defaultOllamaModel || 'codellama'}`);
+        let llmFullResponse = await generateFromLocal(promptText, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes, { agentType: 'coder_agent' });
+
+        if (llmFullResponse.startsWith('// LLM_ERROR:') || llmFullResponse.startsWith('// LLM_WARNING:')) {
+          triggerStepFailure(`LLM generation failed.`, llmFullResponse, currentStep.type, stepNumber, {i});
           return;
         }
-        operationCountSinceLastConfirmation++; // LLM call is an operation
-      // Handles 'create_file_with_llm_content' steps, generating file content via LLM and saving it.
-      } else if (currentStep.type === 'create_file_with_llm_content') {
-        overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
-        const {
-          filePath: originalFilePath_llm, // Rename to avoid conflict
-          prompt,
-          content_from_llm,
-          output_id,
-        } = currentStep.details || {};
-        let filePath = originalFilePath_llm;
-        const originalFilePathForExtensionCheck = originalFilePath_llm; // Use original for extension check
+        sendSseMessage('log_entry', { message: `[SSE] ${stepLogPrefix} LLM stream completed.` }, expressHttpRes);
+        overallExecutionLog.push(`  -> ${stepLogPrefix} LLM Response (summary): ${llmFullResponse.substring(0, 200)}...`);
 
+        if (outputId) {
+          taskContext.outputs[outputId.trim()] = llmFullResponse;
+          sendSseMessage('log_entry', { message: `[SSE] Stored LLM response in context as output_id: '${outputId.trim()}'` }, expressHttpRes);
+          overallExecutionLog.push(`  -> ${stepLogPrefix} Stored LLM response in context as output_id: '${outputId.trim()}'`);
+        }
+        operationCountSinceLastConfirmation++;
+      } else if (currentStep.type === 'create_file_with_llm_content') { // Validations for this type are already done above.
+        // This block now mainly contains sandboxing, agent calls, and confirmation logic.
+        // Details like filePath, prompt, content_from_llm, output_id were validated before this try-catch's main body.
+        const { filePath: originalFilePath_llm, prompt, content_from_llm, output_id } = currentStep.details;
+        let filePath = originalFilePath_llm;
+        const originalFilePathForExtensionCheck = originalFilePath_llm;
+
+        if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') {
+          triggerStepFailure("Missing or invalid 'filePath' in details for create_file_with_llm_content.", {filePath}, currentStep.type, stepNumber, {i}); return;
+        }
+        if (output_id !== undefined && (typeof output_id !== 'string' || output_id.trim() === '')) {
+          triggerStepFailure("Invalid 'output_id' in details for create_file_with_llm_content: must be a non-empty string if provided.", {output_id}, currentStep.type, stepNumber, {i}); return;
+        }
+        if (content_from_llm === undefined && (!prompt || typeof prompt !== 'string' || prompt.trim() === '')) {
+          triggerStepFailure("Missing or invalid 'prompt' (required if 'content_from_llm' is not provided) in details for create_file_with_llm_content.", {prompt}, currentStep.type, stepNumber, {i}); return;
+        }
+        if (content_from_llm !== undefined && typeof content_from_llm !== 'string') {
+          triggerStepFailure("Invalid 'content_from_llm' in details for create_file_with_llm_content (must be string if provided).", {content_from_llm_type: typeof content_from_llm }, currentStep.type, stepNumber, {i}); return;
+        }
+
+        console.log(`${stepLogPrefix} Validated Details - FilePath: ${filePath}, Prompt: ${prompt ? `len ${prompt.length}` : 'N/A'}, Content_from_LLM: ${content_from_llm !== undefined ? `len ${content_from_llm.length}` : 'N/A'}, Output ID: ${output_id || 'N/A'}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - FilePath: ${filePath}, Prompt: ${prompt ? `len ${prompt.length}` : 'N/A'}, Content_from_LLM: ${content_from_llm !== undefined ? `len ${content_from_llm.length}` : 'N/A'}, Output ID: ${output_id || 'N/A'}`);
+
+        // Sandboxing (already existed, kept as is)
         if (sandboxSubDir && filePath) {
           filePath = path.join(sandboxSubDir, filePath);
           console.log(`[Sandboxing] Remapped filePath for ${agentContext} to: ${filePath}`);
           sendSseMessage('log_entry', { message: `[SSE] Path sandboxed for ${agentContext}: ${filePath}` }, expressHttpRes);
         }
 
-        // File type restriction check
+        // File type restriction check (already existed)
         if ((agentContext === 'conference_agent' || agentContext === 'brainstorming_agent') && originalFilePathForExtensionCheck) {
           const fileExt = path.extname(originalFilePathForExtensionCheck).toLowerCase();
           if (!ALLOWED_AGENT_FILE_EXTENSIONS.includes(fileExt)) {
@@ -1331,39 +1528,29 @@ async function executeStepsInternal(
         let fileContent = '';
         let contentSource = '';
 
-        if (!filePath) {
-          triggerStepFailure(`Missing 'details.filePath'.`, null, currentStep.type, stepNumber, {i});
-          return;
-        }
-
+        // filePath already validated
         if (content_from_llm !== undefined) {
-          fileContent = content_from_llm;
+          fileContent = content_from_llm; // Already validated as string if provided
           contentSource = 'content_from_llm';
-        } else if (prompt) {
+        } else { // prompt must be valid if content_from_llm is not used (already checked)
           contentSource = 'llm_prompt';
-          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): Sending prompt to LLM for file content: "${prompt.substring(0, 100)}..."` }, expressHttpRes);
-          // Temporarily assume coder_agent for create_file_with_llm_content
+          sendSseMessage('log_entry', { message: `[SSE] ${stepLogPrefix} Sending prompt to LLM for file content: "${prompt.substring(0, 100)}..."` }, expressHttpRes);
+          console.log(`${stepLogPrefix} Calling generateFromLocal for file content. Prompt: "${prompt.substring(0,50)}...", Model: ${backendSettings.defaultOllamaModel || 'codellama'}`);
           fileContent = await generateFromLocal(prompt, backendSettings.defaultOllamaModel || 'codellama', expressHttpRes, { agentType: 'coder_agent' });
-          sendSseMessage('log_entry', { message: `[SSE] Step ${stepNumber} (${currentStep.type}): LLM stream completed.` }, expressHttpRes);
+          sendSseMessage('log_entry', { message: `[SSE] ${stepLogPrefix} LLM stream for file content completed.` }, expressHttpRes);
 
           if (fileContent.startsWith('// LLM_ERROR:') || fileContent.startsWith('// LLM_WARNING:')) {
             triggerStepFailure(`LLM generation for file content failed.`, fileContent, currentStep.type, stepNumber, {i});
             return;
           }
-        } else {
-          triggerStepFailure(`Requires 'details.prompt' or 'details.content_from_llm'.`, null, currentStep.type, stepNumber, {i});
-          return;
         }
+        // output_id already validated
         if (output_id) {
-          taskContext.outputs[output_id] = fileContent;
-          sendSseMessage('log_entry', {
-            message: `[SSE] Stored content (from ${contentSource}) in context as output_id: '${output_id}'`,
-          }, expressHttpRes);
+          taskContext.outputs[output_id.trim()] = fileContent;
+          sendSseMessage('log_entry', { message: `[SSE] Stored content (from ${contentSource}) in context as output_id: '${output_id.trim()}'` }, expressHttpRes);
         }
-        sendSseMessage('log_entry', {
-          message: `[SSE] Creating file: '${filePath}' with content from ${contentSource}`,
-        }, expressHttpRes);
-
+        sendSseMessage('log_entry', { message: `[SSE] Creating file: '${filePath}' with content from ${contentSource}` }, expressHttpRes);
+        console.log(`${stepLogPrefix} Calling fsAgent.createFile. Path: ${filePath}, Content Length: ${fileContent.length}, Options: ${JSON.stringify(fsOptions)}`);
         operationCountSinceLastConfirmation++;
         if (safetyMode && operationCountSinceLastConfirmation >= CONFIRM_AFTER_N_OPERATIONS && !fsOptions.requireConfirmation && !isConfirmedAction) {
             const confirmationId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
@@ -1416,84 +1603,87 @@ async function executeStepsInternal(
         }
       // Handles 'git_operation' steps for executing Git commands.
       } else if (currentStep.type === 'git_operation') {
-        overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
-        const { command, output_id, ...details } = currentStep.details;
+      } else if (currentStep.type === 'git_operation') {
+        if (!currentStep.details) { triggerStepFailure("Step details are missing for git_operation.", null, currentStep.type, stepNumber, {i}); return; }
+
+        const { command, output_id, ...opDetails } = currentStep.details; // Use opDetails for command-specific values
+        const projectRoot = path.resolve(__dirname, '../../'); // For path relativity
         let gitAgentFunction;
         let gitArgs = [];
-        // The default ModularGitAgent instance uses workDir: path.resolve(__dirname, '../../') (project root)
-        // File paths for git operations should be relative to this project root.
-        // WORKSPACE_DIR is path.resolve(__dirname, '../output') by default.
-        // If details.filePath is relative to WORKSPACE_DIR, we need to make it relative to project root.
-        const projectRoot = path.resolve(__dirname, '../../');
+
+        if (!command || typeof command !== 'string' || command.trim() === '') {
+          triggerStepFailure("Missing or invalid 'command' in details for git_operation.", {command}, currentStep.type, stepNumber, {i}); return;
+        }
+        if (output_id !== undefined && (typeof output_id !== 'string' || output_id.trim() === '')) {
+          triggerStepFailure("Invalid 'output_id' in details for git_operation: must be a non-empty string if provided.", {output_id}, currentStep.type, stepNumber, {i}); return;
+        }
+
+        const validCommands = ['add', 'commit', 'pull', 'push', 'revert_last_commit'];
+        if (!validCommands.includes(command)) {
+          triggerStepFailure(`Unsupported 'command' "${command}" in details for git_operation.`, {command}, currentStep.type, stepNumber, {i}); return;
+        }
+
+        let validatedOpDetailsString = `Command: ${command}`;
 
         switch (command) {
           case 'add':
             gitAgentFunction = gitAgent.gitAdd;
-            if (details.filePath) {
-              let gitFilePath = details.filePath;
-              // Git operations are relative to project root, not WORKSPACE_DIR typically.
-              // Sandboxing for git_operation might need careful consideration if paths are meant to be within WORKSPACE_DIR/sandbox.
-              // For this subtask, we assume details.filePath for git is NOT sandboxed unless fsAgent itself handles it
-              // based on its own working directory context which is project root.
-              // If sandboxing is desired for git 'add' paths that are within the workspace,
-              // the sandboxed path should be made relative to projectRoot.
-              // Example: if WORKSPACE_DIR is /app/output and sandbox is conference_files,
-              // user provides 'my_doc.txt'. Sandboxed: 'conference_files/my_doc.txt'.
-              // Resolved by fsAgent for git: 'output/conference_files/my_doc.txt' (relative to project root /app)
-
-              // For now, git operations are NOT sandboxed here directly. fsAgent's path resolution applies.
-              // If sandboxing is needed for git paths, it implies the git command itself operates within the sandboxed sub-directory.
-              // This is a more complex change for gitAgent or requires tasks to be structured differently.
-
-              const absoluteFilePath = fsAgent.resolvePathInWorkspace(gitFilePath).fullPath;
-              if (absoluteFilePath) {
-                  gitArgs = [path.relative(projectRoot, absoluteFilePath)];
-              } else {
-                  const errorMsg = `Error resolving path for git add: ${gitFilePath}`;
-                  triggerStepFailure(errorMsg, { filePath: gitFilePath }, currentStep.type, stepNumber, {i});
-                  return;
-              }
-            } else {
-              gitArgs = ['.'];
+            if (!opDetails.filePath || typeof opDetails.filePath !== 'string' || opDetails.filePath.trim() === '') {
+              triggerStepFailure("Missing or invalid 'filePath' in details for git add operation.", opDetails, currentStep.type, stepNumber, {i}); return;
             }
+            // Path resolution logic (remains similar, ensure opDetails.filePath is used)
+            const absoluteFilePath = fsAgent.resolvePathInWorkspace(opDetails.filePath).fullPath;
+            if (absoluteFilePath) {
+                gitArgs = [path.relative(projectRoot, absoluteFilePath)];
+            } else {
+                triggerStepFailure(`Error resolving path for git add: ${opDetails.filePath}`, { filePath: opDetails.filePath }, currentStep.type, stepNumber, {i}); return;
+            }
+            validatedOpDetailsString += `, FilePath: ${opDetails.filePath} (resolved to ${gitArgs[0]})`;
             break;
           case 'commit':
             gitAgentFunction = gitAgent.gitCommit;
-            gitArgs = [details.message]; // Commit message
+            if (!opDetails.message || typeof opDetails.message !== 'string' || opDetails.message.trim() === '') {
+              triggerStepFailure("Missing or invalid 'message' in details for git commit operation.", opDetails, currentStep.type, stepNumber, {i}); return;
+            }
+            gitArgs = [opDetails.message];
+            validatedOpDetailsString += `, Message: "${opDetails.message}"`;
             break;
           case 'pull':
             gitAgentFunction = gitAgent.gitPull;
-            // remote, branch. These don't involve local paths directly.
-            gitArgs = [details.remote, details.branch];
+            if (opDetails.remote !== undefined && (typeof opDetails.remote !== 'string' || opDetails.remote.trim() === '')) {
+              triggerStepFailure("Invalid 'remote' in details for git pull: must be non-empty string if provided.", opDetails, currentStep.type, stepNumber, {i}); return;
+            }
+            if (opDetails.branch !== undefined && (typeof opDetails.branch !== 'string' || opDetails.branch.trim() === '')) {
+              triggerStepFailure("Invalid 'branch' in details for git pull: must be non-empty string if provided.", opDetails, currentStep.type, stepNumber, {i}); return;
+            }
+            gitArgs = [opDetails.remote, opDetails.branch]; // gitAgent handles undefined defaults
+            validatedOpDetailsString += `, Remote: ${opDetails.remote || 'default'}, Branch: ${opDetails.branch || 'default'}`;
             break;
           case 'push':
             gitAgentFunction = gitAgent.gitPush;
-            gitArgs = [details.remote, details.branch];
+            if (opDetails.remote !== undefined && (typeof opDetails.remote !== 'string' || opDetails.remote.trim() === '')) {
+              triggerStepFailure("Invalid 'remote' in details for git push: must be non-empty string if provided.", opDetails, currentStep.type, stepNumber, {i}); return;
+            }
+            if (opDetails.branch !== undefined && (typeof opDetails.branch !== 'string' || opDetails.branch.trim() === '')) {
+              triggerStepFailure("Invalid 'branch' in details for git push: must be non-empty string if provided.", opDetails, currentStep.type, stepNumber, {i}); return;
+            }
+            gitArgs = [opDetails.remote, opDetails.branch];
+            validatedOpDetailsString += `, Remote: ${opDetails.remote || 'default'}, Branch: ${opDetails.branch || 'default'}`;
             break;
-          case 'revert_last_commit': // Corrected to use gitRevertLastCommit
+          case 'revert_last_commit':
             gitAgentFunction = gitAgent.gitRevertLastCommit;
-            gitArgs = []; // No specific path args needed, operates on repo state
+            gitArgs = [];
+            // No specific details needed for revert_last_commit beyond the command itself
             break;
-          default:
-            const errorMsgDefault = `  -> ❌ Error: Step ${stepNumber} (git_operation): Command '${command}' is not directly supported by gitAgent or is invalid.`;
-            overallExecutionLog.push(errorMsgDefault);
-            const errorMsg = `Command '${command}' is not directly supported by gitAgent or is invalid.`;
-            triggerStepFailure(errorMsg, { command }, currentStep.type, stepNumber, {i});
-            return;
         }
 
-        if (!gitAgentFunction) {
-          // This case should ideally not be reached if the switch default handles unknown commands.
-          const errorMsg = `No gitAgent function found for command '${command}'. This indicates an internal logic error.`;
-          triggerStepFailure(errorMsg, { command }, currentStep.type, stepNumber, {i});
-          return;
-        }
+        console.log(`${stepLogPrefix} Validated Details - ${validatedOpDetailsString}, Output ID: ${output_id || 'N/A'}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - ${validatedOpDetailsString}, Output ID: ${output_id || 'N/A'}`);
+        sendSseMessage('log_entry', { message: `[SSE] ${stepLogPrefix} Executing Git operation: ${command} with details ${JSON.stringify(opDetails)}` }, expressHttpRes);
+        console.log(`${stepLogPrefix} Calling ${gitAgentFunction.name} with args: ${JSON.stringify(gitArgs)} and options.`);
 
-        sendSseMessage('log_entry', {
-          message: `[SSE] Executing Git operation: ${command} with details ${JSON.stringify(details)}`,
-        }, expressHttpRes);
 
-        const stepRequiresConfirmation = currentStep.details?.requireConfirmation === true;
+        const stepRequiresConfirmation = currentStep.details.requireConfirmation === true;
         const stepDisablesConfirmation = currentStep.details?.requireConfirmation === false;
         let effectiveRequireConfirmationForStep = false;
         if (safetyMode) {
@@ -1593,10 +1783,19 @@ async function executeStepsInternal(
         // This step is considered non-operational in terms of modification count
         let targetPath = WORKSPACE_DIR; // Default to overall workspace for non-sandboxed contexts
         let rootName = 'workspace_root';
-        let originalTreePath = currentStep.details && currentStep.details.path ? currentStep.details.path : '';
+        let originalTreePath = (currentStep.details && currentStep.details.path !== undefined) ? currentStep.details.path : '';
+
+        if (currentStep.details && currentStep.details.path !== undefined && typeof currentStep.details.path !== 'string') {
+          // If path is provided but not a string, it's invalid.
+          // Unlike other steps, show_workspace_tree can proceed with a default if path is invalid or missing.
+          console.warn(`${stepLogPrefix} Invalid 'path' in details for show_workspace_tree: must be a string if provided. Received: ${typeof currentStep.details.path}. Using workspace root.`);
+          originalTreePath = ''; // Force default to root
+        }
+
+        console.log(`${stepLogPrefix} Validated Details - Path: ${originalTreePath || 'WORKSPACE_DIR'}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - Path: ${originalTreePath || 'WORKSPACE_DIR'}`);
 
         if (sandboxSubDir) {
-            // If there's a sandbox, the tree is shown relative to that sandbox within the workspace.
             targetPath = path.join(WORKSPACE_DIR, sandboxSubDir, originalTreePath);
             rootName = sandboxSubDir + (originalTreePath ? `/${path.basename(originalTreePath)}` : '');
             // Ensure the sandboxed targetPath exists before trying to generate a tree
@@ -1623,28 +1822,39 @@ async function executeStepsInternal(
         sendSseMessage('log_entry', { message: `Workspace tree (${rootName}):\n\`\`\`\n${treeString}\n\`\`\`` }, expressHttpRes);
       // Handles 'conference_task' steps for multi-model debates and synthesis.
       } else if (currentStep.type === 'conference_task') {
-        overallExecutionLog.push(`  -> Step Type: ${currentStep.type}`);
+        if (!currentStep.details) { triggerStepFailure("Step details are missing for conference_task.", null, currentStep.type, stepNumber, {i}); return; }
+
         const {
           prompt: userPrompt,
-          model_name: conferenceModelName,
-          model_a_id, // Keep for potential specific model routing if generateFromLocal supports it later
-          model_b_id,
-          arbiter_model_id,
-          model_a_role: requestedModelARole, // Renamed to avoid conflict
-          model_b_role: requestedModelBRole,
-          arbiter_model_role: requestedArbiterModelRole,
-          output_id,
-          num_rounds: requested_num_rounds
-        } = currentStep.details || {};
+          model_name: conferenceModelName, // Optional
+          model_a_id, model_b_id, arbiter_model_id, // Optional
+          model_a_role, model_b_role, arbiter_model_role, // Optional
+          output_id, // Optional
+          num_rounds // Optional
+        } = currentStep.details;
 
-        const num_rounds = (typeof requested_num_rounds === 'number' && requested_num_rounds > 0) ? requested_num_rounds : 1;
-        overallExecutionLog.push(`  -> Conference Rounds: ${num_rounds}`);
-        sendSseMessage('log_entry', { message: `[SSE] Conference Rounds set to: ${num_rounds}`}, expressHttpRes);
-
-        if (!userPrompt) {
-          triggerStepFailure("Missing 'details.prompt'.", null, currentStep.type, stepNumber, {i});
-          return;
+        if (!userPrompt || typeof userPrompt !== 'string' || userPrompt.trim() === '') {
+          triggerStepFailure("Missing or invalid 'prompt' in details for conference_task.", {userPrompt}, currentStep.type, stepNumber, {i}); return;
         }
+        if (output_id !== undefined && (typeof output_id !== 'string' || output_id.trim() === '')) {
+          triggerStepFailure("Invalid 'output_id' in details for conference_task: must be a non-empty string if provided.",{output_id}, currentStep.type, stepNumber, {i}); return;
+        }
+        if (num_rounds !== undefined && (typeof num_rounds !== 'number' || num_rounds <= 0)) {
+          console.warn(`${stepLogPrefix} Invalid 'num_rounds' ("${num_rounds}"). Defaulting to 1.`);
+          currentStep.details.num_rounds = 1; // Correct in currentStep for later use
+        }
+        // Optional string fields: if provided but not valid strings, they will be ignored by || default logic later.
+        // Add warnings if types are unexpected for these optional fields.
+        const stringFields = {conferenceModelName, model_a_id, model_b_id, arbiter_model_id, model_a_role, model_b_role, arbiter_model_role};
+        for(const field in stringFields) {
+            if (stringFields[field] !== undefined && typeof stringFields[field] !== 'string') {
+                console.warn(`${stepLogPrefix} Invalid type for '${field}' (expected string, got ${typeof stringFields[field]}). Will use default or ignore. Value:`, stringFields[field]);
+            }
+        }
+
+        const effectiveNumRounds = currentStep.details.num_rounds || 1; // Use potentially corrected value
+        console.log(`${stepLogPrefix} Validated Details - UserPrompt length: ${userPrompt.length}, Output ID: ${output_id || 'N/A'}, Num Rounds: ${effectiveNumRounds}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - UserPrompt length: ${userPrompt.length}, Output ID: ${output_id || 'N/A'}, Num Rounds: ${effectiveNumRounds}`);
 
         const conferenceId = uuidv4();
         // This initial log is fine.
@@ -1845,13 +2055,15 @@ async function executeStepsInternal(
         // Removed the outer try-catch for confError as errors are handled per model call now.
 
       } else if (currentStep.type === 'createDirectory') {
-        const { dirPath: originalDirPath } = currentStep.details || {};
+        if (!currentStep.details) { triggerStepFailure("Step details are missing for createDirectory.", null, currentStep.type, stepNumber, {i}); return; }
+        const { dirPath: originalDirPath } = currentStep.details;
         let dirPath = originalDirPath;
 
-        if (!dirPath) {
-          triggerStepFailure("Missing 'details.dirPath' for createDirectory.", null, currentStep.type, stepNumber, {i});
-          return;
+        if (!dirPath || typeof dirPath !== 'string' || dirPath.trim() === '') {
+          triggerStepFailure("Missing or invalid 'dirPath' in details for createDirectory.", {dirPath}, currentStep.type, stepNumber, {i}); return;
         }
+        console.log(`${stepLogPrefix} Validated Details - DirPath: ${dirPath}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - DirPath: ${dirPath}`);
 
         if (sandboxSubDir) {
           dirPath = path.join(sandboxSubDir, dirPath);
@@ -1886,14 +2098,19 @@ async function executeStepsInternal(
             return;
         }
       } else if (currentStep.type === 'createFile') {
-        const { filePath: originalFilePath_create, content } = currentStep.details || {};
+        if (!currentStep.details) { triggerStepFailure("Step details are missing for createFile.", null, currentStep.type, stepNumber, {i}); return; }
+        const { filePath: originalFilePath_create, content } = currentStep.details;
         let filePath = originalFilePath_create;
-        const originalFilePathForExtensionCheck_create = originalFilePath_create; // Use original for ext check
+        const originalFilePathForExtensionCheck_create = originalFilePath_create;
 
-        if (!filePath || content === undefined) {
-            triggerStepFailure("Missing 'details.filePath' or 'details.content' for createFile.", null, currentStep.type, stepNumber, {i});
-            return;
+        if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') {
+            triggerStepFailure("Missing or invalid 'filePath' in details for createFile.", {filePath}, currentStep.type, stepNumber, {i}); return;
         }
+        if (content === undefined || typeof content !== 'string') { // Allow empty string for content
+            triggerStepFailure("Missing or invalid 'content' in details for createFile (must be a string).", {contentType: typeof content}, currentStep.type, stepNumber, {i}); return;
+        }
+        console.log(`${stepLogPrefix} Validated Details - FilePath: ${filePath}, Content Length: ${content.length}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - FilePath: ${filePath}, Content Length: ${content.length}`);
 
         if (sandboxSubDir) {
           filePath = path.join(sandboxSubDir, filePath);
@@ -1949,13 +2166,18 @@ async function executeStepsInternal(
             return;
         }
       } else if ( currentStep.type === 'readFile' || currentStep.type === 'read_file_to_output') {
-        const { filePath: originalFilePath_read, output_id } = currentStep.details || {};
+        if (!currentStep.details) { triggerStepFailure("Step details are missing for readFile.", null, currentStep.type, stepNumber, {i}); return; }
+        const { filePath: originalFilePath_read, output_id } = currentStep.details;
         let filePath = originalFilePath_read;
 
-        if (!filePath) {
-            triggerStepFailure("Missing 'details.filePath' for readFile.", null, currentStep.type, stepNumber, {i});
-            return;
+        if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') {
+            triggerStepFailure("Missing or invalid 'filePath' in details for readFile.", {filePath}, currentStep.type, stepNumber, {i}); return;
         }
+        if (!output_id || typeof output_id !== 'string' || output_id.trim() === '') {
+            triggerStepFailure("Missing or invalid 'output_id' in details for readFile.", {output_id}, currentStep.type, stepNumber, {i}); return;
+        }
+        console.log(`${stepLogPrefix} Validated Details - FilePath: ${filePath}, Output ID: ${output_id}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - FilePath: ${filePath}, Output ID: ${output_id}`);
 
         if (sandboxSubDir) {
           filePath = path.join(sandboxSubDir, filePath);
@@ -1972,14 +2194,23 @@ async function executeStepsInternal(
             return;
         }
       } else if (currentStep.type === 'updateFile') {
-        const { filePath: originalFilePath_update, content, append } = currentStep.details || {};
+        if (!currentStep.details) { triggerStepFailure("Step details are missing for updateFile.", null, currentStep.type, stepNumber, {i}); return; }
+        const { filePath: originalFilePath_update, content, append } = currentStep.details;
         let filePath = originalFilePath_update;
-        const originalFilePathForExtensionCheck_update = originalFilePath_update; // Use original for ext check
+        const originalFilePathForExtensionCheck_update = originalFilePath_update;
 
-        if (!filePath || content === undefined) {
-            triggerStepFailure("Missing 'details.filePath' or 'details.content' for updateFile.", null, currentStep.type, stepNumber, {i});
-            return;
+        if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') {
+            triggerStepFailure("Missing or invalid 'filePath' in details for updateFile.", {filePath}, currentStep.type, stepNumber, {i}); return;
         }
+        if (content === undefined || typeof content !== 'string') { // Allow empty string for content
+            triggerStepFailure("Missing or invalid 'content' in details for updateFile (must be a string).", {contentType: typeof content}, currentStep.type, stepNumber, {i}); return;
+        }
+        if (append !== undefined && typeof append !== 'boolean') {
+            triggerStepFailure("Invalid 'append' value in details for updateFile (must be boolean if provided).", {append}, currentStep.type, stepNumber, {i}); return;
+        }
+        const effectiveAppend = append === undefined ? false : append; // Default append to false
+        console.log(`${stepLogPrefix} Validated Details - FilePath: ${filePath}, Content Length: ${content.length}, Append: ${effectiveAppend}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - FilePath: ${filePath}, Content Length: ${content.length}, Append: ${effectiveAppend}`);
         if (sandboxSubDir) {
           filePath = path.join(sandboxSubDir, filePath);
           console.log(`[Sandboxing] Remapped filePath for ${agentContext} to: ${filePath}`);
@@ -2026,13 +2257,15 @@ async function executeStepsInternal(
             return;
         }
       } else if (currentStep.type === 'deleteFile') {
-        const { filePath: originalFilePath_delete } = currentStep.details || {};
+        if (!currentStep.details) { triggerStepFailure("Step details are missing for deleteFile.", null, currentStep.type, stepNumber, {i}); return; }
+        const { filePath: originalFilePath_delete } = currentStep.details;
         let filePath = originalFilePath_delete;
 
-        if (!filePath) {
-            triggerStepFailure("Missing 'details.filePath' for deleteFile.", null, currentStep.type, stepNumber, {i});
-            return;
+        if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') {
+            triggerStepFailure("Missing or invalid 'filePath' in details for deleteFile.", {filePath}, currentStep.type, stepNumber, {i}); return;
         }
+        console.log(`${stepLogPrefix} Validated Details - FilePath: ${filePath}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - FilePath: ${filePath}`);
         if (sandboxSubDir) {
           filePath = path.join(sandboxSubDir, filePath);
           console.log(`[Sandboxing] Remapped filePath for ${agentContext} to: ${filePath}`);
@@ -2066,13 +2299,15 @@ async function executeStepsInternal(
             return;
         }
       } else if (currentStep.type === 'deleteDirectory') {
-        const { dirPath: originalDirPath_delete } = currentStep.details || {};
+        if (!currentStep.details) { triggerStepFailure("Step details are missing for deleteDirectory.", null, currentStep.type, stepNumber, {i}); return; }
+        const { dirPath: originalDirPath_delete } = currentStep.details;
         let dirPath = originalDirPath_delete;
 
-        if (!dirPath) {
-            triggerStepFailure("Missing 'details.dirPath' for deleteDirectory.", null, currentStep.type, stepNumber, {i});
-            return;
+        if (!dirPath || typeof dirPath !== 'string' || dirPath.trim() === '') {
+            triggerStepFailure("Missing or invalid 'dirPath' in details for deleteDirectory.", {dirPath}, currentStep.type, stepNumber, {i}); return;
         }
+        console.log(`${stepLogPrefix} Validated Details - DirPath: ${dirPath}`);
+        overallExecutionLog.push(`${stepLogPrefix} Validated Details - DirPath: ${dirPath}`);
 
         if (sandboxSubDir) {
           dirPath = path.join(sandboxSubDir, dirPath);
@@ -2115,7 +2350,11 @@ async function executeStepsInternal(
         stepProcessedSuccessfully = true;
 
       } catch (stepAttemptError) {
-        lastErrorForStep = stepAttemptError; // Store error from this attempt
+        if (!stepAttemptError.message) {
+            lastErrorForStep = new Error("Step attempt failed without a specific message.");
+        } else {
+            lastErrorForStep = stepAttemptError;
+        }
         const maxRetries = currentStep.details?.maxRetries || 0;
         // const onErrorAction = currentStep.details?.onError; // For future refinement logic
 
@@ -2188,6 +2427,7 @@ Do not output the entire step, only the 'details' object.
 
     if (!stepProcessedSuccessfully) {
       // If loop finished and step was not successful (all retries/refinements failed)
+      // Ensure lastErrorForStep is used here as per subtask item 1.
       const finalErrorMessage = lastErrorForStep ? lastErrorForStep.message : "Unknown error after retries/refinements.";
       triggerStepFailure(finalErrorMessage, lastErrorForStep, currentStep.type, stepNumber, {i});
       return; // Pause main execution, pass to user
@@ -2244,7 +2484,11 @@ Do not output the entire step, only the 'details' object.
           sendSseMessage('error', { content: `[SSE] ${llmErrorMsg}` });
           overallExecutionLog.push(`  -> ❌ ${llmErrorMsg}`);
           console.error(llmErrorMsg);
-          lastErrorForStep = new Error(llmErrorMsg);
+          if (evaluationResultString && evaluationResultString.replace('// LLM_ERROR:', '').replace('// LLM_WARNING:', '').trim()) {
+              lastErrorForStep = new Error(evaluationResultString);
+          } else {
+              lastErrorForStep = new Error(`${evalLogPrefix} LLM failed to provide evaluation and returned an empty error/warning message.`);
+          }
           stepProcessedSuccessfully = false; // Mark step as failed
           // Potentially increment _internalEvalRetryCount here if we want LLM failure to count as an attempt.
                           currentStep._internalEvalRetryCount++;
@@ -2269,7 +2513,11 @@ Do not output the entire step, only the 'details' object.
           break; // Exit evaluation loop
         } else { // Evaluation failed
           currentStep._internalEvalRetryCount++;
-          lastErrorForStep = new Error(`${evalLogPrefix} Evaluation failed. LLM response: ${evaluationResult}`);
+          if (evaluationResult && evaluationResult.trim()) {
+              lastErrorForStep = new Error(`${evalLogPrefix} Evaluation failed. LLM response: ${evaluationResult}`);
+          } else {
+              lastErrorForStep = new Error(`${evalLogPrefix} Evaluation failed with an empty or non-descriptive LLM response.`);
+          }
           stepProcessedSuccessfully = false; // Mark step as failed for this attempt cycle
 
           const onEvalFailureAction = currentStep.details.onEvaluationFailure || 'fail_step';
@@ -2311,7 +2559,7 @@ Do not output the entire step, only the 'details' object.
       if (!evaluationPassed) {
         stepProcessedSuccessfully = false; // Ensure step is marked as failed if all eval retries are exhausted and it didn't pass
         if (!lastErrorForStep) { // Should be set, but as a fallback
-             lastErrorForStep = new Error(`${evalLogPrefix} Step failed LLM evaluation after all attempts.`);
+            lastErrorForStep = new Error(`${evalLogPrefix} Step failed LLM evaluation after all attempts with an unspecified error.`);
         }
         sendSseMessage('log_entry', { message: `[SSE] ${evalLogPrefix} Step FAILED evaluation after all attempts.` }, expressHttpRes);
         console.log(`${evalLogPrefix} Step FAILED evaluation after all attempts.`);
@@ -2319,6 +2567,10 @@ Do not output the entire step, only the 'details' object.
     } // End of if currentStep.details.evaluationPrompt
 
     // This existing block will now catch failures from main processing OR from evaluation.
+    if (!stepProcessedSuccessfully && !lastErrorForStep) {
+        lastErrorForStep = new Error("Step processing failed with an unspecified error before triggering failure.");
+        console.warn(`[executeStepsInternal] Step ${stepNumber} (${currentStep.type}) failed without lastErrorForStep being set. Defaulting error.`);
+    }
     if (!stepProcessedSuccessfully) {
       // If loop finished and step was not successful (all retries/refinements/evaluations failed)
       const finalErrorMessage = lastErrorForStep ? lastErrorForStep.message : "Unknown error after retries/refinements/evaluation.";
@@ -2350,20 +2602,27 @@ Do not output the entire step, only the 'details' object.
 }
 
 const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
-  console.log(`[${req.method} /execute-autonomous-task] Request received.`);
+  const endpointName = `[${req.method} /execute-autonomous-task]`;
+  console.log(`${endpointName} Request received. Query:`, req.query, "Body:", req.body);
+
   const payload = parseTaskPayload(req);
 
   if (payload.error) {
-    console.log(
-      `[${req.method} /execute-autonomous-task] Invalid payload: ${payload.error}`
-    );
+    console.warn(`${endpointName} Invalid payload from parseTaskPayload: ${payload.error}`);
     return expressHttpRes.status(400).json({ message: payload.error });
   }
 
-  let { task_description, steps, safetyMode, isAutonomousMode } = payload; // Extract isAutonomousMode
-  const { task_type, model_a_id, model_b_id, arbiter_model_id, model_a_role, model_b_role, arbiter_model_role, history: historyString } = req.query;
+  let { task_description, steps, safetyMode, isAutonomousMode } = payload;
 
-  console.log(`[handleExecuteAutonomousTask] Received task. Goal: "${task_description.substring(0,100)}...", Safety Mode: ${safetyMode}, Autonomous Mode: ${isAutonomousMode}, Task Type: ${task_type}`);
+  // Destructure query parameters specifically for conference task type, as they are only relevant there.
+  const {
+    task_type, // Used to switch to conference mode
+    model_a_id, model_b_id, arbiter_model_id, // Conference-specific model IDs
+    model_a_role, model_b_role, arbiter_model_role, // Conference-specific roles
+    history: historyString // Conference-specific history
+  } = req.query;
+
+  console.log(`${endpointName} Parsed main parameters. Goal: "${String(task_description).substring(0,100)}...", Safety Mode: ${safetyMode}, Autonomous Mode: ${isAutonomousMode}, Task Type: ${task_type}`);
 
   // expressHttpRes is the original response object for this specific request.
   // It's crucial for sending SSE messages back to the correct client.
@@ -2408,16 +2667,24 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
   if (task_type === 'conference') {
     sendSseMessage('log_entry', { message: `[SSE] Conference Mode detected for goal: "${task_description}"` });
     overallExecutionLog.push(`[Conference Mode] Preparing conference task for goal: "${task_description}"`);
-    console.log(`[handleExecuteAutonomousTask] Conference Mode: Preparing task.`);
+    console.log(`${endpointName} Conference Mode: Preparing task. Received query params for conference: model_a_id=${model_a_id}, model_b_id=${model_b_id}, arbiter_model_id=${arbiter_model_id}, model_a_role=${model_a_role}, model_b_role=${model_b_role}, arbiter_model_role=${arbiter_model_role}, historyString provided: ${!!historyString}`);
 
     let parsedHistory = [];
     if (historyString) {
       try {
         parsedHistory = JSON.parse(historyString);
+        if (!Array.isArray(parsedHistory)) {
+            console.warn(`${endpointName} Conference historyString parsed but is not an array. Type: ${typeof parsedHistory}. Using empty history.`);
+            sendSseMessage('log_entry', { message: `[SSE] Warning: Conference history was provided but was not a valid array. Proceeding with empty history. Original: ${historyString.substring(0,100)}...` });
+            parsedHistory = []; // Ensure it's an array
+        }
       } catch (e) {
-        sendSseMessage('error', { content: `[SSE] Error parsing conference history: ${e.message}. Using empty history.` });
-        overallExecutionLog.push(`[Conference Mode] ❌ Error parsing history: ${e.message}. Using empty history.`);
-        console.error(`[handleExecuteAutonomousTask] Conference Mode: Failed to parse history string: ${historyString}`, e);
+        const historyParseErrorMsg = `Error parsing conference history: ${e.message}. Provided historyString: "${historyString.substring(0,100)}..."`;
+        sendSseMessage('error', { content: `[SSE] ${historyParseErrorMsg}. Using empty history.` });
+        overallExecutionLog.push(`${endpointName} [Conference Mode] ❌ ${historyParseErrorMsg}. Using empty history.`);
+        console.error(`${endpointName} [Conference Mode] ${historyParseErrorMsg}`, e);
+        // Proceed with empty history as per current logic
+        parsedHistory = [];
       }
     }
 
@@ -2666,12 +2933,13 @@ app.get('/execute-autonomous-task', handleExecuteAutonomousTask);
 // --- Plan Approval Endpoints ---
 // Endpoint for the user to approve a plan generated by the LLM in autonomous mode.
 app.post('/api/approve-plan/:planId', async (req, res) => {
+  const endpointName = '[POST /api/approve-plan/:planId]';
   const { planId } = req.params;
-  console.log(`[API /api/approve-plan/${planId}] Received approval request.`);
+  console.log(`${endpointName} Request received for planId: ${planId}. Body:`, req.body); // req.body is likely empty but good to log
 
   const planDetails = pendingPlanApprovals[planId];
   if (!planDetails) {
-    console.log(`[API /api/approve-plan/${planId}] Plan ID not found or already processed.`);
+    console.warn(`${endpointName} Plan ID "${planId}" not found or already processed.`);
     return res.status(404).json({ message: 'Plan ID not found or already processed.' });
   }
 
@@ -2726,12 +2994,13 @@ app.post('/api/approve-plan/:planId', async (req, res) => {
 
 // Endpoint for the user to decline an LLM-generated plan.
 app.post('/api/decline-plan/:planId', async (req, res) => {
+  const endpointName = '[POST /api/decline-plan/:planId]';
   const { planId } = req.params;
-  console.log(`[API /api/decline-plan/${planId}] Received decline request.`);
+  console.log(`${endpointName} Request received for planId: ${planId}. Body:`, req.body); // req.body is likely empty
 
   const planDetails = pendingPlanApprovals[planId];
   if (!planDetails) {
-    console.log(`[API /api/decline-plan/${planId}] Plan ID not found or already processed.`);
+    console.warn(`${endpointName} Plan ID "${planId}" not found or already processed.`);
     return res.status(404).json({ message: 'Plan ID not found or already processed.' });
   }
 
@@ -2755,10 +3024,17 @@ app.post('/api/decline-plan/:planId', async (req, res) => {
 // --- Resume Task Endpoint ---
 // Handles user responses (confirm/deny) to actions requiring confirmation (e.g., file operations, batch operations).
 app.post('/api/confirm-action/:confirmationId', async (req, res) => {
+  const endpointName = '[POST /api/confirm-action/:confirmationId]';
   const { confirmationId } = req.params;
   const { confirmed } = req.body;
 
-  console.log(`[POST /api/confirm-action/${confirmationId}] Received confirmation: ${confirmed}`);
+  console.log(`${endpointName} Request received for confirmationId: ${confirmationId}. Body:`, req.body);
+
+  if (typeof confirmed !== 'boolean') {
+    console.warn(`${endpointName} Invalid payload: 'confirmed' must be a boolean. Received: ${typeof confirmed}`);
+    return res.status(400).json({ message: "Invalid payload: confirmed must be a boolean." });
+  }
+  console.log(`${endpointName} Parsed 'confirmed': ${confirmed}`);
 
   const SseMessageWrapper = (type, data, httpRes) => {
     if (httpRes && httpRes.writable) {
@@ -2770,7 +3046,7 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
 
   const pendingTask = pendingConfirmations[confirmationId];
   if (!pendingTask) {
-    console.log(`[POST /api/confirm-action/${confirmationId}] Confirmation ID not found or already processed.`);
+    console.warn(`${endpointName} Confirmation ID "${confirmationId}" not found or already processed.`);
     return res.status(404).json({ message: 'Confirmation ID not found or already processed.' });
   }
 
@@ -2876,11 +3152,12 @@ function getPendingFailureDetails(failureId, res) {
 // 1. Retry Step Endpoint
 // Allows the user to retry a failed step.
 app.post('/api/retry-step/:failureId', async (req, res) => {
+  const endpointName = '[POST /api/retry-step/:failureId]';
   const { failureId } = req.params;
-  console.log(`[API /api/retry-step/${failureId}] Received retry request.`);
+  console.log(`${endpointName} Request received for failureId: ${failureId}. Body:`, req.body); // req.body is likely empty
 
   const failureDetails = getPendingFailureDetails(failureId, res);
-  if (!failureDetails) return;
+  if (!failureDetails) return; // getPendingFailureDetails handles logging and response if null
 
   const {
     originalExpressHttpRes,
@@ -2929,11 +3206,12 @@ app.post('/api/retry-step/:failureId', async (req, res) => {
 // 2. Skip Step Endpoint
 // Allows the user to skip a failed step and continue with the next one.
 app.post('/api/skip-step/:failureId', async (req, res) => {
+  const endpointName = '[POST /api/skip-step/:failureId]';
   const { failureId } = req.params;
-  console.log(`[API /api/skip-step/${failureId}] Received skip request.`);
+  console.log(`${endpointName} Request received for failureId: ${failureId}. Body:`, req.body); // req.body is likely empty
 
   const failureDetails = getPendingFailureDetails(failureId, res);
-  if (!failureDetails) return;
+  if (!failureDetails) return; // getPendingFailureDetails handles logging and response if null
 
   const {
     originalExpressHttpRes,
@@ -2981,11 +3259,12 @@ app.post('/api/skip-step/:failureId', async (req, res) => {
 // 3. Convert to Manual Endpoint
 // Allows the user to halt autonomous execution and receive the remaining steps to handle manually.
 app.post('/api/convert-to-manual/:failureId', async (req, res) => {
+  const endpointName = '[POST /api/convert-to-manual/:failureId]';
   const { failureId } = req.params;
-  console.log(`[API /api/convert-to-manual/${failureId}] Received convert-to-manual request.`);
+  console.log(`${endpointName} Request received for failureId: ${failureId}. Body:`, req.body); // req.body is likely empty
 
   const failureDetails = getPendingFailureDetails(failureId, res);
-  if (!failureDetails) return;
+  if (!failureDetails) return; // getPendingFailureDetails handles logging and response if null
 
   const {
     originalExpressHttpRes,
@@ -3135,17 +3414,18 @@ app.get('/api/instructions/conference_agent/:agentRole', (req, res) => {
 
 // POST /api/instructions/:agentType
 app.post('/api/instructions/:agentType', (req, res) => {
+  const endpointName = '[POST /api/instructions/:agentType]';
   const { agentType } = req.params;
   const { instructions } = req.body;
-  console.log(`[API POST /api/instructions/${agentType}] Request received with instructions:`, instructions);
+  console.log(`${endpointName} Request for agentType: ${agentType}. Received instructions:`, instructions, "Body:", req.body);
 
   if (agentType === 'conference_agent') {
-    console.log(`[API POST /api/instructions/${agentType}] Invalid agentType for this endpoint. Use role-specific endpoint.`);
+    console.warn(`${endpointName} Invalid agentType '${agentType}' for this endpoint. Use role-specific conference endpoint.`);
     return res.status(400).json({ message: `To update conference_agent instructions, please use the /api/instructions/conference_agent/:agentRole endpoint.` });
   }
 
   if (!Array.isArray(instructions) || !instructions.every(item => typeof item === 'string')) {
-    console.log(`[API POST /api/instructions/${agentType}] Invalid payload: instructions must be an array of strings.`);
+    console.warn(`${endpointName} Invalid payload for agentType '${agentType}': instructions must be an array of strings. Received:`, instructions);
     return res.status(400).json({ message: 'Invalid payload: instructions must be an array of strings.' });
   }
 
@@ -3176,12 +3456,13 @@ app.post('/api/instructions/:agentType', (req, res) => {
 
 // POST /api/instructions/conference_agent/:agentRole
 app.post('/api/instructions/conference_agent/:agentRole', (req, res) => {
+  const endpointName = '[POST /api/instructions/conference_agent/:agentRole]';
   const { agentRole } = req.params;
   const { instructions } = req.body;
-  console.log(`[API POST /api/instructions/conference_agent/${agentRole}] Request received with instructions:`, instructions);
+  console.log(`${endpointName} Request for agentRole: ${agentRole}. Received instructions:`, instructions, "Body:", req.body);
 
   if (!Array.isArray(instructions) || !instructions.every(item => typeof item === 'string')) {
-    console.log(`[API POST /api/instructions/conference_agent/${agentRole}] Invalid payload: instructions must be an array of strings.`);
+    console.warn(`${endpointName} Invalid payload for agentRole '${agentRole}': instructions must be an array of strings. Received:`, instructions);
     return res.status(400).json({ message: 'Invalid payload: instructions must be an array of strings.' });
   }
 
@@ -3253,13 +3534,16 @@ app.get('/api/logs/export', async (req, res) => {
 
 // Endpoint to initiate Ollama model download and stream progress
 app.post('/api/ollama/pull-model', async (req, res) => {
+  const endpointName = '[POST /api/ollama/pull-model]';
   const { modelName } = req.body;
+  console.log(`${endpointName} Request received. Body:`, req.body);
 
   if (!modelName || typeof modelName !== 'string' || modelName.trim() === '') {
-    return res.status(400).json({ message: "modelName (string) is required." });
+    console.warn(`${endpointName} Invalid modelName: "${modelName}". Type: ${typeof modelName}.`);
+    return res.status(400).json({ message: "modelName (string) is required and cannot be empty." });
   }
 
-  console.log(`[SSE /api/ollama/pull-model] Received request to download model: ${modelName}`);
+  console.log(`${endpointName} Processing request to download model: ${modelName}`);
 
   // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
@@ -3367,27 +3651,36 @@ app.post('/execute-conference-task', async (req, res) => {
   const logMessages = [];
   const log = (msg, level = 'log') => {
     logMessages.push(msg);
-    console[level](msg);
+    console[level](msg); // Keep existing console[level] behavior
   };
-  log(`[Conference ${conferenceId}] Received POST /execute-conference-task request.`);
+  log(`[Conference ${conferenceId}] Received POST /execute-conference-task request. Body: ${JSON.stringify(req.body)}`);
 
   try {
     const { prompt: userPrompt, modelName: requestedModelName, modelARole: requestedModelARole, modelBRole: requestedModelBRole, arbiterModelRole: requestedArbiterModelRole, history } = req.body;
-    console.log(`[Backend Conference] /execute-conference-task: Received request. Prompt: ${userPrompt ? userPrompt.substring(0, 50) + '...' : 'N/A'}`);
 
-    if (!userPrompt) {
-      log(`[Conference ${conferenceId}] Error: Missing "prompt" in request body.`);
-      return res.status(400).json({ error: 'Missing "prompt" in request body.', conference_id: conferenceId, log_messages: logMessages });
+    if (!userPrompt || typeof userPrompt !== 'string' || userPrompt.trim() === '') {
+      const errorMsg = 'prompt is required and must be a non-empty string.';
+      log(`[Conference ${conferenceId}] Error: ${errorMsg}. Received prompt: "${userPrompt}"`, 'warn');
+      return res.status(400).json({ error: errorMsg, conference_id: conferenceId, log_messages: logMessages });
     }
-    log(`[Conference ${conferenceId}] User Prompt: "${userPrompt.substring(0, 100)}..."`);
+    log(`[Conference ${conferenceId}] User Prompt (first 100 chars): "${userPrompt.substring(0, 100)}..."`);
 
-    // Determine model and roles
-    const currentModelName = requestedModelName || backendSettings.defaultOllamaModel || 'llama3';
-    const roleA = requestedModelARole || 'Logical Reasoner';
-    const roleB = requestedModelBRole || 'Creative Problem Solver';
-    const roleArbiter = requestedArbiterModelRole || 'Arbiter and Synthesizer';
-    log(`[Conference ${conferenceId}] Model: ${currentModelName}, Role A: ${roleA}, Role B: ${roleB}, Arbiter: ${roleArbiter}`);
-    console.log(`[Backend Conference] /execute-conference-task: Model A: ${currentModelName}, Role: ${roleA}`);
+    // Log received optional parameters and their types if they exist
+    if (requestedModelName !== undefined) log(`[Conference ${conferenceId}] Requested modelName: "${requestedModelName}" (type: ${typeof requestedModelName})`);
+    if (requestedModelARole !== undefined) log(`[Conference ${conferenceId}] Requested modelARole: "${requestedModelARole}" (type: ${typeof requestedModelARole})`);
+    if (requestedModelBRole !== undefined) log(`[Conference ${conferenceId}] Requested modelBRole: "${requestedModelBRole}" (type: ${typeof requestedModelBRole})`);
+    if (requestedArbiterModelRole !== undefined) log(`[Conference ${conferenceId}] Requested arbiterModelRole: "${requestedArbiterModelRole}" (type: ${typeof requestedArbiterModelRole})`);
+    if (history !== undefined) log(`[Conference ${conferenceId}] History provided. Type: ${typeof history}`);
+
+
+    // Determine model and roles, falling back to defaults.
+    // Ensure that if an optional param is provided but is not a string (e.g. null, number), it still falls back.
+    const currentModelName = (typeof requestedModelName === 'string' && requestedModelName.trim() !== '') ? requestedModelName : (backendSettings.defaultOllamaModel || 'llama3');
+    const roleA = (typeof requestedModelARole === 'string' && requestedModelARole.trim() !== '') ? requestedModelARole : 'Logical Reasoner';
+    const roleB = (typeof requestedModelBRole === 'string' && requestedModelBRole.trim() !== '') ? requestedModelBRole : 'Creative Problem Solver';
+    const roleArbiter = (typeof requestedArbiterModelRole === 'string' && requestedArbiterModelRole.trim() !== '') ? requestedArbiterModelRole : 'Arbiter and Synthesizer';
+
+    log(`[Conference ${conferenceId}] Effective Model: ${currentModelName}, Role A: ${roleA}, Role B: ${roleB}, Arbiter: ${roleArbiter}`);
 
     const historyText = Array.isArray(history) ? history.map(h => `${h.role}: ${h.content || h.message}`).join('\n') : '';
 

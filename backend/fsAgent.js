@@ -63,31 +63,40 @@ class ModularFsAgent {
   }
 
   resolvePathInWorkspace(relativePath) {
+    const funcName = 'resolvePathInWorkspace';
+    this.logger.log(`[ModularFsAgent::${funcName}] Attempting to resolve relativePath: "${relativePath}" (Type: ${typeof relativePath})`);
+
     if (typeof relativePath !== 'string') {
+      const message = 'Invalid path type. Path must be a string.';
+      this._logOperation(funcName, String(relativePath), false, message, { type: typeof relativePath });
       return {
         success: false,
-        error: {
-          code: 'FS_RESOLVE_PATH_INVALID_TYPE',
-          message: 'Error: Invalid path type. Path must be a string.',
-          details: { relativePathType: typeof relativePath }
-        }
+        error: { code: 'INVALID_INPUT', message, details: { relativePathType: typeof relativePath } }
       };
     }
+    // Allow empty string to resolve to workspaceDir, or handle as error if preferred.
+    // Current behavior: empty string resolves to workspaceDir, which is acceptable.
+    // if (relativePath.trim() === '') {
+    //   const message = 'Path cannot be an empty string.';
+    //   this._logOperation(funcName, relativePath, false, message);
+    //   return { success: false, error: { code: 'INVALID_INPUT', message } };
+    // }
+
 
     if (/\{\{[^}]+\}\}/.test(relativePath)) {
+      const message = 'Path contains unresolved template placeholders.';
+      this._logOperation(funcName, relativePath, false, message, { rawPath: relativePath });
       return {
         success: false,
-        error: {
-          code: 'FS_UNRESOLVED_TEMPLATE',
-          message: 'Error: Path contains unresolved template placeholders.',
-          details: { relativePath }
-        }
+        error: { code: 'FS_UNRESOLVED_TEMPLATE', message, details: { relativePath } }
       };
     }
     const normalizedPath = path.normalize(relativePath);
     let fullPath = path.isAbsolute(normalizedPath)
-      ? path.resolve(normalizedPath)
+      ? path.resolve(normalizedPath) // Resolve even absolute paths to guard against weird inputs like '/../'
       : path.resolve(this.workspaceDir, normalizedPath);
+
+    this.logger.log(`[ModularFsAgent::${funcName}] Normalized: "${normalizedPath}", Tentative Full Path: "${fullPath}"`);
 
     const allowedRoots = [this.workspaceDir, ...this.allowedExternalPaths];
 
@@ -171,24 +180,44 @@ class ModularFsAgent {
   }
 
   createFile(relativePath, content, options = {}) {
-    this.logger.log(`[ModularFsAgent.createFile] Attempting to create file. Raw path: '${relativePath}', Content length: ${content?.length || 'N/A'}`);
-    this.logger.log(`[ModularFsAgent.createFile] Options received: ${JSON.stringify(options)}`);
+    const funcName = 'createFile';
+    const mergedOptions = { requireConfirmation: false, isConfirmedAction: false, dryRun: false, ensureParents: true, ...options };
+    this.logger.log(`[ModularFsAgent::${funcName}] Attempting. Path: "${relativePath}", Content length: ${content?.length || 'N/A'}, Options: ${JSON.stringify(mergedOptions)}`);
+
+    if (!relativePath || typeof relativePath !== 'string' || relativePath.trim() === '') {
+      const message = "Invalid 'relativePath' parameter: must be a non-empty string.";
+      this._logOperation(funcName, String(relativePath), false, message);
+      return { success: false, message, error: { code: 'INVALID_INPUT', message, details: { relativePath } }, warnings: [] };
+    }
+    if (typeof content !== 'string') {
+      const message = "Invalid 'content' parameter: must be a string.";
+      this._logOperation(funcName, relativePath, false, message, {contentType: typeof content});
+      return { success: false, message, error: { code: 'INVALID_INPUT', message, details: { contentType: typeof content } }, warnings: [] };
+    }
 
     const resolved = this.resolvePathInWorkspace(relativePath);
-    this.logger.log(`[ModularFsAgent.createFile] Path resolution attempt for '${relativePath}'. Result: success=${resolved.success}, fullPath='${resolved.fullPath || ''}', error='${resolved.error?.message || ''}'`);
-
     if (!resolved.success) {
-      return { success: false, error: resolved.error, message: resolved.error?.message || 'Path resolution failed', warnings: [] };
+      this._logOperation(funcName, relativePath, false, resolved.error.message, resolved.error);
+      return { success: false, error: resolved.error, message: resolved.error.message, warnings: [] };
     }
-    const { fullPath } = resolved; // fullPath is the absolute path to the target file
-    const baseDir = path.dirname(fullPath); // baseDir is the parent directory of the target file
-
-    this.logger.log(`[ModularFsAgent.createFile] Resolved path: '${fullPath}', Base directory: '${baseDir}'`);
+    const { fullPath } = resolved;
+    const baseDir = path.dirname(fullPath);
     let warnings = [];
+    this.logger.log(`[ModularFsAgent::${funcName}] Resolved path: '${fullPath}', Base directory: '${baseDir}'`);
 
-    if (options.dryRun) {
-      this._logOperation('createFile', fullPath, true, `DRY RUN: File would have been created/overwritten.`);
+
+    if (mergedOptions.dryRun) {
+      this._logOperation(funcName, fullPath, true, `DRY RUN: File would have been created/overwritten.`);
       warnings.push('Operation performed in dry run mode.');
+      // Check if parent dirs would need creation in dry run
+      try {
+        if (mergedOptions.ensureParents && !fs.existsSync(baseDir)) {
+            warnings.push(`DRY RUN: Parent directory ${baseDir} would have been created.`);
+        }
+        if (fs.existsSync(fullPath)) {
+            warnings.push(`DRY RUN: File at ${fullPath} already exists and would be overwritten.`);
+        }
+      } catch(e) { /* ignore fs errors in dry_run for existsSync */ }
       return {
         success: true,
         message: `DRY RUN: File would have been created/overwritten at ${fullPath}`,
@@ -198,32 +227,26 @@ class ModularFsAgent {
       };
     }
 
-    // Ensure parent directories exist if ensureParents is true or by default
-    // The original code implicitly created parent directories with fs.mkdirSync(dirname, { recursive: true });
-    // Let's make it more explicit and tied to an option if necessary, or keep default behavior.
-    // For now, maintaining original behavior of ensuring parents.
-    if (options.ensureParents !== false) { // Default to true unless explicitly false
+    if (mergedOptions.ensureParents) {
         if (!fs.existsSync(baseDir)) {
-            this.logger.log(`[ModularFsAgent.createFile] Base directory ${baseDir} does not exist. Attempting to create.`);
+            this.logger.log(`[ModularFsAgent::${funcName}] Base directory ${baseDir} does not exist. Attempting to create.`);
             try {
                 fs.mkdirSync(baseDir, { recursive: true });
-                this.logger.log(`[ModularFsAgent.createFile] Successfully created parent directory: ${baseDir}`);
+                this.logger.log(`[ModularFsAgent::${funcName}] Successfully created parent directory: ${baseDir}`);
                 warnings.push(`Parent directory ${baseDir} created.`);
             } catch (mkdirError) {
-                this.logger.error(`[ModularFsAgent.createFile] Error creating parent directory '${baseDir}'. Code: ${mkdirError.code}, Message: ${mkdirError.message}`, mkdirError);
+                const message = `Failed to create parent directories for ${fullPath}: ${mkdirError.message}`;
+                this._logOperation(funcName, baseDir, false, message, mkdirError);
                 return {
-                    success: false,
-                    message: `Failed to create parent directories for ${fullPath}: ${mkdirError.message}`,
-                    error: { code: 'FS_MKDIR_FAILED', originalError: mkdirError, message: mkdirError.message, errorCode: mkdirError.code },
-                    fullPath: baseDir, // Path that failed to be created
-                    warnings
+                    success: false, message,
+                    error: { code: 'FS_MKDIR_FAILED', originalError: { message: mkdirError.message, code: mkdirError.code, stack: mkdirError.stack } },
+                    fullPath: baseDir, warnings
                 };
             }
         }
     } else if (!fs.existsSync(baseDir)) {
-        // If ensureParents is false and directory doesn't exist, this is an error.
         const message = `Parent directory ${baseDir} does not exist and ensureParents is false.`;
-        this.logger.warn(`[ModularFsAgent.createFile] ${message}`);
+        this._logOperation(funcName, fullPath, false, message);
         return {
             success: false,
             message,
@@ -234,43 +257,45 @@ class ModularFsAgent {
     }
 
 
-    const existsCheck = this.checkFileExists(relativePath); // Uses relativePath
+    let fileExists = false;
+    try {
+        fileExists = fs.existsSync(fullPath);
+    } catch (e) {
+        // Should not happen if baseDir exists and accessible, but as a precaution
+        const message = `Error checking file existence for ${fullPath}: ${e.message}`;
+        this._logOperation(funcName, fullPath, false, message, e);
+        return { success: false, message, error: { code: 'FS_CHECK_EXISTS_FAILED', originalError: { message: e.message, code: e.code, stack: e.stack } }, fullPath, warnings };
+    }
 
-    if (existsCheck.success && existsCheck.exists) {
-      this.logger.log(`[ModularFsAgent.createFile] File already exists at ${fullPath}. Checking confirmation requirements.`);
-      if (options.requireConfirmation && !options.isConfirmedAction) {
+    if (fileExists) {
+      this.logger.log(`[ModularFsAgent::${funcName}] File already exists at ${fullPath}. Checking confirmation requirements.`);
+      if (mergedOptions.requireConfirmation && !mergedOptions.isConfirmedAction) {
         const message = `Confirmation required to overwrite file at ${fullPath}.`;
-        this.logger.warn(`[ModularFsAgent.createFile] ${message}`);
+        this._logOperation(funcName, fullPath, false, message + " Confirmation pending.");
         return {
-          success: false,
-          message,
-          confirmationNeeded: true,
-          fullPath,
-          action: 'createFile',
+          success: false, message, confirmationNeeded: true, fullPath, action: 'createFile',
           error: { code: 'FS_CONFIRMATION_REQUIRED', message, details: { path: fullPath, operation: 'createFile' } },
           warnings: ['File will be overwritten if confirmed.'],
         };
       }
-      const overwriteWarning = `WARNING: File at ${fullPath} already exists and will be overwritten (isConfirmedAction: ${options.isConfirmedAction}, requireConfirmation: ${options.requireConfirmation}).`;
+      const overwriteWarning = `WARNING: File at ${fullPath} already exists and will be overwritten (isConfirmedAction: ${mergedOptions.isConfirmedAction}, requireConfirmation: ${mergedOptions.requireConfirmation}).`;
       warnings.push(overwriteWarning);
-      this.logger.log(`[ModularFsAgent.createFile] ${overwriteWarning}`);
+      this.logger.warn(`[ModularFsAgent::${funcName}] ${overwriteWarning}`); // Use warn for overwrites
       try {
         fs.copyFileSync(fullPath, fullPath + '.bak');
-        const backupMsg = `File backed up to ${fullPath}.bak`;
-        warnings.push(backupMsg);
-        this.logger.log(`[ModularFsAgent.createFile] ${backupMsg}`);
+        warnings.push(`File backed up to ${fullPath}.bak`);
+        this._logOperation(funcName, fullPath, true, `Backup created at ${fullPath}.bak`);
       } catch (backupError) {
-        const backupFailureWarning = `Failed to create backup for ${fullPath}: ${backupError.message}`;
-        warnings.push(backupFailureWarning);
-        this.logger.error(`[ModularFsAgent.createFile] ${backupFailureWarning}`, backupError);
+        warnings.push(`Failed to create backup for ${fullPath}: ${backupError.message}`);
+        this._logOperation(funcName, fullPath, false, `Failed to create backup: ${backupError.message}`, backupError);
       }
     }
 
     try {
-      this.logger.log(`[ModularFsAgent.createFile] Writing file to: ${fullPath}`);
-      fs.writeFileSync(fullPath, content, 'utf-8'); // Explicitly use utf-8
-      const successMsg = `File created/overwritten successfully at ${fullPath}`;
-      this.logger.log(`[ModularFsAgent.createFile] ${successMsg}`);
+      this.logger.log(`[ModularFsAgent::${funcName}] Writing file to: ${fullPath}`);
+      fs.writeFileSync(fullPath, content, 'utf-8');
+      const successMsg = fileExists ? `File overwritten successfully at ${fullPath}` : `File created successfully at ${fullPath}`;
+      this._logOperation(funcName, fullPath, true, successMsg);
       return {
         success: true,
         message: successMsg,
@@ -278,7 +303,8 @@ class ModularFsAgent {
         warnings,
       };
     } catch (writeError) {
-      this.logger.error(`[ModularFsAgent.createFile] Error writing file ${fullPath}:`, writeError);
+      const message = `Error writing file to ${fullPath}: ${writeError.message}`;
+      this._logOperation(funcName, fullPath, false, message, writeError);
       return {
         success: false,
         message: `Error writing file to ${fullPath}: ${writeError.message}`,
@@ -289,32 +315,51 @@ class ModularFsAgent {
     }
   }
 
-  readFile(relativePath, options = {}) { // Added options
+  readFile(relativePath, options = {}) {
+    const funcName = 'readFile';
+    const mergedOptions = { dryRun: false, ...options }; // readFile doesn't have many specific options yet
+    this.logger.log(`[ModularFsAgent::${funcName}] Attempting. Path: "${relativePath}", Options: ${JSON.stringify(mergedOptions)}`);
+
+    if (!relativePath || typeof relativePath !== 'string' || relativePath.trim() === '') {
+      const message = "Invalid 'relativePath' parameter: must be a non-empty string.";
+      this._logOperation(funcName, String(relativePath), false, message);
+      return { success: false, message, error: { code: 'INVALID_INPUT', message, details: { relativePath } } };
+    }
+
     const resolved = this.resolvePathInWorkspace(relativePath);
     if (!resolved.success) {
-      return { success: false, error: resolved.error };
+      this._logOperation(funcName, relativePath, false, resolved.error.message, resolved.error);
+      return { success: false, error: resolved.error, message: resolved.error.message };
     }
     const { fullPath } = resolved;
 
-    // options.dryRun doesn't change behavior of readFile, but acknowledge if passed
-    if (options.dryRun) {
-      this.logger.log(`[ModularFsAgent::readFile] Dry run mode active, but operation is read-only.`);
+    if (mergedOptions.dryRun) {
+      this.logger.log(`[ModularFsAgent::${funcName}] Dry run mode active, but operation is read-only.`);
+      // In a dry run for readFile, we can simulate checking existence.
+      try {
+        if (!fs.existsSync(fullPath)) {
+          const message = `DRY RUN: File not found at ${fullPath}. Read would fail.`;
+          this._logOperation(funcName, fullPath, false, message);
+          return { success: false, message, error: { code: 'FS_READ_FILE_NOT_FOUND_DRYRUN', message }, dryRunExecuted: true };
+        }
+      } catch(e) { /* ignore fs errors in dry_run */ }
+      const message = `DRY RUN: File exists at ${fullPath}. Read operation would proceed.`;
+      this._logOperation(funcName, fullPath, true, message);
+      return { success: true, message, fullPath, content: "[Dry Run - No Content Read]", dryRunExecuted: true };
     }
 
     try {
-      const existsCheck = this.checkFileExists(relativePath); // Use class method
-      if (!existsCheck.success || !existsCheck.exists) {
+      // fs.existsSync should be robust enough, but checkFileExists adds logging and structure
+      if (!fs.existsSync(fullPath)) { // Direct check before read attempt
+        const message = `File not found at ${fullPath}.`;
+        this._logOperation(funcName, fullPath, false, message);
         return {
           success: false,
-          error: {
-            code: 'FS_READ_FILE_NOT_FOUND',
-            message: existsCheck.message || `File not found at ${fullPath}`,
-            details: { path: fullPath }
-          }
+          error: { code: 'FS_READ_FILE_NOT_FOUND', message, details: { path: fullPath } }
         };
       }
       const content = fs.readFileSync(fullPath, 'utf8');
-      this._logOperation('readFile', fullPath, true, `File read successfully.`);
+      this._logOperation(funcName, fullPath, true, `File read successfully.`);
       return {
         success: true,
         content,
@@ -343,19 +388,50 @@ class ModularFsAgent {
   updateFile(
     relativePath,
     newContent,
-    // Ensure options has default values if not provided, especially for dryRun
-    options = { append: false, requireConfirmation: false, isConfirmedAction: false, dryRun: false, ...options }
+    // Ensure options has default values
+    options = { append: false, requireConfirmation: false, isConfirmedAction: false, dryRun: false, ensureParents: true, ...options }
   ) {
+    const funcName = 'updateFile';
+    const mergedOptions = { ...options }; // Use mergedOptions for clarity
+    this.logger.log(`[ModularFsAgent::${funcName}] Attempting. Path: "${relativePath}", Content length: ${newContent?.length || 'N/A'}, Options: ${JSON.stringify(mergedOptions)}`);
+
+    if (!relativePath || typeof relativePath !== 'string' || relativePath.trim() === '') {
+      const message = "Invalid 'relativePath' parameter: must be a non-empty string.";
+      this._logOperation(funcName, String(relativePath), false, message);
+      return { success: false, message, error: { code: 'INVALID_INPUT', message, details: { relativePath } }, warnings: [] };
+    }
+    if (typeof newContent !== 'string') {
+      const message = "Invalid 'newContent' parameter: must be a string.";
+      this._logOperation(funcName, relativePath, false, message, {contentType: typeof newContent});
+      return { success: false, message, error: { code: 'INVALID_INPUT', message, details: { contentType: typeof newContent } }, warnings: [] };
+    }
+    if (mergedOptions.append !== undefined && typeof mergedOptions.append !== 'boolean') {
+        const message = "Invalid 'append' option: must be boolean if provided.";
+        this._logOperation(funcName, relativePath, false, message, {appendType: typeof mergedOptions.append});
+        return { success: false, message, error: { code: 'INVALID_INPUT', message, details: { appendType: typeof mergedOptions.append } }, warnings: [] };
+    }
+
+
     const resolved = this.resolvePathInWorkspace(relativePath);
     if (!resolved.success) {
-      return { success: false, error: resolved.error, warnings: [] };
+      this._logOperation(funcName, relativePath, false, resolved.error.message, resolved.error);
+      return { success: false, error: resolved.error, message: resolved.error.message, warnings: [] };
     }
     const { fullPath } = resolved;
-    let warnings = []; // Ensure warnings is always an array
+    const baseDir = path.dirname(fullPath);
+    let warnings = [];
 
-    if (options.dryRun) {
-      this._logOperation('updateFile', fullPath, true, `DRY RUN: File would have been updated/appended.`);
+    if (mergedOptions.dryRun) {
+      this._logOperation(funcName, fullPath, true, `DRY RUN: File would have been updated/appended.`);
       warnings.push('Operation performed in dry run mode.');
+      try {
+        if (!fs.existsSync(fullPath)) {
+            warnings.push(`DRY RUN: File does not exist at ${fullPath}. Behavior depends on 'append' flag.`);
+            if (!mergedOptions.append && mergedOptions.ensureParents && !fs.existsSync(baseDir)) {
+                 warnings.push(`DRY RUN: Parent directory ${baseDir} would have been created.`);
+            }
+        }
+      } catch(e) { /* ignore fs errors in dry_run */ }
       return {
         success: true,
         message: `DRY RUN: File would have been updated/appended at ${fullPath}`,
@@ -366,39 +442,45 @@ class ModularFsAgent {
     }
 
     try {
-      const existsCheck = this.checkFileExists(relativePath); // Use class method
-      if (!existsCheck.success) {
-        // Pass through the structured error from checkFileExists if it failed beyond simple existence
-        return { success: false, error: existsCheck.error || { code: 'FS_UPDATE_PRE_CHECK_FAILED', message: existsCheck.message }, warnings };
+      // Ensure parent directory exists if not appending to an existing file and ensureParents is true
+      if (!mergedOptions.append && mergedOptions.ensureParents && !fs.existsSync(baseDir)) {
+        this.logger.log(`[ModularFsAgent::${funcName}] Base directory ${baseDir} does not exist. Attempting to create for new file write.`);
+        try {
+            fs.mkdirSync(baseDir, { recursive: true });
+            warnings.push(`Parent directory ${baseDir} created.`);
+            this._logOperation(funcName, baseDir, true, "Parent directory created.");
+        } catch (mkdirError) {
+            const message = `Failed to create parent directories for ${fullPath}: ${mkdirError.message}`;
+            this._logOperation(funcName, baseDir, false, message, mkdirError);
+            return { success: false, message, error: { code: 'FS_MKDIR_FAILED', originalError: { message: mkdirError.message, code: mkdirError.code, stack: mkdirError.stack } }, fullPath: baseDir, warnings };
+        }
+      } else if (!mergedOptions.append && !mergedOptions.ensureParents && !fs.existsSync(baseDir)) {
+          const message = `Parent directory ${baseDir} does not exist and ensureParents is false. Cannot create new file.`;
+          this._logOperation(funcName, fullPath, false, message);
+          return { success: false, message, error: { code: 'FS_PARENT_DIR_MISSING', message, details: { path: fullPath } }, fullPath, warnings };
       }
 
-      if (!existsCheck.exists) {
-        if (options.append) {
+
+      if (!fs.existsSync(fullPath)) {
+        if (mergedOptions.append) {
           const message = `File does not exist at ${fullPath}, cannot append. Create the file first.`;
-          this._logOperation('updateFile', fullPath, false, message);
-          return {
-            success: false,
-            error: { code: 'FS_UPDATE_APPEND_NON_EXISTENT', message, details: { path: fullPath } },
-            warnings
-          };
-        } else {
-          this._logOperation('updateFile', fullPath, true, `File did not exist. Creating it.`);
-          // Attempt to create the file; this will return a structured error if it fails
-          const createResult = this.createFile(relativePath, newContent, {
-            requireConfirmation: options.requireConfirmation,
-            isConfirmedAction: options.isConfirmedAction,
-            // Pass dryRun status if it were to be used by createFile in this specific path, though dryRun is checked above.
-          });
-          return { ...createResult, warnings: [...warnings, ...(createResult.warnings || [])] };
+          this._logOperation(funcName, fullPath, false, message);
+          return { success: false, error: { code: 'FS_UPDATE_APPEND_NON_EXISTENT', message, details: { path: fullPath } }, warnings };
+        } else { // Creating a new file (overwrite mode, but file doesn't exist)
+          this.logger.log(`[ModularFsAgent::${funcName}] File does not exist at ${fullPath}. Creating new file (overwrite mode).`);
+          fs.writeFileSync(fullPath, newContent, 'utf-8');
+          this._logOperation(funcName, fullPath, true, "New file created successfully (in overwrite mode).");
+          return { success: true, message: `New file created successfully at ${fullPath}`, fullPath, warnings };
         }
       }
 
-      if (options.append) {
-        fs.appendFileSync(fullPath, newContent);
-        this._logOperation('updateFile', fullPath, true, `Content appended successfully.`);
+      // File exists, proceed with append or overwrite logic
+      if (mergedOptions.append) {
+        fs.appendFileSync(fullPath, newContent, 'utf-8');
+        this._logOperation(funcName, fullPath, true, `Content appended successfully.`);
         return { success: true, message: `Content appended successfully to ${fullPath}`, fullPath, warnings };
-      } else {
-        if (options.requireConfirmation && !options.isConfirmedAction) {
+      } else { // Overwrite existing file
+        if (mergedOptions.requireConfirmation && !mergedOptions.isConfirmedAction) {
           return {
             success: false,
             message: 'Confirmation required to overwrite existing file.',
@@ -413,14 +495,14 @@ class ModularFsAgent {
             warnings: ['File will be overwritten if confirmed.'],
           };
         }
-        const overwriteWarning = `WARNING: Preparing to overwrite file at ${fullPath} (isConfirmedAction: ${options.isConfirmedAction})`;
+        const overwriteWarning = `WARNING: Preparing to overwrite file at ${fullPath} (isConfirmedAction: ${mergedOptions.isConfirmedAction})`;
         warnings.push(overwriteWarning);
-        this._logOperation('updateFile', fullPath, true, overwriteWarning);
+        this._logOperation(funcName, fullPath, true, overwriteWarning); // Log with funcName
         try {
           fs.copyFileSync(fullPath, fullPath + '.bak');
           warnings.push(`File backed up to ${fullPath}.bak`);
-          this._logOperation(
-            'updateFile',
+          this._logOperation( // Log with funcName
+            funcName,
             fullPath,
             true,
             `Backup created at ${fullPath}.bak`
@@ -429,17 +511,17 @@ class ModularFsAgent {
           warnings.push(
             `Failed to create backup for ${fullPath}: ${backupError.message}`
           );
-          this._logOperation(
-            'updateFile',
+          this._logOperation( // Log with funcName
+            funcName,
             fullPath,
             false,
             `Failed to create backup for ${fullPath}: ${backupError.message}`,
             backupError
           );
         }
-        fs.writeFileSync(fullPath, newContent);
-        this._logOperation(
-          'updateFile',
+        fs.writeFileSync(fullPath, newContent, 'utf-8'); // Ensure utf-8
+        this._logOperation( // Log with funcName
+          funcName,
           fullPath,
           true,
           `File overwritten successfully.`
@@ -471,25 +553,41 @@ class ModularFsAgent {
     }
   }
 
-  deleteFile(relativePath, options = {isConfirmedAction: false, dryRun: false}) {
+  deleteFile(relativePath, options = {}) {
+    const funcName = 'deleteFile';
+    const mergedOptions = {isConfirmedAction: false, dryRun: false, requireConfirmation: false, ...options };
+    this.logger.log(`[ModularFsAgent::${funcName}] Attempting. Path: "${relativePath}", Options: ${JSON.stringify(mergedOptions)}`);
+
+    if (!relativePath || typeof relativePath !== 'string' || relativePath.trim() === '') {
+      const message = "Invalid 'relativePath' parameter: must be a non-empty string.";
+      this._logOperation(funcName, String(relativePath), false, message);
+      return { success: false, message, error: { code: 'INVALID_INPUT', message, details: { relativePath } }, warnings: [] };
+    }
+
     const resolved = this.resolvePathInWorkspace(relativePath);
     if (!resolved.success) {
-      return { success: false, error: resolved.error, warnings: [] };
+      this._logOperation(funcName, relativePath, false, resolved.error.message, resolved.error);
+      return { success: false, error: resolved.error, message: resolved.error.message, warnings: [] };
     }
     const { fullPath } = resolved;
-    let warnings = []; // Ensure warnings is always an array
+    let warnings = [];
 
-    if (options.dryRun) {
-      this._logOperation('deleteFile', fullPath, true, `DRY RUN: File would have been deleted.`);
+    if (mergedOptions.dryRun) {
+      this._logOperation(funcName, fullPath, true, `DRY RUN: File would have been deleted.`);
       warnings.push('Operation performed in dry run mode.');
-      // In a dry run, we might want to check if the file "would have existed" based on prior dry run creates.
-      // For now, assume it would exist if the path resolves.
-      const existsCheck = this.checkFileExists(relativePath); // Actual check, could be mocked in a more complex dry run state
-      if (!existsCheck.exists && !options.isConfirmedAction) { // If it doesn't actually exist, reflect that in dry run message if not forced
-          warnings.push('Note: File does not currently exist at this path.');
-          return {
-              success: true, // Still success from dry run perspective
+      try {
+        if (!fs.existsSync(fullPath)) {
+            warnings.push('Note: File does not currently exist at this path.');
+            return {
+              success: true,
               message: `DRY RUN: File would have been deleted from ${fullPath}, but it does not currently exist.`,
+              fullPath, warnings, dryRunExecuted: true,
+            };
+        }
+      } catch(e) { /* ignore fs errors in dry_run */ }
+      return {
+        success: true,
+        message: `DRY RUN: File would have been deleted from ${fullPath}`,
               fullPath,
               warnings,
               dryRunExecuted: true,
@@ -505,25 +603,19 @@ class ModularFsAgent {
     }
 
     try {
-      const existsCheck = this.checkFileExists(relativePath); // Use class method
-      if (!existsCheck.success) {
-        // Pass through structured error
-        return { success: false, error: existsCheck.error || { code: 'FS_DELETE_PRE_CHECK_FAILED', message: existsCheck.message }, warnings };
-      }
-
-      if (!existsCheck.exists) {
+      if (!fs.existsSync(fullPath)) {
+        const message = `File not found at ${fullPath}, cannot delete.`;
+        this._logOperation(funcName, fullPath, false, message);
         return {
           success: false,
-          error: {
-            code: 'FS_DELETE_FILE_NOT_FOUND',
-            message: existsCheck.message || `File not found at ${fullPath}, cannot delete.`,
-            details: { path: fullPath }
-          },
+          error: { code: 'FS_DELETE_FILE_NOT_FOUND', message, details: { path: fullPath } },
           warnings,
         };
       }
 
-      if (options.requireConfirmation && !options.isConfirmedAction) {
+      if (mergedOptions.requireConfirmation && !mergedOptions.isConfirmedAction) {
+        const message = `Confirmation required to delete file at ${fullPath}.`;
+        this._logOperation(funcName, fullPath, false, message + " Confirmation pending.");
         return {
           success: false,
           message: 'Confirmation required to delete file.',
@@ -538,32 +630,19 @@ class ModularFsAgent {
           warnings: ['File will be deleted if confirmed.'],
         };
       }
-      warnings.push(`WARNING: Preparing to delete file at ${fullPath} (isConfirmedAction: ${options.isConfirmedAction})`);
-      this._logOperation('deleteFile', fullPath, true, `Preparing to delete file.`);
+      warnings.push(`WARNING: Preparing to delete file at ${fullPath} (isConfirmedAction: ${mergedOptions.isConfirmedAction})`);
+      this._logOperation(funcName, fullPath, true, `Preparing to delete file.`);
 
       try {
-        fs.copyFileSync(fullPath, fullPath + '.bak');
+        fs.copyFileSync(fullPath, fullPath + '.bak'); // Attempt backup
         warnings.push(`File backed up to ${fullPath}.bak`);
-        this._logOperation(
-          'deleteFile',
-          fullPath,
-          true,
-          `Backup created at ${fullPath}.bak`
-        );
+        this._logOperation(funcName, fullPath, true, `Backup created at ${fullPath}.bak`);
       } catch (backupError) {
-        warnings.push(
-          `Failed to create backup for ${fullPath}: ${backupError.message}`
-        );
-        this._logOperation(
-          'deleteFile',
-          fullPath,
-          false,
-          `Failed to create backup: ${backupError.message}`,
-          backupError
-        );
+        warnings.push(`Failed to create backup for ${fullPath}: ${backupError.message}`);
+        this._logOperation(funcName, fullPath, false, `Failed to create backup: ${backupError.message}`, backupError);
       }
-      fs.unlinkSync(fullPath);
-      this._logOperation('deleteFile', fullPath, true, `File deleted successfully.`);
+      fs.unlinkSync(fullPath); // Delete the original file
+      this._logOperation(funcName, fullPath, true, `File deleted successfully.`);
       return {
         success: true,
         message: `File deleted successfully from ${fullPath}`,
@@ -571,13 +650,8 @@ class ModularFsAgent {
         warnings,
       };
     } catch (error) {
-      this._logOperation(
-        'deleteFile',
-        fullPath,
-        false,
-        `Error deleting file.`,
-        error
-      );
+      const message = `Error deleting file at ${fullPath}: ${error.message}`;
+      this._logOperation(funcName, fullPath, false, message, error);
       return {
         success: false,
         error: {
@@ -590,20 +664,34 @@ class ModularFsAgent {
     }
   }
 
-  createDirectory(relativePath, options = { requireConfirmation: false, isConfirmedAction: false, dryRun: false }) {
+  createDirectory(relativePath, options = {}) {
+    const funcName = 'createDirectory';
+    const mergedOptions = { requireConfirmation: false, isConfirmedAction: false, dryRun: false, ...options };
+    this.logger.log(`[ModularFsAgent::${funcName}] Attempting. Path: "${relativePath}", Options: ${JSON.stringify(mergedOptions)}`);
+
+    if (!relativePath || typeof relativePath !== 'string' || relativePath.trim() === '') {
+      const message = "Invalid 'relativePath' parameter: must be a non-empty string.";
+      this._logOperation(funcName, String(relativePath), false, message);
+      return { success: false, message, error: { code: 'INVALID_INPUT', message, details: { relativePath } }, warnings: [] };
+    }
+
     const resolved = this.resolvePathInWorkspace(relativePath);
     if (!resolved.success) {
-      return { success: false, error: resolved.error, warnings: [] };
+      this._logOperation(funcName, relativePath, false, resolved.error.message, resolved.error);
+      return { success: false, error: resolved.error, message: resolved.error.message, warnings: [] };
     }
     const { fullPath } = resolved;
     let warnings = [];
 
-    if (options.dryRun) {
-      this._logOperation('createDirectory', fullPath, true, `DRY RUN: Directory would have been created.`);
+    if (mergedOptions.dryRun) {
+      this._logOperation(funcName, fullPath, true, `DRY RUN: Directory would have been created.`);
       warnings.push('Operation performed in dry run mode.');
-      if (fs.existsSync(fullPath)) {
-         warnings.push('Note: Directory already exists at this path.');
-      }
+      // Note: fs.existsSync might still be useful here to inform if it *already* exists in a dry run.
+      try {
+        if (fs.existsSync(fullPath)) {
+           warnings.push('Note: Directory already exists at this path.');
+        }
+      } catch(e) { /* ignore fs errors in dry_run for existsSync */ }
       return {
         success: true,
         message: `DRY RUN: Directory would have been created at ${fullPath}`,
@@ -615,28 +703,31 @@ class ModularFsAgent {
 
     try {
       if (fs.existsSync(fullPath)) {
-        this._logOperation('createDirectory', fullPath, true, `Directory already exists.`);
-        return { success: true, message: `Directory already exists at ${fullPath}`, fullPath, warnings };
+        const message = `Directory already exists at ${fullPath}. No action taken.`;
+        this._logOperation(funcName, fullPath, true, message);
+        return { success: true, message, fullPath, warnings, alreadyExists: true };
       }
 
-      if (options.requireConfirmation && !options.isConfirmedAction) {
-        // This case is less common for create if not exists, but handle for consistency
+      if (mergedOptions.requireConfirmation && !mergedOptions.isConfirmedAction) {
+        const message = `Confirmation required to create directory at ${fullPath}.`;
+        this._logOperation(funcName, fullPath, false, message);
         return {
             success: false,
-            message: 'Confirmation required to create directory.',
+            message,
             confirmationNeeded: true,
-            fullPath: fullPath,
+            fullPath,
             action: 'createDirectory',
-             error: { code: 'FS_CONFIRMATION_REQUIRED', message: 'Confirmation required to create directory.', details: {path: fullPath, operation: 'createDirectory'}},
+            error: { code: 'FS_CONFIRMATION_REQUIRED', message, details: {path: fullPath, operation: 'createDirectory'}},
             warnings: ['Directory will be created if confirmed.'],
         };
       }
 
       fs.mkdirSync(fullPath, { recursive: true });
-      this._logOperation('createDirectory', fullPath, true, `Directory created successfully.`);
+      this._logOperation(funcName, fullPath, true, `Directory created successfully.`);
       return { success: true, message: `Directory created successfully at ${fullPath}`, fullPath, warnings };
     } catch (error) {
-      this._logOperation('createDirectory', fullPath, false, `Error creating directory.`, error);
+      const message = `Error creating directory at ${fullPath}: ${error.message}`;
+      this._logOperation(funcName, fullPath, false, message, error);
       return {
         success: false,
         error: {
@@ -649,20 +740,33 @@ class ModularFsAgent {
     }
   }
 
-  deleteDirectory(relativePath, options = { requireConfirmation: false, isConfirmedAction: false, dryRun: false }) {
+  deleteDirectory(relativePath, options = {}) {
+    const funcName = 'deleteDirectory';
+    const mergedOptions = { requireConfirmation: false, isConfirmedAction: false, dryRun: false, ...options };
+    this.logger.log(`[ModularFsAgent::${funcName}] Attempting. Path: "${relativePath}", Options: ${JSON.stringify(mergedOptions)}`);
+
+    if (!relativePath || typeof relativePath !== 'string' || relativePath.trim() === '') {
+      const message = "Invalid 'relativePath' parameter: must be a non-empty string.";
+      this._logOperation(funcName, String(relativePath), false, message);
+      return { success: false, message, error: { code: 'INVALID_INPUT', message, details: { relativePath } }, warnings: [] };
+    }
+
     const resolved = this.resolvePathInWorkspace(relativePath);
     if (!resolved.success) {
-      return { success: false, error: resolved.error, warnings: [] };
+      this._logOperation(funcName, relativePath, false, resolved.error.message, resolved.error);
+      return { success: false, error: resolved.error, message: resolved.error.message, warnings: [] };
     }
     const { fullPath } = resolved;
     let warnings = [];
 
-    if (options.dryRun) {
-      this._logOperation('deleteDirectory', fullPath, true, `DRY RUN: Directory would have been deleted recursively.`);
+    if (mergedOptions.dryRun) {
+      this._logOperation(funcName, fullPath, true, `DRY RUN: Directory would have been deleted recursively.`);
       warnings.push('Operation performed in dry run mode.');
-      if (!fs.existsSync(fullPath)) {
-         warnings.push('Note: Directory does not currently exist at this path.');
-      }
+      try {
+        if (!fs.existsSync(fullPath)) {
+           warnings.push('Note: Directory does not currently exist at this path.');
+        }
+      } catch(e) { /* ignore fs errors in dry_run */ }
       return {
         success: true,
         message: `DRY RUN: Directory would have been deleted recursively at ${fullPath}`,
@@ -674,7 +778,8 @@ class ModularFsAgent {
 
     try {
       if (!fs.existsSync(fullPath)) {
-        this._logOperation('deleteDirectory', fullPath, false, `Directory not found.`);
+        const message = `Directory not found at ${fullPath}, cannot delete.`;
+        this._logOperation(funcName, fullPath, false, message);
         return {
           success: false,
           error: {
@@ -702,18 +807,18 @@ class ModularFsAgent {
         };
       }
       warnings.push(
-        `WARNING: Preparing to recursively delete directory at ${fullPath} (isConfirmedAction: ${options.isConfirmedAction})`
+        `WARNING: Preparing to recursively delete directory at ${fullPath} (isConfirmedAction: ${mergedOptions.isConfirmedAction})`
       );
-      this._logOperation(
-        'deleteDirectory',
+      this._logOperation( // Use funcName
+        funcName,
         fullPath,
         true,
         `Preparing to delete directory.`
       );
 
-      fs.rmSync(fullPath, { recursive: true, force: true }); // force option added for robustness
-      this._logOperation(
-        'deleteDirectory',
+      fs.rmSync(fullPath, { recursive: true, force: true });
+      this._logOperation( // Use funcName
+        funcName,
         fullPath,
         true,
         `Directory deleted successfully.`
@@ -729,7 +834,7 @@ class ModularFsAgent {
         'deleteDirectory',
         fullPath,
         false,
-        `Error deleting directory.`,
+        `Error deleting directory at ${fullPath}: ${error.message}`, // More specific message
         error
       );
       return {
@@ -753,68 +858,64 @@ class ModularFsAgent {
       return resolved.error?.message ? `Error: ${resolved.error.message}` : "Error: Path resolution failed for generateDirectoryTree.";
     }
     const startPath = resolved.fullPath; // Absolute path
+    const funcName = 'generateDirectoryTree';
+    this.logger.log(`[ModularFsAgent::${funcName}] Generating tree for resolved path: "${fullPath}". Prefix: "${prefix}", RootName: "${rootName || path.basename(fullPath)}"`);
+
 
     if (options.dryRun) {
-      this.logger.log(`[ModularFsAgent::generateDirectoryTree] Dry run mode active, but operation is read-only.`);
-      // Potentially, one could log that the tree "would have been generated".
-      // For now, it proceeds as normal since it's a read operation.
+      this.logger.log(`[ModularFsAgent::${funcName}] Dry run mode active, but operation is read-only.`);
     }
 
     try {
-      const stats = fs.statSync(startPath);
+      const stats = fs.statSync(fullPath); // Use fullPath here
       if (!stats.isDirectory()) {
-        return `Error: Path '${startPath}' is not a directory.`;
+        const message = `Path '${fullPath}' is not a directory.`;
+        this._logOperation(funcName, fullPath, false, message);
+        return `Error: ${message}`;
       }
     } catch (e) {
-      return `Error: Path '${startPath}' not found or inaccessible. ${e.message}`;
+      const message = `Path '${fullPath}' not found or inaccessible.`;
+      this._logOperation(funcName, fullPath, false, message, e);
+      return `Error: ${message} ${e.message}`;
     }
 
     let treeString = '';
     if (rootName) {
       treeString += rootName + '\n';
     } else {
-      // Use the directory name if rootName is not provided
-      treeString += path.basename(startPath) + '\n';
+      treeString += path.basename(fullPath) + '\n'; // Use fullPath here
     }
 
-    const entries = fs
-      .readdirSync(startPath, { withFileTypes: true })
-      .sort((a, b) => a.name.localeCompare(b.name)); // Sort for consistent output
+    // Call the recursive helper with the validated absolute startPath
+    treeString += this._generateDirectoryTreeRecursive(fullPath, prefix, options);
 
-    entries.forEach((entry, index) => {
-      const isLast = index === entries.length - 1;
-      const connector = isLast ? '└── ' : '├── ';
-      const entryPath = path.join(startPath, entry.name); // For recursion, keep it absolute
-      treeString += prefix + connector + entry.name + '\n';
-      if (entry.isDirectory()) {
-        const newPrefix = prefix + (isLast ? '    ' : '│   ');
-        // Recursively call with the absolute path of the subdirectory
-        // Pass entry.name as the rootName for the subtree if needed, or modify generateDirectoryTree
-        // For now, passing the newPrefix and the absolute path
-        // Pass options down to recursive calls if generateDirectoryTree itself uses them further
-        treeString += this._generateDirectoryTreeRecursive(entryPath, newPrefix, options); // private helper for recursion
-      }
-    });
+    this._logOperation(funcName, fullPath, true, "Directory tree generated.");
     return treeString;
   }
 
   // Helper for recursive part of generateDirectoryTree to avoid re-resolving base path
-  _generateDirectoryTreeRecursive(absoluteDirPath, prefix = '', options = {}) { // Added options
+  _generateDirectoryTreeRecursive(absoluteDirPath, prefix = '', options = {}) {
     let treeString = '';
-    const entries = fs
-      .readdirSync(absoluteDirPath, { withFileTypes: true })
-      .sort((a, b) => a.name.localeCompare(b.name));
+    try {
+      const entries = fs
+        .readdirSync(absoluteDirPath, { withFileTypes: true })
+        .sort((a, b) => a.name.localeCompare(b.name));
 
-    entries.forEach((entry, index) => {
-      const isLast = index === entries.length - 1;
-      const connector = isLast ? '└── ' : '├── ';
-      const entryPath = path.join(absoluteDirPath, entry.name);
-      treeString += prefix + connector + entry.name + '\n';
-      if (entry.isDirectory()) {
-        const newPrefix = prefix + (isLast ? '    ' : '│   ');
-  _generateDirectoryTreeRecursive(entryPath, newPrefix, options); // Pass options
-      }
-    });
+      entries.forEach((entry, index) => {
+        const isLast = index === entries.length - 1;
+        const connector = isLast ? '└── ' : '├── ';
+        const entryPath = path.join(absoluteDirPath, entry.name);
+        treeString += prefix + connector + entry.name + '\n';
+        if (entry.isDirectory()) {
+          const newPrefix = prefix + (isLast ? '    ' : '│   ');
+          treeString += this._generateDirectoryTreeRecursive(entryPath, newPrefix, options); // Pass options
+        }
+      });
+    } catch (e) {
+      // Log error for this specific directory but allow tree generation to continue for other parts.
+      this.logger.warn(`[ModularFsAgent::_generateDirectoryTreeRecursive] Error reading directory ${absoluteDirPath}: ${e.message}`);
+      treeString += prefix + `└── ERROR_READING_DIR: ${e.message}\n`;
+    }
     return treeString;
   }
 }
