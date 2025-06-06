@@ -988,98 +988,98 @@ async function executeStepsInternal(
   // Helper function to trigger step failure
   // Standardizes error reporting, stores failure details for potential user resolution, and sends failure options to the client.
   const triggerStepFailure = (errorMessage, errorDetails, stepType, stepNumber, currentStepContext) => {
-    let displayErrorMessage = errorMessage;
-    const currentStepForErrorMessage = steps[currentStepContext.i];
+    let displayErrorMessage = errorMessage; // Initial message from executeStepsInternal
 
-    // Attempt to make displayErrorMessage more specific if it's generic
+    // Try to get a more specific message
     if (!displayErrorMessage ||
-        displayErrorMessage === "Unknown error after retries/refinements." ||
-        displayErrorMessage === "Unknown error after retries/refinements/evaluation." ||
-        displayErrorMessage === "Step processing failed with an unspecified error before triggering failure." ||
-        displayErrorMessage === "Step attempt failed: Error object had no message." || // Check for our new generic message
-        displayErrorMessage.startsWith("Step attempt failed with non-Error type:")) {
-
-      if (errorDetails && errorDetails.message &&
-          errorDetails.message !== displayErrorMessage && // Ensure it's actually different
-          errorDetails.message.trim() !== "") {
-        displayErrorMessage = `Step failed. Reported reason: ${errorDetails.message}`;
-      } else if (errorDetails && errorDetails.details && typeof errorDetails.details.llmResponse === 'string') {
-        // If it's one of our custom errors from conference_task
-        displayErrorMessage = `Step failed. LLM Error: ${errorDetails.details.llmResponse.substring(0, 150)}`;
+        displayErrorMessage.startsWith("Unknown error") ||
+        displayErrorMessage.startsWith("Step processing failed") ||
+        displayErrorMessage.startsWith("Step attempt failed")) {
+      if (errorDetails && errorDetails.message && errorDetails.message.trim() && !errorDetails.message.startsWith("Unknown error") && !errorDetails.message.startsWith("Step processing failed") && !errorDetails.message.startsWith("Step attempt failed")) {
+        displayErrorMessage = errorDetails.message;
+      } else if (errorDetails && errorDetails.details && errorDetails.details.message && errorDetails.details.message.trim()) {
+        // Use message from fsAgent result if available and more specific
+        displayErrorMessage = `Step failed. Agent reported: ${errorDetails.details.message}`;
+      } else if (errorDetails && errorDetails.details && errorDetails.details.error && errorDetails.details.error.message && errorDetails.details.error.message.trim()) {
+        // Use message from fsAgent's result.error object
+        displayErrorMessage = `Step failed. Agent detailed error: ${errorDetails.details.error.message}`;
       } else {
-        // Fallback to the generic message if nothing more specific is found
         displayErrorMessage = `Step ${stepNumber} (${stepType}) failed with an unspecified error after all attempts.`;
       }
     }
 
     const fullErrorMessage = `Step ${stepNumber} (${stepType}): ${displayErrorMessage}`;
     overallExecutionLog.push(`  -> ❌ ${fullErrorMessage}`);
-    console.error(`[executeStepsInternal] ${fullErrorMessage}`, errorDetails || '');
+    // Log the full errorDetails object if it exists, for better server-side debugging
+    console.error(`[executeStepsInternal] ${fullErrorMessage}`, errorDetails ? JSON.stringify(errorDetails, null, 2) : 'No errorDetails object provided');
 
     const failureId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
 
-    let originalErrorStringForDetails;
-    let customDetails = {};
+    let deepestErrorMsg = "No specific original error message provided.";
+    let agentErrorDetails = {};
 
     if (errorDetails instanceof Error) {
-      originalErrorStringForDetails = errorDetails.toString(); // Includes "Error: " prefix and message
-      if (typeof errorDetails.details === 'object' && errorDetails.details !== null) {
-        customDetails = { ...errorDetails.details }; // Capture our custom .details property
+      // Prefer the errorDetails.message if it's specific
+      if (errorDetails.message && errorDetails.message.trim() && !errorDetails.message.startsWith("Unknown error") && !errorDetails.message.startsWith("Step processing failed") && !errorDetails.message.startsWith("Step attempt failed")) {
+          deepestErrorMsg = errorDetails.message; // Message from the error thrown by executeStepsInternal
       }
-    } else if (errorDetails !== null && errorDetails !== undefined) {
-      originalErrorStringForDetails = JSON.stringify(errorDetails);
-    } else {
-      originalErrorStringForDetails = "No specific original error message provided.";
+
+      if (errorDetails.details) { // This is the 'result' object from fsAgent
+        agentErrorDetails = { fsAgentResult: errorDetails.details }; // Store the whole fsAgent result
+        if (errorDetails.details.error) { // This is fsAgent's structured error
+          if (errorDetails.details.error.message && errorDetails.details.error.message.trim()) {
+            // This is often the most specific message from fsAgent's own error handling
+            deepestErrorMsg = errorDetails.details.error.message;
+          }
+          if (errorDetails.details.error.originalError) {
+            // This is the raw error from Node's fs module, if available
+            if (errorDetails.details.error.originalError.message && errorDetails.details.error.originalError.message.trim()) {
+              deepestErrorMsg = errorDetails.details.error.originalError.message;
+            } else if (typeof errorDetails.details.error.originalError === 'string' && errorDetails.details.error.originalError.trim()) {
+              deepestErrorMsg = errorDetails.details.error.originalError;
+            } else {
+              deepestErrorMsg = errorDetails.details.error.originalError.toString(); // Fallback for raw error
+            }
+          }
+        } else if (errorDetails.details.message && errorDetails.details.message.trim()) {
+          // If fsAgent result had a message but no .error sub-object
+           deepestErrorMsg = errorDetails.details.message;
+        }
+      }
+    } else if (errorDetails) {
+      deepestErrorMsg = JSON.stringify(errorDetails);
     }
 
-    if (!originalErrorStringForDetails || !originalErrorStringForDetails.trim() || originalErrorStringForDetails === "\"null\"") {
-      originalErrorStringForDetails = "No specific original error message provided.";
+    if (!deepestErrorMsg || !deepestErrorMsg.trim() || deepestErrorMsg === "\"null\"") {
+      deepestErrorMsg = "No specific original error message provided.";
     }
 
-    // Construct standardizedError
     let standardizedError = {
-      code: 'SERVER_STEP_EXECUTION_FAILED', // Default code
-      message: displayErrorMessage, // Use the potentially improved message
+      code: 'SERVER_STEP_EXECUTION_FAILED',
+      message: displayErrorMessage, // User-facing, hopefully more specific now
       details: {
-        originalError: originalErrorStringForDetails, // Full error string or stringified non-Error
-        // Spread customDetails here. If errorDetails.details existed, it's captured.
-        // This might include llmResponse, modelRole, etc.
-        ...customDetails,
+        originalError: deepestErrorMsg, // Deepest error message found
+        ...agentErrorDetails, // Contains fsAgentResult if available
+        fullErrorObjectString: errorDetails ? errorDetails.toString() : "null", // For broader context
         stack: errorDetails instanceof Error ? errorDetails.stack : undefined,
       },
       stepType: stepType,
       stepNumber: stepNumber,
     };
 
-    // Further refine code and message if specific agent error structure is present
-    // (This part of the original logic can remain if still applicable)
-    if (errorDetails && typeof errorDetails === 'object' && errorDetails.error && typeof errorDetails.error.code === 'string') {
-      standardizedError.code = errorDetails.error.code;
-      standardizedError.message = errorDetails.error.message || displayErrorMessage;
-      standardizedError.details = { ...standardizedError.details, ...errorDetails.error.details, agentReported: true };
-      if (Object.keys(errorDetails).filter(k => k !== 'error' && k !== 'success' && k !== 'message').length > 0) {
-        standardizedError.details.fullAgentResponse = errorDetails;
-      }
-    } else if (errorDetails instanceof Error) {
-      if (displayErrorMessage && displayErrorMessage.includes("LLM generation failed")) {
-          standardizedError.code = 'LLM_GENERATION_FAILED_IN_STEP';
-      } else if (displayErrorMessage && displayErrorMessage.includes("Loop body execution failed")) {
-          standardizedError.code = 'LOOP_BODY_EXECUTION_FAILED';
-      }
-    }
-
+    // (The rest of triggerStepFailure, like setting pendingFailures and sending SSE, remains the same)
+    // ...
     pendingFailures[failureId] = {
-      // ... (rest of the pendingFailures structure remains the same)
-      originalExpressHttpRes: expressHttpRes,
-      sendSseMessage,
-      task_description,
-      steps,
-      currentStepIndex: currentStepContext.i,
-      taskContext,
-      overallExecutionLog,
-      safetyMode,
-      errorDetails: standardizedError, // Store the improved standardized error
-    };
+        originalExpressHttpRes: expressHttpRes,
+        sendSseMessage,
+        task_description,
+        steps,
+        currentStepIndex: currentStepContext.i,
+        taskContext,
+        overallExecutionLog,
+        safetyMode,
+        errorDetails: standardizedError,
+      };
     sendSseMessage('step_failed_options', { failureId, errorDetails: standardizedError, failedStep: { ...steps[currentStepContext.i] } }, expressHttpRes);
     console.log(`[executeStepsInternal] Step ${stepNumber} (${stepType}) failed. Pausing task. Failure ID: ${failureId}`);
   };
