@@ -22,6 +22,20 @@ class ModularFsAgent {
         `[ModularFsAgent] Workspace directory configured at: ${this.workspaceDir}`
       );
     }
+
+    // Writability test
+    const tempFileName = `.writetest_${Date.now()}.tmp`;
+    const tempFilePath = path.join(this.workspaceDir, tempFileName);
+    try {
+      fs.writeFileSync(tempFilePath, 'test');
+      fs.readFileSync(tempFilePath); // Optional: read back
+      fs.unlinkSync(tempFilePath);
+      this.logger.log(`[ModularFsAgent] Workspace directory ${this.workspaceDir} passed writability test.`);
+    } catch (error) {
+      this.logger.warn(
+        `[ModularFsAgent] Workspace directory ${this.workspaceDir} may not be fully writable/readable/deletable. Error: ${error.message}`
+      );
+    }
   }
 
   _isWindows() {
