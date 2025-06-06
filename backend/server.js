@@ -1667,54 +1667,68 @@ async function executeStepsInternal(
         let model_b_prompt_for_log = "";
         let arbiter_prompt_for_log = "";
 
-        try {
-          if (num_rounds === 1) {
-            // Model A
+        // Try-catch blocks for each model call will go here, removing the outer try-catch
+        if (num_rounds === 1) {
+          // Model A
+          try {
             const systemPromptA = `You are ${finalModelARole}. Analyze the following prompt and provide a concise, logical answer.`;
             const fullPromptA = `${systemPromptA}\n\nUser Prompt: "${userPrompt}"`;
             model_a_prompt_for_log = fullPromptA;
-            // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Model A (${modelName}) as ${finalModelARole}`}, expressHttpRes); // Redundant if llm_chunk has speaker
             responseA = await generateFromLocal(fullPromptA, model_a_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_a', speakerContext: finalModelARole });
             if (responseA.startsWith('// LLM_ERROR:') || responseA.startsWith('// LLM_WARNING:')) {
-              throw new Error(`Model A (${finalModelARole}) failed: ${responseA}`);
+              throw new Error(responseA); // Treat LLM error strings as exceptions
             }
-            // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Model A (${finalModelARole}) response received.`}, expressHttpRes); // Redundant
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Model A (${finalModelARole}) response received.`}, expressHttpRes);
             overallExecutionLog.push(`  -> [Conference ${conferenceId}] Model A (${finalModelARole}) response (full length ${responseA.length}): ${responseA.substring(0,100)}...`);
             debate_history.push({ round: 1, model_a_response: responseA, model_b_response: "" });
+          } catch (modelAError) {
+            const errorMsg = `Conference Model A (${finalModelARole}) failed: ${modelAError.message}`;
+            triggerStepFailure(errorMsg, modelAError, currentStep.type, stepNumber, {i});
+            return; // Stop processing this conference task
+          }
 
-            // Model B
+          // Model B
+          try {
             const systemPromptB = `You are ${finalModelBRole}. Analyze the following prompt and provide an innovative and imaginative answer.`;
             const fullPromptB = `${systemPromptB}\n\nUser Prompt: "${userPrompt}"`;
             model_b_prompt_for_log = fullPromptB;
-            // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Model B (${modelName}) as ${finalModelBRole}`}, expressHttpRes); // Redundant
             responseB = await generateFromLocal(fullPromptB, model_b_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_b', speakerContext: finalModelBRole });
             if (responseB.startsWith('// LLM_ERROR:') || responseB.startsWith('// LLM_WARNING:')) {
-              throw new Error(`Model B (${finalModelBRole}) failed: ${responseB}`);
+              throw new Error(responseB);
             }
-            // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Model B (${finalModelBRole}) response received.`}, expressHttpRes); // Redundant
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Model B (${finalModelBRole}) response received.`}, expressHttpRes);
             overallExecutionLog.push(`  -> [Conference ${conferenceId}] Model B (${finalModelBRole}) response (full length ${responseB.length}): ${responseB.substring(0,100)}...`);
-            debate_history[0].model_b_response = responseB;
+            if (debate_history.length > 0) debate_history[0].model_b_response = responseB; else debate_history.push({ round: 1, model_a_response: responseA, model_b_response: responseB });
+          } catch (modelBError) {
+            const errorMsg = `Conference Model B (${finalModelBRole}) failed: ${modelBError.message}`;
+            triggerStepFailure(errorMsg, modelBError, currentStep.type, stepNumber, {i});
+            return;
+          }
 
-            // Arbiter Model
+          // Arbiter Model
+          try {
             const arbiterSystemPrompt = `You are an ${finalArbiterModelRole}. Given the original prompt and the two responses below, evaluate them. Determine which response is better or synthesize a comprehensive answer that combines the best elements of both.`;
             const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nResponse A (${finalModelARole}): "${responseA}"\n\nResponse B (${finalModelBRole}): "${responseB}"\n\nYour evaluation and synthesized answer:`;
             arbiter_prompt_for_log = arbiterFullPrompt;
-            // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Arbiter Model (${modelName}) as ${finalArbiterModelRole}`}, expressHttpRes); // Redundant
             arbiterResponse = await generateFromLocal(arbiterFullPrompt, arbiter_model_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'arbiter', speakerContext: finalArbiterModelRole });
             if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
-              throw new Error(`Arbiter Model (${finalArbiterModelRole}) failed: ${arbiterResponse}`);
+              throw new Error(arbiterResponse);
             }
-          } else { // num_rounds > 1
-            // Ensure responseA and responseB are used for multi-round results too
-            // let lastResponseA = ""; // These were used locally, now use responseA, responseB
-            // let lastResponseB = "";
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response received.`}, expressHttpRes);
+            overallExecutionLog.push(`  -> [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response (full length ${arbiterResponse.length}): ${arbiterResponse.substring(0,100)}...`);
+          } catch (arbiterError) {
+            const errorMsg = `Conference Arbiter Model (${finalArbiterModelRole}) failed: ${arbiterError.message}`;
+            triggerStepFailure(errorMsg, arbiterError, currentStep.type, stepNumber, {i});
+            return;
+          }
+        } else { // num_rounds > 1
+          for (let round = 1; round <= num_rounds; round++) {
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Starting Round ${round}/${num_rounds}`}, expressHttpRes);
+            overallExecutionLog.push(`  -> [Conference ${conferenceId}] Starting Round ${round}/${num_rounds}`);
+            conferenceLogMessagesArray.push(`Round ${round}/${num_rounds} starting.`);
 
-            for (let round = 1; round <= num_rounds; round++) {
-              sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Starting Round ${round}/${num_rounds}`}, expressHttpRes);
-              overallExecutionLog.push(`  -> [Conference ${conferenceId}] Starting Round ${round}/${num_rounds}`);
-              conferenceLogMessagesArray.push(`Round ${round}/${num_rounds} starting.`);
-
-              // Model A's turn
+            // Model A's turn
+            try {
               let promptA;
               if (round === 1) {
                 promptA = `You are ${finalModelARole}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
@@ -1722,16 +1736,21 @@ async function executeStepsInternal(
                 promptA = `You are ${finalModelARole}. The original request was: "${userPrompt}". Your opponent (Model B) previously said: "${responseB}". Based on this, provide your updated argument or rebuttal as ${finalModelARole}.`;
               }
               model_a_prompt_for_log = promptA;
-              // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Calling Model A (${finalModelARole})`}, expressHttpRes); // Redundant
               const currentResponseA = await generateFromLocal(promptA, model_a_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_a', speakerContext: finalModelARole });
               if (currentResponseA.startsWith('// LLM_ERROR:') || currentResponseA.startsWith('// LLM_WARNING:')) {
-                throw new Error(`Model A (${finalModelARole}) failed in Round ${round}: ${currentResponseA}`);
+                throw new Error(currentResponseA);
               }
-              responseA = currentResponseA; // Update main responseA for this round
-              // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Model A response: ${responseA.substring(0, 50)}...`}, expressHttpRes); // Redundant
+              responseA = currentResponseA;
+              sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Model A response received.`}, expressHttpRes);
               overallExecutionLog.push(`  -> [Conference ${conferenceId} R${round}] Model A (full length ${responseA.length}): ${responseA.substring(0,50)}...`);
+            } catch (modelAError) {
+              const errorMsg = `Conference Model A (${finalModelARole}) failed in Round ${round}: ${modelAError.message}`;
+              triggerStepFailure(errorMsg, modelAError, currentStep.type, stepNumber, {i});
+              return;
+            }
 
-              // Model B's turn
+            // Model B's turn
+            try {
               let promptB;
               if (round === 1) {
                 promptB = `You are ${finalModelBRole}. The user's request is: "${userPrompt}". Provide your initial argument or response.`;
@@ -1739,34 +1758,42 @@ async function executeStepsInternal(
                 promptB = `You are ${finalModelBRole}. The original request was: "${userPrompt}". Your opponent (Model A) just said: "${responseA}". Based on this, provide your updated argument or rebuttal as ${finalModelBRole}.`;
               }
               model_b_prompt_for_log = promptB;
-              // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Calling Model B (${finalModelBRole})`}, expressHttpRes); // Redundant
               const currentResponseB = await generateFromLocal(promptB, model_b_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'model_b', speakerContext: finalModelBRole });
               if (currentResponseB.startsWith('// LLM_ERROR:') || currentResponseB.startsWith('// LLM_WARNING:')) {
-                throw new Error(`Model B (${finalModelBRole}) failed in Round ${round}: ${currentResponseB}`);
+                throw new Error(currentResponseB);
               }
-              responseB = currentResponseB; // Update main responseB for this round
-              // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Model B response: ${responseB.substring(0, 50)}...`}, expressHttpRes); // Redundant
+              responseB = currentResponseB;
+              sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId} R${round}] Model B response received.`}, expressHttpRes);
               overallExecutionLog.push(`  -> [Conference ${conferenceId} R${round}] Model B (full length ${responseB.length}): ${responseB.substring(0,50)}...`);
-
-              debate_history.push({ round: round, model_a_response: responseA, model_b_response: responseB });
+            } catch (modelBError) {
+              const errorMsg = `Conference Model B (${finalModelBRole}) failed in Round ${round}: ${modelBError.message}`;
+              triggerStepFailure(errorMsg, modelBError, currentStep.type, stepNumber, {i});
+              return;
             }
+            debate_history.push({ round: round, model_a_response: responseA, model_b_response: responseB });
+          }
 
-            // Arbiter after all rounds
+          // Arbiter after all rounds
+          try {
             let formattedDebateHistory = debate_history.map(r => `Round ${r.round}:\n  Model A (${finalModelARole}): ${r.model_a_response}\n  Model B (${finalModelBRole}): ${r.model_b_response}`).join('\n\n');
             const arbiterSystemPrompt = `You are an ${finalArbiterModelRole}. You have observed a debate between Model A (${finalModelARole}) and Model B (${finalModelBRole}) over several rounds.`;
             const arbiterFullPrompt = `${arbiterSystemPrompt}\n\nOriginal Prompt: "${userPrompt}"\n\nFull Debate History:\n${formattedDebateHistory}\n\nBased on the entire debate, provide a comprehensive synthesized answer as ${finalArbiterModelRole}.`;
             arbiter_prompt_for_log = arbiterFullPrompt;
-            // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Calling Arbiter Model (${finalArbiterModelRole}) with full debate history.`}, expressHttpRes); // Redundant
             arbiterResponse = await generateFromLocal(arbiterFullPrompt, arbiter_model_id || modelName, expressHttpRes, { agentType: 'conference_agent', agentRole: 'arbiter', speakerContext: finalArbiterModelRole });
             if (arbiterResponse.startsWith('// LLM_ERROR:') || arbiterResponse.startsWith('// LLM_WARNING:')) {
-              throw new Error(`Arbiter Model (${finalArbiterModelRole}) failed after debate: ${arbiterResponse}`);
+              throw new Error(arbiterResponse);
             }
+            sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response received.`}, expressHttpRes);
+            overallExecutionLog.push(`  -> [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response (full length ${arbiterResponse.length}): ${arbiterResponse.substring(0,100)}...`);
+          } catch (arbiterError) {
+            const errorMsg = `Conference Arbiter Model (${finalArbiterModelRole}) failed after debate: ${arbiterError.message}`;
+            triggerStepFailure(errorMsg, arbiterError, currentStep.type, stepNumber, {i});
+            return;
           }
-          // sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response received.`}, expressHttpRes); // Redundant
-          overallExecutionLog.push(`  -> [Conference ${conferenceId}] Arbiter Model (${finalArbiterModelRole}) response (full length ${arbiterResponse.length}): ${arbiterResponse.substring(0,100)}...`);
-
-          if (output_id) {
-            // Store the structured result
+        }
+        // Logging and output handling remains the same, but outside the removed try-catch
+        if (output_id) {
+          // Store the structured result
             taskContext.outputs[output_id] = {
               final_response: arbiterResponse,
               model_a_response: responseA, // Contains the final response from Model A after all rounds
@@ -1815,10 +1842,7 @@ async function executeStepsInternal(
           sendSseMessage('log_entry', { message: `[SSE] [Conference ${conferenceId}] Conference log saved.`}, expressHttpRes);
           overallExecutionLog.push(`  -> [Conference ${conferenceId}] Logged successfully to ${CONFERENCES_LOG_FILE}`);
 
-        } catch (confError) {
-          triggerStepFailure(confError.message, confError, currentStep.type, stepNumber, {i});
-          return;
-        }
+        // Removed the outer try-catch for confError as errors are handled per model call now.
 
       } else if (currentStep.type === 'createDirectory') {
         const { dirPath: originalDirPath } = currentStep.details || {};

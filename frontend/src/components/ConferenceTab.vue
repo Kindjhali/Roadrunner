@@ -253,12 +253,27 @@ export default {
     },
 
     handleError(errorDetails) {
-      console.log('[ConferenceTab] Raw data for handleError:', JSON.stringify(errorDetails));
-      console.error('[ConferenceTab] handleError:', errorDetails);
+      console.log('[ConferenceTab] Raw data for handleError:', JSON.stringify(errorDetails)); // Keep this for debugging
+      console.error('[ConferenceTab] handleError:', errorDetails); // Keep this for debugging
+
       let errorMessage;
-      if (typeof errorDetails === 'string') {
+
+      if (errorDetails && errorDetails.type === 'step_failed_options') {
+        // Handle the structured step_failed_options event
+        if (errorDetails.errorDetails && errorDetails.errorDetails.message) {
+          errorMessage = `Conference step failed: ${errorDetails.errorDetails.message}`;
+          if (errorDetails.errorDetails.stepType) {
+            errorMessage += ` (Step Type: ${errorDetails.errorDetails.stepType})`;
+          }
+        } else {
+          errorMessage = 'Conference step failed with unspecified details.';
+        }
+        // Optionally log more details for developers
+        console.error('[ConferenceTab] Detailed step failure:', errorDetails);
+      } else if (typeof errorDetails === 'string') {
         errorMessage = errorDetails;
       } else if (errorDetails && (errorDetails.error || errorDetails.message)) {
+        // Existing handling for other error object structures
         errorMessage = errorDetails.error || errorDetails.message || 'An error occurred.';
         if (errorDetails.details) {
           errorMessage += ` (Details: ${errorDetails.details})`;
@@ -266,9 +281,12 @@ export default {
       } else {
         errorMessage = 'An unexpected error occurred during the conference.';
       }
+
       this.error = errorMessage;
       this.isLoading = false;
       this.isStreaming = false;
+      // Ensure conferenceLog also gets a system message about the failure
+      this.conferenceLog.push({ speaker: 'System', message: `ERROR: ${errorMessage}` });
       console.log(`[ConferenceTab] handleError: Set isLoading to ${this.isLoading}, isStreaming to ${this.isStreaming}. Error displayed: ${errorMessage}`);
     },
 

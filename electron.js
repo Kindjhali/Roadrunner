@@ -458,6 +458,15 @@ ipcMain.on('start-conference-stream', (event, payload) => {
           console.error('[Electron IPC] start-conference-stream: Received error event:', msg);
           forwardEvent('conference-stream-error', msg); // Stays 'conference-stream-error'
           break;
+        case 'step_failed_options':
+          // Log for debugging in main process
+          console.log('[Electron IPC] start-conference-stream: Received step_failed_options event:', msg);
+          forwardEvent('conference-stream-error', msg); // Forward on the error channel
+          // Optional: Consider if the EventSource should be closed here,
+          // as a step failure might be terminal for the conference.
+          // if (conferenceEventSource) conferenceEventSource.close();
+          // conferenceEventSource = null;
+          break;
         case 'execution_complete':
           console.log('[Electron IPC] start-conference-stream: Execution complete event:', msg);
           forwardEvent('conference-stream-complete', msg || {}); // Corrected channel
