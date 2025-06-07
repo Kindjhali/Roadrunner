@@ -33,7 +33,7 @@ This framework ensures that development is transparent, traceable, and aligned w
 
 ### 1. Core UI Structure
     *   **Two-Tab Interface:** Roadrunner now features a primary two-tab layout:
-        *   **"Coder" Tab:** Dedicated to autonomous code generation, task execution from files/roadmaps, and interaction with coding-focused models.
+        *   **"Coder" Tab:** Dedicated to autonomous code generation, task execution from uploaded files, and interaction with coding-focused models.
         *   **"Brainstorming" Tab:** Designed for interactive chat with language models, idea generation, and quick Q&A.
     *   **Header Bar:** The application retains its distinct orange header bar with black text and a functional close button, consistent across both tabs.
 

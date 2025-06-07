@@ -1,6 +1,4 @@
 {
-  "frontendRoadmapDir": "path/to/your/frontend/roadmaps",
-  "backendRoadmapDir": "path/to/your/backend/roadmaps",
   "componentDir": "../tokomakAI/src/components",
   "logDir": "../logs",
   "workspaceDir": "../output",
@@ -12,14 +10,6 @@
   "//": "     Relative paths are resolved from the 'roadrunner/backend' directory.",
   "//": "",
   "//": "--- Path Descriptions ---",
-  "//": "'frontendRoadmapDir': Directory where frontend roadmap files (e.g., UI component plans) are stored.",
-  "//": "                      Default: './roadmap/front' (relative to roadrunner/backend).",
-  "//": "                      Env Var: RR_FRONTEND_ROADMAP_DIR",
-  "//": "",
-  "//": "'backendRoadmapDir':  Directory where backend roadmap files (e.g., API endpoint plans) are stored.",
-  "//": "                      Default: './roadmap/back' (relative to roadrunner/backend).",
-  "//": "                      Env Var: RR_BACKEND_ROADMAP_DIR",
-  "//": "",
   "//": "'componentDir':       Directory for generated components (e.g., Vue/React components from Tokomak output).",
   "//": "                      Default: '../tokomakAI/src/components' (relative to roadrunner/backend).",
   "//": "                      Env Var: RR_COMPONENT_DIR",
@@ -34,7 +24,7 @@
   "//": "                      Env Var: RR_WORKSPACE_DIR",
   "//": "",
   "//": "--- Configuration Precedence ---",
-  "//": "1. Environment Variables (e.g., RR_FRONTEND_ROADMAP_DIR)",
+  "//": "1. Environment Variables (e.g., RR_COMPONENT_DIR)",
   "//": "2. This 'backend_config.json' file (if it exists and keys are set)",
   "//": "3. Default values coded into server.js"
 }
