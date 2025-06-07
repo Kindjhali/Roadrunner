@@ -83,6 +83,7 @@ For development, you might prefer to run the backend and frontend services separ
     *   Open your browser to the address indicated by the Vite development server (usually `http://localhost:5173` or similar).
     *   **Note:** When running in this mode, you are interacting directly with the frontend in your browser, not within the Electron shell. The Electron-specific APIs (`window.electronAPI`) might not be available or fully functional.
 
+
 ## Development
 
 ### Backend Testing
