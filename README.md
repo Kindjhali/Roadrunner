@@ -51,16 +51,38 @@ The system is composed of a Vue.js frontend and a Node.js backend.
 3.  **Frontend Setup:**
     *   Navigate to the `frontend/` directory: `cd frontend`
     *   Install dependencies: `npm install`
+4.  **Root Setup (for Electron):**
+    *   Navigate to the project root directory (if you're not already there).
+    *   Install dependencies: `npm install` (This installs Electron and other root-level dependencies).
 
-## Running the Application
+
+## Running the Application (Electron App)
+
+The primary way to run this application is as an Electron desktop app:
+
+1.  **Ensure Setup is Complete:** Follow all steps in the "Setup" section (installing dependencies for root, backend, and frontend, and configuring the backend).
+2.  **Build and Start:** From the **project root directory**, run:
+    ```bash
+    npm start
+    ```
+    This command typically executes the following (as defined in `package.json`):
+    *   Builds the frontend application (`npm run build` in `frontend/`).
+    *   Launches the Electron application using `electron.js`. The Electron window should load the built frontend.
+
+### Development Mode (Alternative)
+
+For development, you might prefer to run the backend and frontend services separately with hot-reloading:
 
 *   **Backend:**
-    *   From the `backend/` directory, run: `npm run dev` (or `npm start` if configured).
-*   **Frontend:**
-    *   From the `frontend/` directory, run: `npm run dev`
-    *   Open your browser to the address indicated by the frontend development server (usually `http://localhost:5173` or similar).
+    *   Navigate to the `backend/` directory: `cd backend`
+    *   Run: `npm run dev` (if a dev script with nodemon or similar is configured) or `npm start`.
+    *   The backend server will typically start on `http://localhost:3030`.
+*   **Frontend (Vite Dev Server):**
+    *   Navigate to the `frontend/` directory: `cd frontend`
+    *   Run: `npm run dev`
+    *   Open your browser to the address indicated by the Vite development server (usually `http://localhost:5173` or similar).
+    *   **Note:** When running in this mode, you are interacting directly with the frontend in your browser, not within the Electron shell. The Electron-specific APIs (`window.electronAPI`) might not be available or fully functional.
 
-*(Adjust the "Running the Application" section if this is an Electron application that starts with a single command from the root.)*
 
 ## Development
 
