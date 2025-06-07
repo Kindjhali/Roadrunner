@@ -38,7 +38,7 @@ It is designed for indie developers, tinkerers, and non-coders who work outside 
 - The user interface is a Vue.js application within the `frontend/` directory, providing a tabbed interface (Coder, Brainstorming) for task management, execution, and chat.
 
 ### `backend/`
-- Contains logic for executing shell commands, modifying files, interacting with local models (e.g. via Ollama)
+- Contains logic for executing shell commands, modifying files, and interacting with LLMs (e.g., via Ollama or OpenAI). It now uses a Langchain.js-based agent system for task processing.
 
 ### `frontend/`
 - Interface code for displaying input forms, execution logs, and step controls
