@@ -70,17 +70,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('remove-backend-log-event-listener'); // To signal main process
     ipcRenderer.removeAllListeners('backend-log-event'); // To clean up renderer side
   },
-  executeTaskWithEvents: (payload) => ipcRenderer.send('execute-task-with-events', payload),
-  onCoderTaskLog: (cb) => ipcRenderer.on('coder-task-log', cb),
-  onCoderTaskError: (cb) => ipcRenderer.on('coder-task-error', cb),
-  onCoderTaskComplete: (cb) => ipcRenderer.on('coder-task-complete', cb),
-  onCoderTaskConfirmationRequired: (cb) => ipcRenderer.on('coder-task-confirmation-required', cb),
-  onCoderTaskProposedPlan: (cb) => ipcRenderer.on('coder-task-proposed-plan', cb),
-  removeAllCoderTaskListeners: () => ipcRenderer.send('remove-coder-task-listeners'),
-  sendTaskConfirmationResponse: (payload) => ipcRenderer.send('task-confirmation-response', payload),
+  // Removed obsolete executeTaskWithEvents and related CoderTask listeners
+  // executeTaskWithEvents: (payload) => ipcRenderer.send('execute-task-with-events', payload),
+  // onCoderTaskLog: (cb) => ipcRenderer.on('coder-task-log', cb),
+  // onCoderTaskError: (cb) => ipcRenderer.on('coder-task-error', cb),
+  // onCoderTaskComplete: (cb) => ipcRenderer.on('coder-task-complete', cb),
+  // onCoderTaskConfirmationRequired: (cb) => ipcRenderer.on('coder-task-confirmation-required', cb),
+  // onCoderTaskProposedPlan: (cb) => ipcRenderer.on('coder-task-proposed-plan', cb),
+  // removeAllCoderTaskListeners: () => ipcRenderer.send('remove-coder-task-listeners'),
+  // sendTaskConfirmationResponse: (payload) => ipcRenderer.send('task-confirmation-response', payload),
   closeApp: () => ipcRenderer.send('close-window'),
   getBackendPort: () => ipcRenderer.invoke('get-backend-port'),
   onBackendPortUpdated: (callback) => ipcRenderer.on('backend-port-updated', callback),
+  onBackendStatus: (callback) => ipcRenderer.on('backend-status', callback), // Added missing handler
 });
 
 // Override global console methods
