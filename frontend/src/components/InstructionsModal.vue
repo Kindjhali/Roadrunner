@@ -11,11 +11,11 @@
 
       <div v-if="!isLoading && !error" class="instructions-editor">
         <!-- Table Layout -->
-        <table class="w-full text-sm text-left text-gray-400 dark:text-gray-400" style="table-layout: fixed;">
+        <table class="w-full text-sm text-left text-gray-400 dark:text-gray-400 instructions-table">
           <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
             <tr>
-              <th scope="col" class="px-6 py-3" style="width: 70%;">Instruction</th>
-              <th scope="col" class="px-6 py-3" style="width: 30%;">Actions</th>
+              <th scope="col" class="px-6 py-3 instruction-column">Instruction</th>
+              <th scope="col" class="px-6 py-3 actions-column">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -529,4 +529,16 @@ export default {
 .mt-4 { margin-top: 1rem; }
 .ml-2 { margin-left: 0.5rem; }
 
+/* Added styles for refactored table layout */
+.instructions-table {
+  table-layout: fixed;
+}
+
+.instruction-column {
+  width: 70%;
+}
+
+.actions-column {
+  width: 30%;
+}
 </style>
