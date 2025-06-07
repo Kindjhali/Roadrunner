@@ -179,29 +179,34 @@ app.whenReady().then(() => {
     rendererLogStream.write(`[ERROR] ${new Date().toISOString()}: ${args.map(String).join(' ')}\n`);
   });
 
+  ipcMain.on('remove-backend-log-event-listener', (event) => {
+    console.log('[Electron IPC] Received remove-backend-log-event-listener. Renderer is handling its own listener removal.');
+    // No specific main-process action needed if EventSource is managed elsewhere or renderer handles its own .off()
+  });
 });
 
-ipcMain.handle('get-ollama-models', async () => {
-  try {
-    const response = await fetch('http://localhost:11434/api/tags');
-    if (!response.ok) {
-      console.error(`Ollama API request failed with status: ${response.status}`);
-      return { success: false, error: `Failed to fetch models from Ollama. Status: ${response.status}`, models: [] };
-    }
-    const data = await response.json();
-    const formattedModels = data.models.map(model => ({
-      value: `ollama:${model.name}`,
-      label: `Ollama: ${model.name}`
-    }));
-    return { success: true, models: formattedModels };
-  } catch (error) {
-    console.error('Error fetching Ollama models:', error);
-    if (error.cause && error.cause.code === 'ECONNREFUSED') {
-      return { success: false, error: 'Failed to connect to Ollama. Ensure Ollama is running.', models: [] };
-    }
-    return { success: false, error: 'Failed to fetch models from Ollama. Check console for details.', models: [] };
-  }
-});
+// Removed obsolete ipcMain.handle('get-ollama-models', ...)
+// ipcMain.handle('get-ollama-models', async () => {
+// try {
+// const response = await fetch('http://localhost:11434/api/tags');
+// if (!response.ok) {
+// console.error(`Ollama API request failed with status: ${response.status}`);
+// return { success: false, error: `Failed to fetch models from Ollama. Status: ${response.status}`, models: [] };
+// }
+// const data = await response.json();
+// const formattedModels = data.models.map(model => ({
+// value: `ollama:${model.name}`,
+// label: `Ollama: ${model.name}`
+// }));
+// return { success: true, models: formattedModels };
+// } catch (error) {
+// console.error('Error fetching Ollama models:', error);
+// if (error.cause && error.cause.code === 'ECONNREFUSED') {
+// return { success: false, error: 'Failed to connect to Ollama. Ensure Ollama is running.', models: [] };
+// }
+// return { success: false, error: 'Failed to fetch models from Ollama. Check console for details.', models: [] };
+// }
+// });
 
 ipcMain.handle('get-backend-port', async () => {
   return currentBackendPort;
@@ -209,13 +214,15 @@ ipcMain.handle('get-backend-port', async () => {
 
 app.on('before-quit', () => {
   isAppQuitting = true;
-  if (coderTaskEventSource) {
-    coderTaskEventSource.close();
-    coderTaskEventSource = null;
-  }
+  // Removed coderTaskEventSource handling as the related IPC is removed
+  // if (coderTaskEventSource) {
+  //   coderTaskEventSource.close();
+  //   coderTaskEventSource = null;
+  // }
   if (conferenceEventSource) {
     conferenceEventSource.close();
     conferenceEventSource = null;
+  });
   }
 });
 
@@ -255,7 +262,7 @@ ipcMain.handle('select-directory', async () => {
 // The duplicated handlers below have been removed.
 
 let conferenceEventSource = null; // Variable to hold the EventSource for conference streams
-let coderTaskEventSource = null;  // EventSource for coder task execution
+// let coderTaskEventSource = null;  // Removed as the related IPC handler 'execute-task-with-events' is removed
 let isAppQuitting = false;        // Track app shutdown to suppress benign errors
 
 ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt, history }) => {
@@ -536,118 +543,9 @@ ipcMain.on('remove-conference-listeners', (event) => {
   // event.sender.removeAllListeners('conference-stream-complete');
 });
 
-// Execute coder tasks with SSE event forwarding
-ipcMain.on('execute-task-with-events', (event, payload) => {
-  console.log('[Electron IPC] execute-task-with-events: Received payload:', JSON.stringify(payload));
-  const params = new URLSearchParams();
-  if (payload.task_description) params.append('task_description', payload.task_description);
-  if (payload.steps) {
-    if (typeof payload.steps === 'string') {
-      params.append('steps', payload.steps); // Already a string, pass as is
-    } else {
-      params.append('steps', JSON.stringify(payload.steps)); // Stringify if object/array
-    }
-  }
-  if (payload.modelId) params.append('modelId', payload.modelId);
-  if (payload.modelType) params.append('modelType', payload.modelType);
-  params.append('safetyMode', payload.safetyMode);
-  params.append('isAutonomousMode', payload.isAutonomousMode);
-  if (payload.sessionId) params.append('sessionId', payload.sessionId);
-  if (payload.sessionTaskId) params.append('sessionTaskId', payload.sessionTaskId);
-  params.append('useOpenAIFromStorage', payload.useOpenAIFromStorage);
-
-  console.log('[Electron IPC] execute-task-with-events: Current backend port for EventSource:', currentBackendPort);
-  if (!currentBackendPort || currentBackendPort === 0) {
-    console.error('[Electron IPC] execute-task-with-events: Critical: Backend port is not set or invalid:', currentBackendPort);
-    event.sender.send('coder-task-error', { error: 'Backend connection error', details: 'Backend port not configured in Electron main process.' });
-    return;
-  }
-
-  const eventSourceUrl = `http://127.0.0.1:${currentBackendPort}/execute-autonomous-task?${params.toString()}`;
-  console.log('[Electron IPC] execute-task-with-events: Connecting to EventSource URL:', eventSourceUrl);
-  const es = new (require('eventsource'))(eventSourceUrl);
-  coderTaskEventSource = es; // track for cleanup on app quit
-
-  const forward = (channel, data) => event.sender.send(channel, data);
-
-  es.onopen = () => {
-    console.log('[Electron IPC] execute-task-with-events: EventSource connection opened.');
-    forward('coder-task-log', { type: 'log_entry', message: 'Connection to backend for task execution established.' });
-  };
-
-  es.onmessage = (e) => {
-    console.log('[Electron IPC] execute-task-with-events: EventSource es.onmessage, data:', e.data);
-    try {
-      const msg = JSON.parse(e.data);
-      switch (msg.type) {
-        case 'log_entry':
-        case 'llm_chunk':
-        case 'file_written':
-          forward('coder-task-log', msg);
-          break;
-        case 'error':
-          forward('coder-task-error', msg);
-          break;
-        case 'execution_complete':
-          forward('coder-task-complete', msg);
-          es.close();
-          break;
-        case 'confirmation_required':
-          forward('coder-task-confirmation-required', msg);
-          break;
-        case 'proposed_plan':
-          forward('coder-task-proposed-plan', msg);
-          break;
-        default:
-          forward('coder-task-log', msg);
-      }
-    } catch (err) {
-      console.error('[Main] Failed to parse coder task SSE:', e.data, err);
-      forward('coder-task-error', { error: err.message, details: e.data });
-    }
-  };
-
-  es.onerror = (err) => {
-    if (isAppQuitting && err && err.message && err.message.includes('ECONNRESET')) {
-      console.log('[Electron IPC] execute-task-with-events: EventSource closed due to app quit.');
-    } else {
-      console.error('[Electron IPC] execute-task-with-events: EventSource es.onerror, error:', err);
-      forward('coder-task-error', {
-        error: 'EventSource connection error or stream failure.',
-        details: err ? JSON.stringify(err, Object.getOwnPropertyNames(err)) : 'Unknown EventSource error'
-      });
-    }
-    es.close();
-    coderTaskEventSource = null;
-  };
-
-  ipcMain.once('remove-coder-task-listeners', () => {
-    if (coderTaskEventSource) {
-      coderTaskEventSource.close();
-      coderTaskEventSource = null;
-    }
-  });
-});
-
-// Confirmation response handler from renderer
-ipcMain.on('task-confirmation-response', async (event, { confirmationId, confirmed }) => {
-  try {
-    const response = await fetch(`http://127.0.0.1:${currentBackendPort}/api/confirm-action/${confirmationId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirmed })
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      event.sender.send('coder-task-error', { error: `HTTP ${response.status}`, details: result });
-    } else {
-      event.sender.send('coder-task-log', { type: 'log_entry', message: result.message || 'Confirmation processed' });
-    }
-  } catch (err) {
-    console.error('[Main] Error sending confirmation:', err);
-    event.sender.send('coder-task-error', { error: err.message });
-  }
-});
+// Removed obsolete ipcMain.on('execute-task-with-events', ...)
+// Removed obsolete ipcMain.once('remove-coder-task-listeners', ...)
+// Removed obsolete ipcMain.on('task-confirmation-response', ...)
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
