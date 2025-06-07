@@ -14,7 +14,7 @@ process.on('unhandledRejection', (reason, promise) => {
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
+// const os = require('os'); // Removed unused import
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 
@@ -23,13 +23,13 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 // Langchain imports
 const { ChatOllama } = require('@langchain/community/chat_models/ollama');
 const { ChatOpenAI } = require('@langchain/openai');
-const { HumanMessage, AIMessage } = require('@langchain/core/messages');
+const { HumanMessage, AIMessage, SystemMessage } = require('@langchain/core/messages'); // Added SystemMessage
 const { createOpenAIFunctionsAgent, createReactAgent, AgentExecutor } = require('langchain/agents');
-const { ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder, PromptTemplate } = require('@langchain/core/prompts');
-const { RunnableSequence } = require("@langchain/core/runnables");
-const { StringOutputParser } = require("@langchain/core/output_parsers");
-const { renderTextDescription } = require("@langchain/core/tools");
-const { ConversationBufferWindowMemory } = require("langchain/memory"); // Added Memory
+// Removed SystemMessagePromptTemplate, PromptTemplate as they are not directly used. HumanMessagePromptTemplate is used.
+const { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
+// Removed RunnableSequence and StringOutputParser as they are not directly used.
+const { renderTextDescription } = require("@langchain/core/tools"); // renderTextDescription is implicitly used by agent creation
+const { ConversationBufferWindowMemory } = require("langchain/memory"); // Memory import
 
 // Import tools and custom error
 const { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } = require('./langchain_tools/fs_tools');
@@ -50,15 +50,15 @@ const tools = [
 let agentExecutor;
 let agent;
 
-// Prompt for OpenAI Functions Agent
+// Prompt for OpenAI Functions Agent - now includes chat_history placeholder
 const AGENT_PROMPT_TEMPLATE_OPENAI = ChatPromptTemplate.fromMessages([
   ["system", "You are a helpful assistant. Use the provided tools to answer the user's questions. Respond with a tool call if appropriate, otherwise respond to the user directly."],
-  new MessagesPlaceholder("chat_history"), // Added for memory
+  new MessagesPlaceholder("chat_history"),
   ["human", "{input}"],
   ["placeholder", "{agent_scratchpad}"],
 ]);
 
-// Standard ReAct prompt template structure for Ollama and other non-function-calling models
+// Standard ReAct prompt template text - now includes {chat_history}
 const REACT_AGENT_PROMPT_TEMPLATE_TEXT = `Assistant is a large language model.
 
 Assistant is designed to be able to assist with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model, Assistant is able to generate human-like text based on the input it receives, allowing it to engage in natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
@@ -92,24 +92,8 @@ Final Answer: [your response here]
 Always begin your response with "Thought:".
 If you are using a tool, the "Action" line MUST be followed by an "Action Input" line, then an "Observation" line.
 
-**HANDLING TOOL ERRORS:**
-If the 'Observation' you receive from a tool clearly indicates an error (e.g., it starts with "Error:", "Failed to:", "File not found:", "Invalid input:"), you MUST treat this seriously.
-1.  In your 'Thought': Acknowledge the specific error message.
-2.  Analyze the error: Was it due to a wrong path, missing resource, incorrect input format, or a tool limitation?
-3.  Avoid immediately retrying the exact same action with the exact same input if the error suggests it will fail again.
-4.  Consider alternatives: Can you use a different tool? Can you modify the input? Is a preliminary step missed?
-5.  If the error is unrecoverable, your 'Final Answer:' should clearly state the error and why you cannot proceed.
-Do not ignore errors; use them to make better decisions.
-
-**IMPORTANT: HANDLING USER DENIALS:**
-If an 'Observation' explicitly states that a user has denied a previous action (e.g., 'User denied action: create_file...'), you MUST NOT immediately retry the exact same action with the exact same input.
-Instead, you MUST:
-1.  Acknowledge the denial in your 'Thought' process.
-2.  Re-evaluate the original task and your previous plan.
-3.  Consider alternative tools or a different sequence of actions to achieve the goal.
-4.  If you believe the same tool is necessary, consider how its input could be modified to be acceptable.
-5.  If no alternative is found, your 'Final Answer:' should clearly state why the task cannot be completed due to the denial.
-Your goal is to still try to complete the task, but respectfully and adaptively to user feedback.
+**HANDLING TOOL ERRORS:** If the 'Observation' you receive from a tool clearly indicates an error, acknowledge it in your 'Thought', analyze it, and avoid immediate retries if futile. Consider alternatives or explain if the task is blocked.
+**HANDLING USER DENIALS:** If an 'Observation' indicates a user denied an action, DO NOT retry the exact action. Acknowledge, re-evaluate, and find alternatives or explain why the task cannot proceed.
 
 NOW BEGIN!
 
@@ -127,7 +111,6 @@ async function initializeAgentExecutor() {
   const llmProvider = backendSettings.llmProvider;
   let llm;
 
-  // Instantiate memory for both agent types
   const memory = new ConversationBufferWindowMemory({
     k: 5,
     memoryKey: "chat_history",
@@ -146,14 +129,8 @@ async function initializeAgentExecutor() {
        llm = new ChatOpenAI({ apiKey: effectiveOpenAIApiKey, modelName: openAIModelName, streaming: true, temperature: 0 });
        console.log(`[Agent Init] OpenAI LLM created with model ${openAIModelName}.`);
     }
-    // Ensure the OpenAI prompt template also includes the chat_history placeholder
-    const openAIPrompt = ChatPromptTemplate.fromMessages([
-        new SystemMessagePromptTemplate(PromptTemplate.fromTemplate("You are a helpful assistant. Use the provided tools to answer the user's questions. Respond with a tool call if appropriate, otherwise respond to the user directly.")),
-        new MessagesPlaceholder("chat_history"),
-        HumanMessagePromptTemplate.fromTemplate("{input}"),
-        new MessagesPlaceholder("agent_scratchpad"),
-    ]);
-    agent = await createOpenAIFunctionsAgent({ llm, tools, prompt: openAIPrompt });
+    // Use the existing AGENT_PROMPT_TEMPLATE_OPENAI which now includes MessagesPlaceholder("chat_history")
+    agent = await createOpenAIFunctionsAgent({ llm, tools, prompt: AGENT_PROMPT_TEMPLATE_OPENAI });
     console.log("[Agent Init] OpenAI Functions Agent created successfully.");
   } else {
     const ollamaModelName = backendSettings.defaultOllamaModel || 'llama3';
@@ -161,8 +138,13 @@ async function initializeAgentExecutor() {
     llm = new ChatOllama({ baseUrl: OLLAMA_BASE_URL, model: ollamaModelName, temperature: 0 });
     console.log(`[Agent Init] ChatOllama LLM created with model ${ollamaModelName}.`);
 
-    // The REACT_AGENT_PROMPT_TEMPLATE_TEXT already includes {chat_history}
-    const reactPrompt = PromptTemplate.fromTemplate(REACT_AGENT_PROMPT_TEMPLATE_TEXT);
+    // Construct the prompt template for ReAct agent, incorporating chat_history
+    const reactPrompt = ChatPromptTemplate.fromMessages([
+        new SystemMessage(REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(0, REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NOW BEGIN!"))), // System message part
+        new MessagesPlaceholder("chat_history"),
+        HumanMessagePromptTemplate.fromTemplate(REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NEW USER INPUT:"))),
+    ]);
+
     agent = await createReactAgent({ llm, tools, prompt: reactPrompt });
     console.log("[Agent Init] Ollama ReAct Agent created successfully.");
   }
@@ -170,11 +152,11 @@ async function initializeAgentExecutor() {
   agentExecutor = new AgentExecutor({
     agent,
     tools,
-    memory, // Add memory instance here
+    memory, // Added memory instance
     returnIntermediateSteps: true,
     maxIterations: 15,
-    verbose: true, // Good for debugging agent behavior
-    // handleParsingErrors: true, // Optional: for robustness
+    verbose: true,
+    // handleParsingErrors: true,
   });
   console.log("[Agent Init] AgentExecutor created with memory.");
 }
@@ -215,7 +197,7 @@ if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
 
 const pendingToolConfirmations = {};
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+// Removed unused fetch import: const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 async function generateFromLocal(originalPrompt, modelName, expressRes, options = {}) {
     const provider = options.llmProvider || backendSettings.llmProvider;
@@ -262,15 +244,16 @@ async function generateFromLocal(originalPrompt, modelName, expressRes, options 
 }
 
 function parseTaskPayload(req) {
-    let task_description, stepsString, safetyModeString, isAutonomousModeString;
+    let task_description, safetyModeString;
     if (req.method === 'POST') {
-      ({ task_description, steps: stepsString, safetyMode: safetyModeString, isAutonomousMode: isAutonomousModeString } = req.body);
+      ({ task_description, safetyMode: safetyModeString } = req.body);
     } else if (req.method === 'GET') {
-      ({ task_description, steps: stepsString, safetyMode: safetyModeString, isAutonomousMode: isAutonomousModeString } = req.query);
+      ({ task_description, safetyMode: safetyModeString } = req.query);
     } else {
       return { error: 'Unsupported request method.' };
     }
     if (!task_description) return { error: 'Missing task_description in parameters.' };
+    // safetyMode defaults to true if not 'false'. If undefined, it's true.
     const safetyMode = safetyModeString !== 'false';
     return { task_description, safetyMode };
 }
@@ -304,38 +287,33 @@ app.post('/execute-autonomous-task', async (req, expressHttpRes) => {
 
     const overallExecutionLog = [`Agent Task: "${task_description}", Safety Mode: ${safetyMode}`];
 
-    if (!agentExecutor) { // Or if agent/memory needs to be request-specific
-        try {
-            // Initialize agent executor for each request to ensure fresh memory,
-            // unless session management is implemented for memory persistence.
-            await initializeAgentExecutor();
-        } catch (initError) {
-            console.error("[Agent Handling] CRITICAL: AgentExecutor initialization failed:", initError);
-            sendSseMessage('error', { content: `AgentExecutor initialization failed: ${initError.message}` });
-            if (expressHttpRes.writable) expressHttpRes.end();
-            return;
-        }
+    // Initialize agent executor for each request to ensure fresh memory for the task.
+    // This makes memory request-scoped.
+    try {
+        await initializeAgentExecutor();
+    } catch (initError) {
+        console.error("[Agent Handling] CRITICAL: AgentExecutor initialization failed:", initError);
+        sendSseMessage('error', { content: `AgentExecutor initialization failed: ${initError.message}` });
+        if (expressHttpRes.writable) expressHttpRes.end();
+        return;
     }
+
 
     sendSseMessage('log_entry', { message: `[SSE Agent] Starting agent execution for goal: "${task_description}" with Safety Mode: ${safetyMode}` });
     overallExecutionLog.push(`[Agent Execution] Starting for goal: "${task_description}", Safety Mode: ${safetyMode}`);
 
-    let currentTaskInput = { input: task_description }; // Input for AgentExecutor must contain 'input' key for memory
+    let currentTaskInput = { input: task_description, chat_history: [] }; // Initial input for AgentExecutor and memory
 
-    // Agent config for the current run
     let agentRunConfig = {
       configurable: {
         safetyMode: safetyMode,
         originalExpressHttpRes: expressHttpRes,
         sendSseMessage: sendSseMessage,
-        // chat_history is handled by memory automatically if memoryKey and inputKey match
       }
     };
 
     let errorOccurred = false;
     try {
-        // The `input` to stream must be an object, and the key for the user's message
-        // must match the `inputKey` of the `ConversationBufferWindowMemory` (which is "input").
         const eventStream = await agentExecutor.stream(currentTaskInput, agentRunConfig);
         for await (const event of eventStream) {
             const eventType = Object.keys(event)[0];
@@ -362,11 +340,17 @@ app.post('/execute-autonomous-task', async (req, expressHttpRes) => {
             const { toolName, toolInput, confirmationId, message: confirmationMessage } = error.data;
             console.log(`[Agent Handling] Confirmation required for tool ${toolName}. ID: ${confirmationId}`);
             overallExecutionLog.push(`[Confirmation Required] Tool: ${toolName}, Input: ${JSON.stringify(toolInput)}, Msg: ${confirmationMessage}, ID: ${confirmationId}`);
+
+            // Capture current chat history for resumption
+            const currentChatHistory = await agentExecutor.memory.chatHistory.getMessages();
+
             pendingToolConfirmations[confirmationId] = {
-                originalTaskDescription: task_description, // Use the initial task_description for resumption context
-                agentConfig: agentRunConfig, // Store the run-specific config
+                originalTaskDescription: task_description,
+                // Store the agentRunConfig's configurable part, which is what's needed for resumption.
+                // agentConfig was not defined; agentRunConfig is the correct variable.
+                agentRunConfigurable: agentRunConfig.configurable,
                 toolName, toolInput, safetyMode, originalExpressHttpRes: expressHttpRes, sendSseMessage, overallExecutionLog,
-                // chatHistory: agentExecutor.memory.chatHistory, // Conceptually, if needed for deep resume
+                chatHistoryMessages: currentChatHistory,
             };
             sendSseMessage('confirmation_required', { confirmationId, toolName, toolInput, message: confirmationMessage });
             return;
@@ -402,7 +386,8 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
         return res.status(404).json({ message: 'Confirmation ID not found or already processed.' });
     }
 
-    const { originalTaskDescription, agentConfig: originalAgentConfig, toolName, toolInput, safetyMode, originalExpressHttpRes, sendSseMessage, overallExecutionLog } = pendingConfirmation;
+    // Destructure with the corrected stored property name: agentRunConfigurable
+    const { originalTaskDescription, agentRunConfigurable: originalAgentRunConfigurable, toolName, toolInput, safetyMode, originalExpressHttpRes, sendSseMessage, overallExecutionLog, chatHistoryMessages } = pendingConfirmation;
 
     if (!originalExpressHttpRes || !originalExpressHttpRes.writable) {
         delete pendingToolConfirmations[confirmationId];
@@ -410,21 +395,41 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
     }
     delete pendingToolConfirmations[confirmationId];
 
-    let agentInputTextForResume; // Renamed to avoid confusion with 'input' key for agent
+    let agentInputTextForResume;
     const toolInputString = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
 
-    // Reconstruct the agentConfig for the resumed call, ensuring memory is handled correctly
-    // The memory object in agentExecutor is stateful for the duration of its existence.
-    // For request-scoped memory as implemented, re-initializing agentExecutor or its memory might be needed
-    // if we want a fresh memory for the resumed part, or ensure the same memory instance is used.
-    // Current initializeAgentExecutor creates a new memory each time.
-    // For a single task's confirmation flow, we want to continue with the *same* memory state.
-    // This means initializeAgentExecutor should NOT be called again here if we want to preserve memory from the initial part of the task.
-    // The agentExecutor instance from the initial handleExecuteAutonomousTask call must be used.
+    // Re-initialize agent and executor to use the *same memory instance* or correctly repopulate it.
+    // For simplicity with request-scoped memory, we re-initialize and then could potentially re-populate.
+    // However, agentExecutor uses the memory instance it was created with.
+    // The key is that the *same agentExecutor instance* that was paused should be used.
+    // We currently re-initialize agentExecutor on every /execute-autonomous-task call if it's not set,
+    // which means memory is fresh for each new task. For confirmations WITHIN a task,
+    // we need to ensure the memory state from the initial part of the task is carried over.
+    // The current `initializeAgentExecutor()` creates a NEW memory instance each time.
+    // This needs to be addressed for memory to persist across confirmations for the *same* task.
+
+    // For this iteration, we will re-initialize a new executor but pass the history.
+    // This is not ideal for perfect context carry-over of the agent's internal state/scratchpad,
+    // but will carry over the chat history for the LLM's context.
+    try {
+        await initializeAgentExecutor(); // This will create a new agentExecutor with fresh memory
+        if (chatHistoryMessages && agentExecutor.memory) { // If we have history and new memory exists
+            agentExecutor.memory.chatHistory.clear(); // Clear fresh memory
+            await agentExecutor.memory.chatHistory.addMessages(chatHistoryMessages); // Add back stored messages
+            console.log(`[API /api/confirm-action] Repopulated memory with ${chatHistoryMessages.length} messages.`);
+        }
+    } catch (initError) {
+        console.error("[API /api/confirm-action] CRITICAL: AgentExecutor re-initialization failed:", initError);
+        sendSseMessage('error', { content: `AgentExecutor re-initialization failed: ${initError.message}` });
+        if (originalExpressHttpRes.writable) originalExpressHttpRes.end();
+        if (!res.headersSent) res.status(500).json({ message: 'Agent re-initialization failed.' });
+        return;
+    }
+
 
     let resumedAgentConfig = {
         configurable: {
-            ...(originalAgentConfig ? originalAgentConfig.configurable : {}), // Carry over original config
+            ...(originalAgentRunConfigurable || {}), // Spread the original configurable properties
             isConfirmedActionForTool: {
                 [toolName]: { [toolInputString]: confirmed }
             }
@@ -444,9 +449,9 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
     let errorOccurredInResume = false;
     try {
         console.log(`[API /api/confirm-action] Re-invoking agent with input for memory: "${agentInputTextForResume.substring(0,100)}...", Config: ${JSON.stringify(resumedAgentConfig.configurable)}`);
-        // The input to the agentExecutor should be an object with the key matching memory's inputKey.
-        const eventStream = await agentExecutor.stream({ input: agentInputTextForResume }, resumedAgentConfig);
+        const eventStream = await agentExecutor.stream({ input: agentInputTextForResume, chat_history: chatHistoryMessages /* Pass manually if memory not perfectly resumed */ }, resumedAgentConfig);
         for await (const event of eventStream) {
+            // ... (event handling as in handleExecuteAutonomousTask)
             const eventType = Object.keys(event)[0];
             const eventData = event[eventType];
             sendSseMessage('agent_event', { event_type: eventType, data: eventData });
@@ -470,10 +475,13 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
         errorOccurredInResume = true;
         if (error instanceof ConfirmationRequiredError) {
             const { toolName: newToolName, toolInput: newToolInput, confirmationId: newConfirmationId, message: newConfirmationMessage } = error.data;
+            const currentChatHistoryForNewConfirmation = await agentExecutor.memory.chatHistory.getMessages();
             pendingToolConfirmations[newConfirmationId] = {
-                originalTaskDescription, agentConfig: resumedAgentConfig,
+                originalTaskDescription,
+                agentRunConfigurable: resumedAgentConfig.configurable, // Store the new configurable part
                 toolName: newToolName, toolInput: newToolInput, safetyMode,
                 originalExpressHttpRes, sendSseMessage, overallExecutionLog,
+                chatHistoryMessages: currentChatHistoryForNewConfirmation,
             };
             sendSseMessage('confirmation_required', { confirmationId: newConfirmationId, toolName: newToolName, toolInput: newToolInput, message: newConfirmationMessage });
             if(!res.headersSent) res.status(202).json({ message: `Further confirmation required for ${newConfirmationId}.`});
@@ -566,8 +574,9 @@ async function main() {
     // If memory needs to be request-scoped and fresh for each /execute-autonomous-task,
     // then agentExecutor (or at least its memory) should be created within that handler.
     // For now, global agentExecutor with memory that clears per top-level .stream() call.
-    await initializeAgentExecutor();
-    console.log('[Server Startup] AgentExecutor initialized.');
+    // UPDATE: Changed initializeAgentExecutor to be called per task in handleExecuteAutonomousTask
+    // await initializeAgentExecutor();
+    // console.log('[Server Startup] AgentExecutor initialized.');
 
     if (require.main === module) {
       const initialPort = parseInt(process.env.PORT || '3030', 10);
@@ -588,5 +597,3 @@ module.exports = {
   handleExecuteAutonomousTask,
   generateFromLocal,
 };
-
-[end of backend/server.js]

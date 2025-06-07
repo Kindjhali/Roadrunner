@@ -1,195 +1,72 @@
-# 🏃 Roadrunner – Agentic Arbitration Engine
+# AI Agent Task Execution System
 
-## ❗ Independence Notice
+This project implements an advanced AI agent powered by Langchain.js, capable of understanding natural language commands, planning execution steps, and utilizing a diverse set of tools to perform complex tasks. It supports interactions with both OpenAI and local Ollama language models, offering flexibility and power for various automation and generation needs.
 
-Roadrunner is a **standalone multi-model deliberation system**. It is not embedded within or dependent on any larger agent framework. It provides **modular, agentic arbitration** by evaluating multiple inputs from various logic or model sources and producing a unified resolution.
+## Features
 
----
+*   **Dynamic Task Execution:** Employs a Langchain.js ReAct agent (for Ollama) or Functions agent (for OpenAI) for intelligent planning and execution of tasks based on natural language descriptions.
+*   **Extensible Toolset:** The agent is equipped with a versatile suite of tools, including:
+    *   **File System Management:** Create, read, update, and delete files and directories.
+    *   **Git Version Control:** Stage changes, commit, push, pull, and revert commits.
+    *   **Automated Code Generation:** Generate code snippets, Vue components, and services based on specifications.
+    *   **Multi-Model Debates (`ConferenceTool`):** Facilitate structured discussions between multiple AI personas to explore topics and synthesize comprehensive answers.
+*   **Flexible LLM Backend:** Supports both OpenAI API (e.g., GPT-3.5, GPT-4) and local Ollama models (e.g., Llama 3, Mistral, Phi-3). Configuration is managed via `backend/config/backend_config.json`.
+*   **Interactive Safety Mode:** An optional `safetyMode` enhances control and prevents unintended changes by:
+    *   Requiring user confirmation for individual modifying operations (e.g., writing a file, committing to Git).
+    *   Triggering batch confirmations after a configurable number of modifying operations (`CONFIRM_AFTER_N_OPERATIONS`).
+*   **Conversational Memory:** Features request-scoped conversational memory (`ConversationBufferWindowMemory`), allowing the agent to recall context from earlier parts of the current task execution, even across asynchronous user confirmation steps.
+*   **Real-time SSE Streaming:** The frontend receives detailed, real-time updates on the agent's thoughts, chosen tools, tool inputs/outputs, confirmation requests, and LLM token streams via Server-Sent Events (SSE).
+*   **Configurable Backend:** Key settings including LLM provider choices, API keys, default models, workspace paths, agent persona instructions (for tools), and model categorizations are externally configurable through JSON files located in `backend/config/`.
+*   **Automated Backend Tests:** The backend includes a suite of unit tests for its Langchain tools and integration tests for core agent execution flows, ensuring reliability and maintainability. These can be run using `npm test` in the `backend/` directory.
 
-## 🎯 Overview
+## High-Level Architecture
 
-Roadrunner is a **lightweight agentic deliberation engine** and a **standalone, local-first desktop automation tool**. It reads markdown-based task plans and executes them step-by-step using AI or script logic. When multiple agents or logic modules receive the same input, Roadrunner:
+The system is composed of a Vue.js frontend and a Node.js backend.
 
-* Gathers their proposals
-* Evaluates confidence, context, and logic flags
-* Optionally applies inter-agent influence or synthesis
-* Selects or constructs the most suitable action
+*   **Frontend (`frontend/`):**
+    *   Provides the user interface for submitting tasks in natural language.
+    *   Displays real-time, structured logs of the agent's progress and actions via SSE.
+    *   Manages user interaction for safety confirmations (individual and batch).
 
-This is not a passive ranking system. It is built to support **multi-agent reasoning**, conditional vetoes, preference rules, and arbitration logic.
-It is designed for indie developers, tinkerers, and non-coders who work outside rigid Git/devops pipelines but still want structured, reproducible workflows.
+*   **Backend (`backend/`):**
+    *   Built with Node.js and Express.js.
+    *   **`server.js`:** The core orchestrator. It initializes and runs the Langchain.js `AgentExecutor`, manages agent memory, handles the `safetyMode` confirmation lifecycle, processes API requests, and streams SSE updates to the frontend.
+    *   **`langchain_tools/`:** This directory houses custom Langchain.js `Tool` classes. These tools provide the agent with its capabilities by wrapping the logic of underlying modules.
+    *   **Core Modules (`fsAgent.js`, `gitAgent.js`, `codeGenerator.js`):** These modules contain the foundational logic for file system operations, Git interactions, and code generation tasks, respectively. They are utilized by the Langchain tools.
+    *   **Configuration (`config/`):** Contains JSON files for all major backend configurations, allowing for easy customization without code changes.
 
----
+## Setup
 
-## 💡 Core Concepts
-- **Local-first**: No cloud sync or dependency by default
-- **Markdown-driven**: Tasks can be defined in markdown files (e.g., `.steps.md` or custom task files) and are processed by the execution engine.
-- **Executable**: Tasks can include file creation, code generation, shell commands, or AI prompts
-- **Modular**: Frontend and backend are separated and extendable
-- **Agent Personalization**: Customize the AI's behavior, communication style, and operational preferences via the `agent-profile.md` file located in the root directory. This profile is processed by the agent before task execution.
+1.  **Clone the repository.**
+2.  **Backend Setup:**
+    *   Navigate to the `backend/` directory: `cd backend`
+    *   Install dependencies: `npm install`
+    *   Configure the backend:
+        *   Copy `config/backend_config.example.json` to `config/backend_config.json`.
+        *   Edit `config/backend_config.json` to set your desired `llmProvider` ('ollama' or 'openai').
+        *   If using 'openai', provide your `apiKey`.
+        *   Set your preferred `defaultOllamaModel` (if using Ollama) and `defaultOpenAIModel` (if using OpenAI).
+        *   Ensure `OLLAMA_BASE_URL` is correct (defaults to `http://localhost:11434`).
+        *   If using Ollama, ensure your Ollama instance is running and the specified models are pulled (e.g., `ollama pull llama3`).
+3.  **Frontend Setup:**
+    *   Navigate to the `frontend/` directory: `cd frontend`
+    *   Install dependencies: `npm install`
 
----
+## Running the Application
 
-## 🧩 Core Components
+*   **Backend:**
+    *   From the `backend/` directory, run: `npm run dev` (or `npm start` if configured).
+*   **Frontend:**
+    *   From the `frontend/` directory, run: `npm run dev`
+    *   Open your browser to the address indicated by the frontend development server (usually `http://localhost:5173` or similar).
 
-### `runner.js`
-- Main application logic for the Electron app is in `electron.js` and `roadrunner.js`. The backend server (`server.js`) handles task processing and LLM interactions.
+*(Adjust the "Running the Application" section if this is an Electron application that starts with a single command from the root.)*
 
-### `roadrunner_ui`
-- The user interface is a Vue.js application within the `frontend/` directory, providing a tabbed interface (Coder, Brainstorming) for task management, execution, and chat.
+## Development
 
-### `backend/`
-- Contains logic for executing shell commands, modifying files, and interacting with LLMs (e.g., via Ollama or OpenAI). It now uses a Langchain.js-based agent system for task processing.
+### Backend Testing
 
-### `frontend/`
-- Interface code for displaying input forms, execution logs, and step controls
-- All component styles live in `frontend/src/styles/`; Vue files contain no `<style>` blocks.
-
-### `logs/`
-- Stores detailed execution logs for each task run. Logs are saved as markdown files in the format `logs/task-YYYY-MM-DDTHH-MM-SS-MSZ.log.md`.
-
-### `output/`
-- Directory for generated files and results
-
----
-
-## ⚙️ Core Function
-
-```
-INPUT → Multiple Agent Responses
-           ↓
-   Roadrunner evaluates, compares, or synthesises
-           ↓
-       Outputs unified or best decision
-```
-
----
-
-## 🧠 Agent Model
-
-* Agents are **independent logic modules or subsystems**.
-* Each receives identical context/input and returns a proposal.
-* Roadrunner performs:
-
-  * Confidence filtering
-  * Conflict resolution
-  * Optional synthesis (averaging, summarisation, fallback)
-
-Agent responses follow this format:
-
-```json
-{
-  "agent": "[string: unique name]",
-  "proposal": "[string: proposed action]",
-  "confidence": 0.0 - 1.0,
-  "flags": [optional list of string markers]
-}
-```
-
----
-
-## 🧪 Process Flow
-
-```
-1. Input event or user prompt is captured.
-2. All registered agents receive input context.
-3. Agents respond with structured proposals.
-4. Roadrunner evaluates:
-   - Confidence scores
-   - Flag markers (e.g. veto, urgent)
-   - Agent reliability (optional)
-5. Resolution:
-   - Select highest-confidence
-   - Combine if compatible
-   - Trigger fallback if no valid results
-```
-
----
-
-## 🗞️ Sample Output
-
-```json
-{
-  "input": "Summarise today's meeting notes",
-  "responses": [
-    {
-      "agent": "Blackbird",
-      "proposal": "Rephrase notes into plain English summary",
-      "confidence": 0.82
-    },
-    {
-      "agent": "Snapdragon",
-      "proposal": "Tag all entries with #today and archive",
-      "confidence": 0.76
-    }
-  ],
-  "selected": "Rephrase notes into plain English summary",
-  "justification": "Higher confidence, no conflicts"
-}
-```
-
----
-
-## 🧰 Supported Task Types (Markdown Step Blocks)
-- `# Create` — make files/folders with boilerplate
-- `# Modify` — edit config/code
-- `# Prompt` — send structured prompt to AI
-- `# Shell` — run safe shell commands
-- `# Extract` — copy information from files or folders
-
----
-
-## 📦 Packaging
-- Delivered as a standalone Electron app
-- Requires Node.js + npm to build, no server required
-- Optional model downloads handled via script or Ollama CLI
-
----
-
-## 🎯 Ideal Use Cases
-- Indie devs prototyping fast
-- Script-light automation workflows
-- Developers tired of repeating boilerplate tasks manually
-- Users who prefer plain-text tooling over cloud dashboards
-
----
-
-## 📁 Logs
-
-Stored at:
-Each task execution is logged in detail to a markdown file in the `logs/` directory, typically named like `task-YYYY-MM-DDTHH-MM-SS-MSZ.log.md`.
-
-Includes:
-
-* Input content
-* All agent responses
-* Evaluation reasoning
-* Chosen output
-
----
-
-## 🧱 Constraints
-
-* Maximum number of agents: configurable (default: 5)
-* No external memory or recursion loops
-* No required inter-agent communication (can be passive)
-* All logic is local and stateless per request
-
----
-
-## 🛠️ Development Plan and Progress
-
-The detailed development plan, ongoing tasks, and history of completed work are maintained in the [roadrunner.steps.md](./roadrunner.steps.md) file. This document provides the most up-to-date information on the project's status and future direction.
-
-### Potential Future Enhancements
-- AI model integration (Ollama, GPT via local proxy)
-- File diff viewer
-- Step editor UI
-- Roadmap generator (from project folders)
-
-## ⏳ Partially Implemented Features
-
-### Multi-Model Conferencing Protocol
-A backend API endpoint (`POST /execute-conference-task`) is available for a multi-model conferencing feature, allowing different LLMs to respond to a prompt and a third to arbitrate. Frontend integration for this feature is pending. For more conceptual details, see the [roadrunner.model_conference.md](./roadrunner.model_conference.md) document.
----
-
-Roadrunner is a **decisive, agentic decision layer**. It is intended for multi-model coordination, arbitration, and logical refinement of actions or outputs from distributed reasoning systems. No dependency. No noise. Just reasoned resolution.
+The backend includes a suite of automated tests.
+*   Navigate to the `backend/` directory.
+*   Run tests using: `npm test`
+*   This uses Jest for unit tests (for individual Langchain tools) and integration tests (for core agent flows, SSE, and confirmation logic).
