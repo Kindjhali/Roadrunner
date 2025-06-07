@@ -2347,7 +2347,29 @@ Do not output the entire step, only the 'details' object.
     if (!stepProcessedSuccessfully) {
       // If loop finished and step was not successful (all retries/refinements failed)
       // Ensure lastErrorForStep is used here as per subtask item 1.
-      const finalErrorMessage = lastErrorForStep ? lastErrorForStep.message : "Unknown error after retries/refinements.";
+      const finalErrorMessage = lastErrorForStep ? lastErrorForStep.message : "Unknown error after retries/refinements/evaluation.";
+      // --- BEGIN ADDED DEBUG LOGGING ---
+      console.error('[DEBUG] Before triggerStepFailure: stepProcessedSuccessfully =', stepProcessedSuccessfully);
+      console.error('[DEBUG] Before triggerStepFailure: finalErrorMessage =', finalErrorMessage);
+      console.error('[DEBUG] Before triggerStepFailure: typeof lastErrorForStep =', typeof lastErrorForStep);
+      if (lastErrorForStep instanceof Error) {
+        // Helper to stringify Error object including non-enumerable properties like message and stack
+        const errorLogObject = {};
+        Object.getOwnPropertyNames(lastErrorForStep).forEach(key => {
+          errorLogObject[key] = lastErrorForStep[key];
+        });
+        // Ensure message and stack are included even if not own properties by default
+        errorLogObject.message = lastErrorForStep.message;
+        errorLogObject.stack = lastErrorForStep.stack;
+        console.error('[DEBUG] Before triggerStepFailure: lastErrorForStep (Error instance) =', JSON.stringify(errorLogObject, null, 2));
+      } else {
+        try {
+            console.error('[DEBUG] Before triggerStepFailure: lastErrorForStep (Non-Error or null) =', JSON.stringify(lastErrorForStep, null, 2));
+        } catch (e) {
+            console.error('[DEBUG] Before triggerStepFailure: lastErrorForStep (Non-Error, could not stringify) =', lastErrorForStep);
+        }
+      }
+      // --- END ADDED DEBUG LOGGING ---
       triggerStepFailure(finalErrorMessage, lastErrorForStep, currentStep.type, stepNumber, {i});
       return; // Pause main execution, pass to user
     }
