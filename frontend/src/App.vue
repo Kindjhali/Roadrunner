@@ -161,6 +161,7 @@ export default {
       showInstructionsModal: false,
       modalAgentType: null,
       modalAgentRole: null,
+      _uid: 0, // Added for generating unique log IDs
       // Obsolete Coder task specific state, replaced by Vuex store for logs and confirmation
       // coderTaskPendingConfirmationId: null,
       // coderTaskProposedPlanId: null,
@@ -214,6 +215,10 @@ export default {
     }
   },
   methods: {
+    _getNextLogId() {
+      this._uid++;
+      return `log-${Date.now()}-${this._uid}`;
+    },
     findModelById(modelId) {
       for (const category in this.categorizedCoderModels) {
         const model = this.categorizedCoderModels[category].find(m => m.id === modelId);
