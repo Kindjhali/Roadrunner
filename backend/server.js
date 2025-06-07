@@ -1142,7 +1142,7 @@ async function executeStepsInternal(
     // This loop handles retries (simple or after refinement) for the current step.
     // It continues as long as the step hasn't succeeded and retry/refinement attempts are within limits.
     while (!stepProcessedSuccessfully &&
-           (currentStep._internalRetryCount < (currentStep.details?.maxRetries || 0)) ||
+           (currentStep._internalRetryCount <= (currentStep.details?.maxRetries || 0)) ||
            (currentStep.details?.onError === 'refine_and_retry' && currentStep._internalRefineCount < (currentStep.details?.maxRefinementRetries || 1))) { // Default 1 refinement attempt if not specified
 
       // Resolve templates just before each attempt, in case context changed due to refinement
