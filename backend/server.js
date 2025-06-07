@@ -188,81 +188,8 @@ function loadBackendConfig() {
 }
 loadBackendConfig();
 
-const LOG_DIR_DEFAULT = path.resolve(__dirname, '../../logs');
-const WORKSPACE_DIR_DEFAULT = path.resolve(__dirname, '../../output');
-const LOG_DIR = fs.existsSync(path.join(__dirname, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname, 'config/backend_config.json'), 'utf-8')).logDir || LOG_DIR_DEFAULT) : LOG_DIR_DEFAULT;
-const WORKSPACE_DIR = fs.existsSync(path.join(__dirname, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname, 'config/backend_config.json'), 'utf-8')).workspaceDir || WORKSPACE_DIR_DEFAULT) : WORKSPACE_DIR_DEFAULT;
-
-if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
-
-const pendingToolConfirmations = {};
-// Removed unused fetch import: const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-
-async function generateFromLocal(originalPrompt, modelName, expressRes, options = {}) {
-    const provider = options.llmProvider || backendSettings.llmProvider;
-    let accumulatedResponse = '';
-    let finalPrompt = originalPrompt;
-
-    console.log(`[LLM Generation] Provider: ${provider || 'ollama (default)'}, Model: ${modelName}`);
-    console.log(`[LLM Generation] Final prompt (first 200 chars): "${finalPrompt.substring(0, 200)}..."`);
-
-    let llm;
-    if (provider === 'openai') {
-      const effectiveOpenAIApiKey = backendSettings.apiKey || backendSettings.openaiApiKey;
-      const openAIModelToUse = modelName || backendSettings.defaultOpenAIModel || 'gpt-3.5-turbo';
-      if (!effectiveOpenAIApiKey) {
-        const errorMessage = 'OpenAI API key is missing.';
-        if (expressRes && expressRes.writable) expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
-        return `// LLM_ERROR: ${errorMessage} //`;
-      }
-      llm = new ChatOpenAI({ apiKey: effectiveOpenAIApiKey, modelName: openAIModelToUse, streaming: true });
-    } else {
-      const ollamaModelToUse = modelName || backendSettings.defaultOllamaModel || 'codellama';
-      llm = new ChatOllama({ baseUrl: OLLAMA_BASE_URL, model: ollamaModelToUse });
-    }
-
-    try {
-      const stream = await llm.stream([new HumanMessage(finalPrompt)]);
-      for await (const chunk of stream) {
-        if (chunk && chunk.content) {
-          const contentChunk = chunk.content;
-          accumulatedResponse += contentChunk;
-          if (expressRes && expressRes.writable) {
-            const ssePayload = { type: 'llm_chunk', content: contentChunk };
-            if (options.speakerContext) ssePayload.speaker = options.speakerContext;
-            expressRes.write(`data: ${JSON.stringify(ssePayload)}\n\n`);
-          }
-        }
-      }
-      return accumulatedResponse;
-    } catch (error) {
-      const errorMessage = `Error with ${provider} via Langchain: ${error.message}`;
-      if (expressRes && expressRes.writable) expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
-      return `// LLM_ERROR: ${errorMessage} //`;
-    }
-}
-
-function parseTaskPayload(req) {
-    let task_description, safetyModeString;
-    if (req.method === 'POST') {
-      ({ task_description, safetyMode: safetyModeString } = req.body);
-    } else if (req.method === 'GET') {
-      ({ task_description, safetyMode: safetyModeString } = req.query);
-    } else {
-      return { error: 'Unsupported request method.' };
-    }
-    if (!task_description) return { error: 'Missing task_description in parameters.' };
-    // safetyMode defaults to true if not 'false'. If undefined, it's true.
-    const safetyMode = safetyModeString !== 'false';
-    return { task_description, safetyMode };
-}
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-app.post('/execute-autonomous-task', async (req, expressHttpRes) => {
+// Moved the logic for handling autonomous task execution into a named function
+const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
     console.log(`[POST /execute-autonomous-task] Request received.`);
     const payload = parseTaskPayload(req);
 
@@ -374,7 +301,84 @@ app.post('/execute-autonomous-task', async (req, expressHttpRes) => {
             expressHttpRes.end();
         }
     }
-});
+};
+
+const LOG_DIR_DEFAULT = path.resolve(__dirname, '../../logs');
+const WORKSPACE_DIR_DEFAULT = path.resolve(__dirname, '../../output');
+const LOG_DIR = fs.existsSync(path.join(__dirname, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname, 'config/backend_config.json'), 'utf-8')).logDir || LOG_DIR_DEFAULT) : LOG_DIR_DEFAULT;
+const WORKSPACE_DIR = fs.existsSync(path.join(__dirname, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname, 'config/backend_config.json'), 'utf-8')).workspaceDir || WORKSPACE_DIR_DEFAULT) : WORKSPACE_DIR_DEFAULT;
+
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
+
+const pendingToolConfirmations = {};
+// Removed unused fetch import: const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+
+async function generateFromLocal(originalPrompt, modelName, expressRes, options = {}) {
+    const provider = options.llmProvider || backendSettings.llmProvider;
+    let accumulatedResponse = '';
+    let finalPrompt = originalPrompt;
+
+    console.log(`[LLM Generation] Provider: ${provider || 'ollama (default)'}, Model: ${modelName}`);
+    console.log(`[LLM Generation] Final prompt (first 200 chars): "${finalPrompt.substring(0, 200)}..."`);
+
+    let llm;
+    if (provider === 'openai') {
+      const effectiveOpenAIApiKey = backendSettings.apiKey || backendSettings.openaiApiKey;
+      const openAIModelToUse = modelName || backendSettings.defaultOpenAIModel || 'gpt-3.5-turbo';
+      if (!effectiveOpenAIApiKey) {
+        const errorMessage = 'OpenAI API key is missing.';
+        if (expressRes && expressRes.writable) expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
+        return `// LLM_ERROR: ${errorMessage} //`;
+      }
+      llm = new ChatOpenAI({ apiKey: effectiveOpenAIApiKey, modelName: openAIModelToUse, streaming: true });
+    } else {
+      const ollamaModelToUse = modelName || backendSettings.defaultOllamaModel || 'codellama';
+      llm = new ChatOllama({ baseUrl: OLLAMA_BASE_URL, model: ollamaModelToUse });
+    }
+
+    try {
+      const stream = await llm.stream([new HumanMessage(finalPrompt)]);
+      for await (const chunk of stream) {
+        if (chunk && chunk.content) {
+          const contentChunk = chunk.content;
+          accumulatedResponse += contentChunk;
+          if (expressRes && expressRes.writable) {
+            const ssePayload = { type: 'llm_chunk', content: contentChunk };
+            if (options.speakerContext) ssePayload.speaker = options.speakerContext;
+            expressRes.write(`data: ${JSON.stringify(ssePayload)}\n\n`);
+          }
+        }
+      }
+      return accumulatedResponse;
+    } catch (error) {
+      const errorMessage = `Error with ${provider} via Langchain: ${error.message}`;
+      if (expressRes && expressRes.writable) expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
+      return `// LLM_ERROR: ${errorMessage} //`;
+    }
+}
+
+function parseTaskPayload(req) {
+    let task_description, safetyModeString;
+    if (req.method === 'POST') {
+      ({ task_description, safetyMode: safetyModeString } = req.body);
+    } else if (req.method === 'GET') {
+      ({ task_description, safetyMode: safetyModeString } = req.query);
+    } else {
+      return { error: 'Unsupported request method.' };
+    }
+    if (!task_description) return { error: 'Missing task_description in parameters.' };
+    // safetyMode defaults to true if not 'false'. If undefined, it's true.
+    const safetyMode = safetyModeString !== 'false';
+    return { task_description, safetyMode };
+}
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Assign the named function to the route
+app.post('/execute-autonomous-task', handleExecuteAutonomousTask);
 
 app.post('/api/confirm-action/:confirmationId', async (req, res) => {
     const { confirmationId } = req.params;
