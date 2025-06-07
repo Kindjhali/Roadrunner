@@ -25,18 +25,6 @@
         <!-- Coder Tab Content -->
         <div v-if="activeTab === 'coder'" class="tab-content coder-tab-content p-4 space-y-4">
           <div class="passeriformes-form-area space-y-4">
-            <!--
-            <div v-if="isIntegratedMode" class="piciformes-input-row flex items-center space-x-2">
-              <label for="moduleSelect" class="emberiza-label">Module:</label>
-              <select id="moduleSelect" v-model="selectedModule" class="turdus-select">
-                <option disabled value="">-- Choose a module --</option>
-                <option v-for="mod in modules" :key="mod.value" :value="mod.value">{{ mod.text }}</option>
-              </select>
-              <button @click="handleRefresh" title="Refresh Modules" class="pelecanus-button-action">
-                🔄
-              </button>
-            </div>
-            -->
           <div class="piciformes-input-row">
             <div class="piciformes-input-group">
               <label for="modelSelect" class="emberiza-label" title="This model is used for new tasks. You can override it for individual tasks in the session list below.">Default Task Model:</label>
@@ -277,7 +265,6 @@
 </template>
 
 <script>
-import RoadmapParser from './RoadmapParser';
 import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
 import ConferenceTab from './components/ConferenceTab.vue';
@@ -296,9 +283,7 @@ export default {
   },
   // ... (name, components)
   data() {
-    const isIntegrated = !!(window.electronAPI && window.electronAPI.tokomakRoadrunner);
     return {
-      isIntegratedMode: isIntegrated,
       icons: {
         run: runIcon,
         refresh: refreshIcon,
@@ -307,7 +292,6 @@ export default {
         close: closeIcon,
       },
       activeTab: 'coder',
-      selectedModule: '',
       selectedModelId: '', // ID of the globally selected default model for new tasks
       // categorizedModels: {}, // Will store models fetched from backend, structured by category
       // coderModels and languageModels are now derived from categorizedModels
@@ -325,10 +309,7 @@ export default {
       brainstormingModelError: '',
       isStreamingResponse: false,
       isDraggingOver: false,
-      uploadedTasksContent: null,
-      modules: [],
       errorMessage: '',
-      roadmapContentPlaceholder: `...`, // Placeholder content
       highlightKeywords: [ /* ... */ ],
       executorOutput: [],
       // ... other data properties
@@ -413,7 +394,6 @@ export default {
     showInstructionsModal(newValue, oldValue) {
       console.log(`[App.vue] showInstructionsModal changed from ${oldValue} to ${newValue}`);
     },
-    selectedModule(newModule, oldModule) { /* ... */ },
     categorizedCoderModels: {
       handler(newModels) {
         if (newModels && Object.keys(newModels).length > 0) {
@@ -563,28 +543,15 @@ export default {
 
           // Check if the file is a .md or .txt file
           if (file.name.endsWith('.md') || file.name.endsWith('.txt')) {
-            // Attempt to parse with RoadmapParser
-            const parser = new RoadmapParser(fileContent);
-            const parsedOutput = parser.parse(); // RoadmapParser returns an object, not an array of steps directly
-
-            // Check if parsedOutput is a valid array of steps (e.g., parsedOutput.steps)
-            // For now, RoadmapParser returns an object, so this condition will likely not be met.
-            // This structure anticipates a future where RoadmapParser might return { description: '...', steps: [...] }
-            if (parsedOutput && Array.isArray(parsedOutput.steps) && parsedOutput.steps.length > 0) {
-              stepsToUse = parsedOutput.steps;
-              taskDescription = parsedOutput.description || `Uploaded: ${file.name}`;
-              this.executorOutput.unshift({ message: `Task file "${file.name}" parsed successfully by RoadmapParser.`, type: 'info', timestamp: new Date() });
-            } else {
-              // Fallback for .md/.txt files that don't parse into steps or if RoadmapParser's output isn't as expected
-              this.executorOutput.unshift({ message: `File "${file.name}" (${file.type}) was not parsable into direct steps by RoadmapParser or parser returned an empty/invalid result. Creating generic file task.`, type: 'info', timestamp: new Date() });
-              taskDescription = `Process uploaded file: ${file.name}`;
-              stepsToUse = [
-                { type: "createFile", details: { filePath: file.name, content: fileContent } },
-                { type: "generic_step", details: { description: `The file '${file.name}' has been uploaded. What would you like to do with it? (e.g., execute it if it's a script, summarize it if it's text)` } }
-              ];
-            }
+            // Standard behavior for .md and .txt files
+            this.executorOutput.unshift({ message: `File "${file.name}" (${file.type}) processed. Creating generic file task.`, type: 'info', timestamp: new Date() });
+            taskDescription = `Process uploaded file: ${file.name}`;
+            stepsToUse = [
+              { type: "createFile", details: { filePath: file.name, content: fileContent } },
+              { type: "generic_step", details: { description: `The file '${file.name}' has been uploaded. What would you like to do with it? (e.g., execute it if it's a script, summarize it if it's text)` } }
+            ];
           } else {
-            // Generic file handling for non-.md/.txt files
+            // Generic file handling for non-.md/.txt files (remains the same)
             this.executorOutput.unshift({ message: `Uploaded generic file "${file.name}" (${file.type}). Creating generic file task.`, type: 'info', timestamp: new Date() });
             taskDescription = `Process uploaded file: ${file.name}`;
             stepsToUse = [
@@ -608,14 +575,6 @@ export default {
         };
         reader.readAsText(file);
       }
-    },
-    // Placeholder for potential future use if modules define tasks directly.
-    async loadRoadmap() {
-        // ... (existing logic to fetch roadmap content)
-        // When steps are parsed:
-        // const parsedSteps = parser.parse();
-        // this.addTaskToSession({ description: `Module: ${prettyModuleName}`, steps: parsedSteps });
-        // ...
     },
     // Loads tasks from a previously saved session file into the current session.
     async loadSelectedSession(sessionId) {

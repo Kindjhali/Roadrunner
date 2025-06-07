@@ -38,8 +38,8 @@ Roadrunner organizes work into "tasks" which are part of a "session." A task typ
 
 **1. How to Define a Task (Uploading a Task File):**
    - In the "Coder" tab, locate the "Custom Task File" section.
-   - Click the "Choose File" button and select a JSON or text file that defines your task (overall goal and steps).
-   - Once uploaded, the task(s) from the file will be added to your current session and appear in the "Session Tasks" list.
+   - Click the "Choose File" button and select a `.md` or `.txt` file.
+   - When a `.md` or `.txt` file is uploaded, its content will be used to create a generic task in your current session (e.g., a task to create the file in the workspace and an open-ended step to decide what to do with it). This new task will appear in the "Session Tasks" list.
 
 **2. How to Save the Current Session:**
    - In the "Coder" tab, you can optionally provide a name for your current session in the "Session Name" input field.
