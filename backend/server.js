@@ -61,16 +61,52 @@ const REACT_AGENT_PROMPT_TEMPLATE = `Answer the following questions as best you 
 
 {tools}
 
-Use the following format:
+Use the following format STRICTLY:
 
 Question: the input question you must answer
 Thought: you should always think about what to do
 Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
+Action Input: the input to the action. For tools expecting JSON, this MUST be a valid JSON string. For tools expecting a simple string, this is the string itself.
 Observation: the result of the action
 ... (this Thought/Action/Action Input/Observation can repeat N times)
 Thought: I now know the final answer
-Final Answer: final answer to the original input question
+Final Answer: the final answer to the original input question
+
+**HANDLING TOOL ERRORS:**
+If the 'Observation' you receive from a tool clearly indicates an error (e.g., it starts with "Error:", "Failed to:", "File not found:", "Invalid input:"), you MUST treat this seriously.
+1.  In your 'Thought': Acknowledge the specific error message.
+2.  Analyze the error: Was it due to a wrong path, missing resource, incorrect input format, or a tool limitation?
+3.  Avoid immediately retrying the exact same action with the exact same input if the error suggests it will fail again (e.g., a file definitely does not exist).
+4.  Consider alternatives:
+    *   Can you use a different tool?
+    *   Can you modify the input to the previous tool (e.g., correct a path, change a parameter)?
+    *   Is there a preliminary step you missed (e.g., needing to create a directory before a file, or list files to find the correct name)?
+5.  If the error is unrecoverable or prevents task completion, your 'Final Answer:' should clearly state the error and why you cannot proceed.
+Do not ignore errors; use them to make better decisions.
+
+**IMPORTANT: HANDLING USER DENIALS:**
+If an 'Observation' explicitly states that a user has denied a previous action (e.g., 'User denied action: create_file...'), you MUST NOT immediately retry the exact same action with the exact same input.
+Instead, you MUST:
+1.  Acknowledge the denial in your 'Thought' process.
+2.  Re-evaluate the original task and your previous plan.
+3.  Consider alternative tools or a different sequence of actions to achieve the goal.
+4.  If you believe the same tool is necessary, consider how its input could be modified to be acceptable (though the user's reason for denial may not always be clear to you).
+5.  If no alternative is found, your 'Final Answer:' should clearly state why the task cannot be completed due to the denial.
+Your goal is to still try to complete the task, but respectfully and adaptively to user feedback.
+
+Example of using a tool that requires JSON input:
+Question: Create a file named 'example.txt' with content 'hello'.
+Thought: I need to create a file. The 'create_file' tool is appropriate. It requires a JSON string with 'filePath' and 'content'.
+Action: create_file
+Action Input: {{"filePath": "example.txt", "content": "hello"}}
+Observation: File created successfully at output/example.txt
+
+Example of using a tool that requires a simple string input:
+Question: What is in the 'docs' folder?
+Thought: I need to list directory contents. The 'list_directory' tool is appropriate. It takes a relative path string.
+Action: list_directory
+Action Input: docs
+Observation: docs/\n  guide.md\n  api.md
 
 Begin!
 
@@ -378,23 +414,24 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
     delete pendingToolConfirmations[confirmationId];
 
     let agentInputText;
+    const toolInputString = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
     let resumedAgentConfig = {
         configurable: {
-            ...originalAgentConfig.configurable, // Carry over original config like safetyMode, SSE handlers
+            ...originalAgentConfig.configurable,
             isConfirmedActionForTool: {
-                [toolName]: { [typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput)]: confirmed }
+                [toolName]: { [toolInputString]: confirmed }
             }
         }
     };
 
     if (confirmed) {
         sendSseMessage('log_entry', { message: `[SSE Agent] User APPROVED action: ${toolName}. Resuming task.` });
-        overallExecutionLog.push(`[Agent Confirmation] User APPROVED action: ${toolName}, Input: ${JSON.stringify(toolInput)}.`);
-        agentInputText = `User approved action: ${toolName} with input ${JSON.stringify(toolInput)}. Please continue with the original task: ${originalTaskDescription}.`;
+        overallExecutionLog.push(`[Agent Confirmation] User APPROVED action: ${toolName}, Input: ${toolInputString}.`);
+        agentInputText = `Observation: User has approved your proposed action: Tool='${toolName}' with Input='${toolInputString}'. Your original task was: '${originalTaskDescription}'. Please proceed with the task, using this approval.`;
     } else {
         sendSseMessage('log_entry', { message: `[SSE Agent] User DENIED action: ${toolName}. Informing agent.` });
-        overallExecutionLog.push(`[Agent Confirmation] User DENIED action: ${toolName}, Input: ${JSON.stringify(toolInput)}.`);
-        agentInputText = `User denied action: ${toolName} with input ${JSON.stringify(toolInput)}. Original task: ${originalTaskDescription}. Please try to achieve the goal differently or indicate if not possible.`;
+        overallExecutionLog.push(`[Agent Confirmation] User DENIED action: ${toolName}, Input: ${toolInputString}.`);
+        agentInputText = `Observation: User has denied your proposed action: Tool='${toolName}' with Input='${toolInputString}'. Do not retry this exact action. Your original task was: '${originalTaskDescription}'. You must now re-plan. Analyze why this action might have been denied (e.g., safety, incorrect path, unwanted overwrite) and devise an alternative strategy or tool usage to achieve the original task. If you cannot find an alternative, explain why. Proceed with your new thought process.`;
     }
 
     let errorOccurredInResume = false;

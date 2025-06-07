@@ -5,42 +5,41 @@ const { v4: uuidv4 } = require('uuid'); // For generating confirmation IDs
 
 class GitAddTool extends Tool {
   name = "git_add";
-  description = "Stages changes in the workspace for a commit. Input should be a JSON string with 'filePath' (a file path or '.' for all changes). Example: {\"filePath\": \"src/myFile.js\"}.";
+  description = "Stages changes in the workspace for a commit. Input MUST be a JSON string with a 'filePath' key, where 'filePath' is a string representing a file path or '.' for all changes. Example: {\"filePath\": \"src/myFile.js\"} or {\"filePath\": \".\"}.";
 
-  async _call(inputJsonString, runManager) { // Added runManager
+  async _call(inputJsonString, runManager) {
     try {
       const { filePath } = JSON.parse(inputJsonString);
-      if (!filePath) {
-        return "Error: Missing 'filePath' in input JSON for git_add.";
+      if (filePath === undefined) { // Check for undefined specifically, as empty string might be a valid project root path for some git contexts, though '.' is preferred.
+        return "Error: Input JSON string for git_add MUST include a 'filePath' key (e.g., a specific file or '.' for all changes).";
       }
 
+      // Confirmation for 'git add' is currently disabled by default in the tool's logic below.
+      // It's considered a non-destructive precursor to 'git commit'.
+      // If confirmation were desired, it would be implemented here similar to other tools.
+      /*
       const safetyMode = runManager?.config?.safetyMode ?? true;
       const isConfirmedAction = runManager?.config?.isConfirmedActionForTool?.[this.name]?.[inputJsonString] || false;
-
-      // Adding files is generally non-destructive but is a critical precursor to commit.
-      // Confirmation here might be optional or depend on the scope (e.g., adding '.' vs a specific file).
-      // For now, let's assume 'git add' itself doesn't require confirmation if safetyMode is on,
-      // but the subsequent 'git commit' will. If explicit confirmation for 'add' is desired:
-      /*
       if (safetyMode && !isConfirmedAction) {
         const confirmationId = uuidv4();
         throw new ConfirmationRequiredError({
             toolName: this.name,
             toolInput: inputJsonString,
             confirmationId,
-            message: `Stage files for path '${filePath}'?`
+            message: `Stage files/path '${filePath}'?`
         });
       }
       */
 
-      const result = await gitAgent.gitAdd(filePath, { isConfirmedAction: true }); // Pass isConfirmedAction: true to underlying agent
+      const result = await gitAgent.gitAdd(filePath, { isConfirmedAction: true });
       if (result.success) {
-        return result.message || `Successfully added ${filePath}.`;
+        return result.message || `Successfully staged '${filePath}'.`;
       } else {
-        return `Error adding files: ${result.message}${result.error ? ` Details: ${JSON.stringify(result.error)}` : ''}`;
+        return `Error staging '${filePath}': ${result.message}${result.error ? ` Details: ${JSON.stringify(result.error)}` : ''}`;
       }
     } catch (error) {
       if (error instanceof ConfirmationRequiredError) throw error;
+      if (error instanceof SyntaxError) return `Error: Invalid JSON string for Action Input. Details: ${error.message}. Input received: ${inputJsonString}`;
       return `Error processing git_add: ${error.message}`;
     }
   }
@@ -48,13 +47,13 @@ class GitAddTool extends Tool {
 
 class GitCommitTool extends Tool {
   name = "git_commit";
-  description = "Creates a new commit with staged changes. Input should be a JSON string with 'message'. Example: {\"message\": \"feat: Add new feature\"}";
+  description = "Creates a new commit with staged changes. Input MUST be a JSON string with a 'message' key (string). Example: {\"message\": \"feat: Add new login component\"}.";
 
-  async _call(inputJsonString, runManager) { // Added runManager
+  async _call(inputJsonString, runManager) {
     try {
       const { message } = JSON.parse(inputJsonString);
-      if (!message) {
-        return "Error: Missing 'message' in input JSON for git_commit.";
+      if (message === undefined || typeof message !== 'string') { // Message can be empty, but must exist.
+        return "Error: Input JSON string for git_commit MUST include a 'message' key with a string value.";
       }
 
       const safetyMode = runManager?.config?.safetyMode ?? true;
@@ -66,18 +65,19 @@ class GitCommitTool extends Tool {
             toolName: this.name,
             toolInput: inputJsonString,
             confirmationId,
-            message: `Commit with message "${message}"?`
+            message: `Create commit with message "${message}"?`
         });
       }
 
       const result = await gitAgent.gitCommit(message, { isConfirmedAction: true });
       if (result.success) {
-        return result.message || `Successfully committed with message "${message}".`;
+        return result.message || `Successfully committed with message "${message}". Commit SHA: ${result.data?.commit || 'N/A'}`;
       } else {
         return `Error committing: ${result.message}${result.error ? ` Details: ${JSON.stringify(result.error)}` : ''}`;
       }
     } catch (error) {
       if (error instanceof ConfirmationRequiredError) throw error;
+      if (error instanceof SyntaxError) return `Error: Invalid JSON string for Action Input. Details: ${error.message}. Input received: ${inputJsonString}`;
       return `Error processing git_commit: ${error.message}`;
     }
   }
@@ -85,11 +85,11 @@ class GitCommitTool extends Tool {
 
 class GitPushTool extends Tool {
   name = "git_push";
-  description = "Pushes committed changes to a remote repository. Input should be a JSON string with optional 'remote' and 'branch'. Example: {\"remote\": \"origin\", \"branch\": \"main\"}.";
+  description = "Pushes committed changes to a remote repository. Input MUST be a JSON string, optionally with 'remote' (string) and 'branch' (string) keys. If keys are absent, defaults will be used. Example: {\"remote\": \"origin\", \"branch\": \"main\"} or {}.";
 
-  async _call(inputJsonString, runManager) { // Added runManager
+  async _call(inputJsonString, runManager) {
     try {
-      const { remote, branch } = JSON.parse(inputJsonString);
+      const { remote, branch } = JSON.parse(inputJsonString); // undefined if not present, which is fine for gitAgent
       const safetyMode = runManager?.config?.safetyMode ?? true;
       const isConfirmedAction = runManager?.config?.isConfirmedActionForTool?.[this.name]?.[inputJsonString] || false;
 
@@ -99,7 +99,7 @@ class GitPushTool extends Tool {
             toolName: this.name,
             toolInput: inputJsonString,
             confirmationId,
-            message: `Push to remote '${remote || 'default'}' branch '${branch || 'default'}'?`
+            message: `Push to remote '${remote || 'default remote'}' branch '${branch || 'default branch'}'?`
         });
       }
 
@@ -111,6 +111,7 @@ class GitPushTool extends Tool {
       }
     } catch (error) {
       if (error instanceof ConfirmationRequiredError) throw error;
+      if (error instanceof SyntaxError) return `Error: Invalid JSON string for Action Input. Details: ${error.message}. Input received: ${inputJsonString}`;
       return `Error processing git_push: ${error.message}`;
     }
   }
@@ -118,22 +119,21 @@ class GitPushTool extends Tool {
 
 class GitPullTool extends Tool {
   name = "git_pull";
-  description = "Fetches changes from a remote repository and merges them. Input should be a JSON string with optional 'remote' and 'branch'. Example: {\"remote\": \"origin\", \"branch\": \"main\"}.";
+  description = "Fetches changes from a remote repository and merges them. Input MUST be a JSON string, optionally with 'remote' (string) and 'branch' (string) keys. If keys are absent, defaults will be used. Example: {\"remote\": \"origin\", \"branch\": \"main\"} or {}. This may overwrite local changes if conflicts occur and are auto-resolved.";
 
-  async _call(inputJsonString, runManager) { // Added runManager
+  async _call(inputJsonString, runManager) {
     try {
       const { remote, branch } = JSON.parse(inputJsonString);
       const safetyMode = runManager?.config?.safetyMode ?? true;
       const isConfirmedAction = runManager?.config?.isConfirmedActionForTool?.[this.name]?.[inputJsonString] || false;
 
-      // Pulling can modify local files, so confirmation is good in safety mode.
       if (safetyMode && !isConfirmedAction) {
         const confirmationId = uuidv4();
         throw new ConfirmationRequiredError({
             toolName: this.name,
             toolInput: inputJsonString,
             confirmationId,
-            message: `Pull from remote '${remote || 'default'}' branch '${branch || 'default'}'? This may overwrite local changes.`
+            message: `Pull from remote '${remote || 'default remote'}' branch '${branch || 'default branch'}'? This may alter local files.`
         });
       }
 
@@ -145,6 +145,7 @@ class GitPullTool extends Tool {
       }
     } catch (error) {
       if (error instanceof ConfirmationRequiredError) throw error;
+      if (error instanceof SyntaxError) return `Error: Invalid JSON string for Action Input. Details: ${error.message}. Input received: ${inputJsonString}`;
       return `Error processing git_pull: ${error.message}`;
     }
   }
@@ -152,12 +153,11 @@ class GitPullTool extends Tool {
 
 class GitRevertTool extends Tool {
   name = "git_revert_last_commit";
-  description = "Reverts the last commit. No input needed, pass an empty JSON string '{}'.";
+  description = "Reverts the last commit by creating a new commit that undoes the changes. Input MUST be an empty JSON string. Example: {}.";
 
-  async _call(inputJsonString, runManager) { // Added runManager
+  async _call(inputJsonString, runManager) {
     try {
-      // Consider parsing inputJsonString if it might ever contain parameters, even if currently not.
-      // const {} = JSON.parse(inputJsonString);
+      JSON.parse(inputJsonString); // Validate it's a JSON string, even if empty object
       const safetyMode = runManager?.config?.safetyMode ?? true;
       const isConfirmedAction = runManager?.config?.isConfirmedActionForTool?.[this.name]?.[inputJsonString] || false;
 
@@ -165,9 +165,9 @@ class GitRevertTool extends Tool {
         const confirmationId = uuidv4();
         throw new ConfirmationRequiredError({
             toolName: this.name,
-            toolInput: inputJsonString, // Even if empty, pass for consistency
+            toolInput: inputJsonString,
             confirmationId,
-            message: `Revert the last commit? This will create a new commit that undoes the changes.`
+            message: `Revert the last commit? This will create a new commit that undoes the previous commit's changes.`
         });
       }
 
@@ -179,6 +179,7 @@ class GitRevertTool extends Tool {
       }
     } catch (error) {
       if (error instanceof ConfirmationRequiredError) throw error;
+      if (error instanceof SyntaxError) return `Error: Invalid JSON string for Action Input. Details: ${error.message}. Input received: ${inputJsonString}`;
       return `Error processing git_revert_last_commit: ${error.message}`;
     }
   }
