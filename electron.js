@@ -222,8 +222,8 @@ app.on('before-quit', () => {
   if (conferenceEventSource) {
     conferenceEventSource.close();
     conferenceEventSource = null;
-  });
   }
+  // Removed extraneous parenthesis and semicolon from the line above
 });
 
 app.on('quit', () => {
