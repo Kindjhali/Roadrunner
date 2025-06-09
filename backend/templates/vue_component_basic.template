@@ -1,34 +1,13 @@
 <template>
   <div class="{{componentNameKebab}}">
-    <p>{{ greeting }} {{ componentName }}!</p>
-    <!-- TODO: Implement component_props_display -->
-    <!-- TODO: Implement component_data_display -->
+    {{{templateContent}}}
   </div>
 </template>
 
-<script>
-export default {
-  name: '{{componentNamePascal}}',
-  props: {
-    // {{componentProps}}
-  },
-  data() {
-    return {
-      greeting: 'Hello from',
-      // {{componentData}}
-    };
-  },
-  methods: {
-    // TODO: Implement methods
-  },
-  mounted() {
-    console.log('{{componentNamePascal}} component mounted.');
-  }
-};
-</script>
+{{scriptBlock}}
 
 <style scoped>
 .{{componentNameKebab}} {
-  /* TODO: Add styles */
+  /* TODO: Add styles for {{componentNameKebab}} */
 }
 </style>
