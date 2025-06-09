@@ -1355,9 +1355,20 @@ async function checkOllamaStatus() {
 function attemptToListen(port) {
     app.listen(port, () => {
         console.log(`[Server Startup] Roadrunner backend server listening on port ${port}`);
+        // Send the port to the parent process (Electron main) if running as a child process
+        if (process.send) {
+            process.send({ type: 'backend-port', port: port });
+        }
     }).on('error', (err) => {
         console.error('[Server Startup] Error during server listen:', err);
-        process.exit(1);
+        // If Electron is the parent, it will handle the exit. Otherwise, exit directly.
+        if (!process.send) {
+             process.exit(1);
+        } else {
+            // Optionally, send an error message to Electron main process
+            process.send({ type: 'backend-error', error: err.message });
+            // Electron main process should decide to exit the app
+        }
     });
 }
 

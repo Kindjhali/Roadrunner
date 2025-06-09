@@ -9,45 +9,85 @@ let currentBackendPort = 3030; // Default port
 let backendProcess = null;
 
 function startBackendServer() {
-  const backendPath = path.join(__dirname, 'backend', 'server.js');
-  if (!fs.existsSync(backendPath)) {
-    console.error('[Backend] server.js not found at:', backendPath);
-    dialog.showErrorBox('Backend Error', 'Could not find server.js. The backend cannot be started.');
-    return;
-  }
-
-  console.log('[Backend] Starting backend server from:', backendPath);
-  backendProcess = spawn('node', [backendPath], {
-    cwd: path.join(__dirname, 'backend'), // Set working directory for the backend
-    stdio: ['pipe', 'pipe', 'pipe', 'ipc'] // Keep ipc for potential future use
-  });
-
-  // New log statement:
-  if (backendProcess && backendProcess.pid) {
-    console.log(`[Backend] Backend process spawned successfully. PID: ${backendProcess.pid}. Command: node ${backendPath}`);
-  } else if (backendProcess) {
-    // This case might happen if the process object exists but pid is not available immediately (though rare for successful spawn)
-    console.log(`[Backend] Backend process spawning initiated. PID not immediately available. Command: node ${backendPath}`);
-  } else {
-    // This case would indicate spawn itself failed synchronously and returned null/undefined,
-    // though 'error' event handler is the primary place for spawn failures.
-    console.error(`[Backend] Backend process failed to spawn (backendProcess object is null). Command: node ${backendPath}`);
-  }
-
-  backendProcess.on('message', (message) => {
-    if (message && message.type === 'backend-port') {
-      currentBackendPort = message.port;
-      console.log(`[Electron] Backend server started and listening on port: ${currentBackendPort}`);
-      // Notify frontend about the new port.
-      sendToAllWindows('backend-port-updated', { port: currentBackendPort });
-    } else if (message && message.type === 'backend-error') {
-      console.error(`[Electron] Received error from backend process: ${message.message}`);
-      dialog.showErrorBox('Backend Process Error', `The backend process reported an error: ${message.message}`);
-      // Optionally, decide if app should quit or try to restart backend
+  return new Promise((resolve, reject) => {
+    const backendPath = path.join(__dirname, 'backend', 'server.js');
+    if (!fs.existsSync(backendPath)) {
+      const errMessage = 'Could not find server.js. The backend cannot be started.';
+      console.error('[Backend] server.js not found at:', backendPath);
+      dialog.showErrorBox('Backend Error', errMessage);
+      reject(new Error(errMessage));
+      return;
     }
-  });
 
-  backendProcess.stdout.on('data', (data) => {
+    console.log('[Backend] Starting backend server from:', backendPath);
+    backendProcess = spawn('node', [backendPath], {
+      cwd: path.join(__dirname, 'backend'),
+      stdio: ['pipe', 'pipe', 'pipe', 'ipc']
+    });
+
+    let portReceived = false;
+    const startupTimeout = 15000; // 15 seconds
+
+    const timeoutId = setTimeout(() => {
+      if (!portReceived) {
+        console.error('[Backend] Startup timeout. No port message received.');
+        if (backendProcess && !backendProcess.killed) {
+          backendProcess.kill();
+        }
+        reject(new Error('Backend server startup timed out.'));
+      }
+    }, startupTimeout);
+
+    if (backendProcess && backendProcess.pid) {
+      console.log(`[Backend] Backend process spawned successfully. PID: ${backendProcess.pid}. Command: node ${backendPath}`);
+    } else if (backendProcess) {
+      console.log(`[Backend] Backend process spawning initiated. PID not immediately available. Command: node ${backendPath}`);
+    } else {
+      clearTimeout(timeoutId);
+      const errMessage = `Backend process failed to spawn (backendProcess object is null). Command: node ${backendPath}`;
+      console.error(`[Backend] ${errMessage}`);
+      reject(new Error(errMessage));
+      return;
+    }
+
+    backendProcess.on('message', (message) => {
+      if (message && message.type === 'backend-port') {
+        clearTimeout(timeoutId);
+        portReceived = true;
+        currentBackendPort = message.port;
+        console.log(`[Electron] Backend server started and listening on port: ${currentBackendPort}`);
+        sendToAllWindows('backend-port-updated', { port: currentBackendPort });
+        resolve(currentBackendPort);
+      } else if (message && message.type === 'backend-error') {
+        clearTimeout(timeoutId);
+        console.error(`[Electron] Received error from backend process during startup: ${message.error}`);
+        if (backendProcess && !backendProcess.killed) backendProcess.kill();
+        reject(new Error(`Backend process reported an error during startup: ${message.error}`));
+      }
+    });
+
+    backendProcess.on('error', (err) => {
+      clearTimeout(timeoutId);
+      console.error('[Backend] Failed to start process:', err);
+      // No need to show dialog.showErrorBox here as reject will handle it
+      reject(err); // Reject the promise on spawn error
+    });
+
+    backendProcess.on('exit', (code, signal) => {
+      clearTimeout(timeoutId);
+      if (!portReceived) { // If exited before sending port
+        console.error(`[Backend] Process exited prematurely with code: ${code}, signal: ${signal}`);
+        reject(new Error(`Backend server process exited prematurely with code ${code}.`));
+      } else {
+        // Normal exit after port received (though usually it keeps running)
+        console.log(`[Backend] Process exited with code: ${code}, signal: ${signal}`);
+        sendToAllWindows('backend-status', { status: 'stopped', code, signal });
+      }
+      backendProcess = null;
+    });
+
+    // Standard output and error stream handling (can be moved after resolve if preferred)
+    backendProcess.stdout.on('data', (data) => {
     const output = data.toString();
     output.split('\n').forEach(line => {
       const trimmedLine = line.trim();
@@ -77,23 +117,9 @@ function startBackendServer() {
     });
   });
 
-  backendProcess.on('exit', (code, signal) => {
-    console.log(`[Backend] Process exited with code: ${code}, signal: ${signal}`);
-    backendProcess = null; // Clear the reference
-    // Optionally, notify the renderer or try to restart
-    sendToAllWindows('backend-status', { status: 'stopped', code, signal });
-  });
-
-  backendProcess.on('error', (err) => {
-    console.error('[Backend] Failed to start process:', err);
-    dialog.showErrorBox('Backend Error', `Failed to start backend server: ${err.message}`);
-    backendProcess = null;
-  });
-
-  // Add a small delay or a more robust check for backend readiness
-  // For now, just log that it's been started.
-  console.log('[Backend] Backend server process initiated.');
-  sendToAllWindows('backend-status', { status: 'started' });
+  // No specific action needed on 'exit' after portReceived for the Promise itself,
+  // but logging and status updates are good.
+  // backendProcess.on('exit', (code, signal) => { ... }); already handled above
 }
 
 function sendToAllWindows(channel, payload) {
@@ -150,10 +176,33 @@ app.whenReady().then(() => {
     });
   });
 
-  startBackendServer(); // Add this call
-  createWindow();
+  try {
+    console.log('[Electron] Attempting to start backend server...');
+    const port = await startBackendServer();
+    currentBackendPort = port; // Ensure global currentBackendPort is set
+    console.log(`[Electron] Backend server successfully started on port ${port}. Creating window.`);
+    createWindow();
+  } catch (error) {
+    console.error('[Electron] Failed to start backend server:', error);
+    dialog.showErrorBox('Fatal Error', `Failed to start backend server: ${error.message}\nThe application will now quit.`);
+    app.quit();
+    return; // Important to return here to stop further execution
+  }
+
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    // On macOS it's common to re-create a window in the app when the
+    // dock icon is clicked and there are no other windows open.
+    if (BrowserWindow.getAllWindows().length === 0) {
+       // Check if backend is running before creating a new window
+       if (backendProcess && !backendProcess.killed && currentBackendPort) {
+        createWindow();
+      } else {
+        console.warn('[Electron] Activate event: Backend not running. Attempting restart or quitting.');
+        // Optionally, try to restart backend or inform user and quit
+        dialog.showErrorBox('Backend Not Running', 'The backend service is not running. The application cannot continue.');
+        app.quit();
+      }
+    }
   });
 
   ipcMain.on('close-window', () => {
