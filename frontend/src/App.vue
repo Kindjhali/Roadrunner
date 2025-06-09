@@ -124,6 +124,7 @@
 
 <script>
 import { mapGetters, mapState } from 'vuex';
+import { fetchCategorizedModels } from '../services/api'; // Import the new service
 import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
 import ConferenceTab from './components/ConferenceTab.vue';
@@ -330,30 +331,31 @@ export default {
         const backendPort = this.$store.state.backendPort;
         if (!backendPort || backendPort === 0) {
             this.$store.dispatch('addStructuredLog', {id: this._getNextLogId(), type: 'ERROR_CLIENT', message: `❌ Error: Backend port not configured. Cannot fetch models. Check console.`, timestamp: new Date() });
+            this.$store.dispatch('updateOllamaStatus', { isConnected: false, message: 'Backend port not configured.' });
             return;
         }
-        const response = await fetch(`http://127.0.0.1:${backendPort}/api/ollama-models/categorized`);
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Backend model fetch failed: ${response.status} ${errorText}`);
-        }
-        const categorizedData = await response.json();
+
+        const categorizedData = await fetchCategorizedModels(backendPort);
+
         // Ensure model IDs are consistent (sometimes Ollama API might return model field as identifier)
+        // This logic might be better placed in the backend or the service, but keeping for consistency for now.
         for (const category in categorizedData) {
           if (Array.isArray(categorizedData[category])) {
             categorizedData[category].forEach(model => {
-              if (!model.id) model.id = model.model || model.name;
+              if (!model.id) model.id = model.model || model.name; // Ensure 'id' field exists
             });
           }
         }
+
         this.$store.dispatch('updateModels', categorizedData);
         const totalModels = Object.values(categorizedData).reduce((acc, curr) => acc + curr.length, 0);
         this.$store.dispatch('addStructuredLog', {id: this._getNextLogId(), type: 'SUCCESS', message: `✅ Models loaded: ${totalModels} total.`, timestamp: new Date() });
         this.$store.dispatch('updateOllamaStatus', { isConnected: true, message: 'Ollama Connected & Models Loaded.' });
       } catch (error) {
         console.error('Error in loadAvailableModels:', error);
-        this.$store.dispatch('addStructuredLog', {id: this._getNextLogId(), type: 'ERROR_CLIENT', message: `❌ Error fetching models: ${error.message}`, timestamp: new Date() });
-        this.$store.dispatch('updateOllamaStatus', { isConnected: false, message: 'Ollama Connection Failed.' });
+        const errorMessage = error.message || 'An unknown error occurred while fetching models.';
+        this.$store.dispatch('addStructuredLog', {id: this._getNextLogId(), type: 'ERROR_CLIENT', message: `❌ Error fetching models: ${errorMessage}`, timestamp: new Date() });
+        this.$store.dispatch('updateOllamaStatus', { isConnected: false, message: `Ollama Connection Failed: ${errorMessage}` });
       }
     },
     openCoderInstructions() { /* ... */ },
