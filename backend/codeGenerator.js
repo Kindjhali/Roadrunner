@@ -48,104 +48,152 @@ async function generateContentFromSpec(specType, specDetails, itemDetails, modul
         return `// Error: Could not load template ${templatePath}. ${e.message}`;
       }
 
-      let templateContent = `<!-- LLM-generated template for ${componentName} -->\n<p>${componentName} works!</p>`;
+      const componentName = specDetails.componentName || "MyComponent";
+      const componentNameKebab = toKebabCase(componentName);
+      const componentNamePascal = componentName.charAt(0).toUpperCase() + componentName.slice(1); // Ensure PascalCase for name property
+      sendSseMessage('log_entry', { message: `${logPrefix} Generating Vue component: ${componentNamePascal}` });
+
+      let templatePath = path.join(__dirname, 'templates', 'vue_component_basic.template');
+      // Note: React framework path was illustrative; ensure it's handled if actually supported.
+      // if (specDetails.framework === 'react') { ... }
+
+      let baseTemplate;
+      try {
+        baseTemplate = fs.readFileSync(templatePath, 'utf-8');
+      } catch (e) {
+        sendSseMessage('error', { content: `${logPrefix} Error reading template file ${templatePath}: ${e.message}` });
+        return `// Error: Could not load template ${templatePath}. ${e.message}`;
+      }
+
+      let templateContent = `<!-- LLM-generated template for ${componentNamePascal} -->\n<p>${componentNamePascal} works!</p>`;
       if (specDetails.templatePrompt) {
         templateContent = await llmGenerator(specDetails.templatePrompt, modelPreference, null) || templateContent;
       }
 
-      let scriptSetupContent = '';
-      let propsContent = "{}"; // Default empty object string
-      let dataContent = "return {};";
-      let methodsContent = "";
-      let computedContent = "";
-      let watchContent = "";
-      let emitsArray = specDetails.outputs || []; // from componentSpec.outputs
-      let emitsContent = emitsArray.length > 0 ? `emits: ['${emitsArray.join("', '")}'],` : '';
+      let scriptBlock = '// Script block not generated';
+      const langAttr = specDetails.scriptLang === 'ts' ? ' lang="ts"' : '';
+      const emitsArray = specDetails.outputs || [];
 
-
-      if (specDetails.useCompositionApi) { // Vue 3 Composition API
-        sendSseMessage('log_entry', { message: `${logPrefix} Using Composition API for ${componentName}` });
-        let scriptSetupParts = [];
-        if(specDetails.propsPrompt) { // Prompt for entire <script setup> if available
-            scriptSetupContent = await llmGenerator(specDetails.propsPrompt, modelPreference, null) || '// LLM failed to generate script setup content.';
-        } else { // Generate parts if no overarching prompt
+      if (specDetails.useCompositionApi) {
+        sendSseMessage('log_entry', { message: `${logPrefix} Using Composition API for ${componentNamePascal}` });
+        let scriptSetupBody = '';
+        if (specDetails.propsPrompt) { // If a prompt for the entire script setup block is given
+            scriptSetupBody = await llmGenerator(specDetails.propsPrompt, modelPreference, null) || '// LLM failed to generate script setup content from propsPrompt.';
+        } else { // Construct defineProps, defineEmits, and logic from separate prompts/specs
+            let parts = [];
             if (specDetails.inputs && specDetails.inputs.length > 0) {
-                 propsContent = `defineProps({\n  ${specDetails.inputs.map(p => `${p.split(':')[0].trim()}: ${p.split(':')[1]?.trim() || 'Object'}`).join(',\n  ')}\n});`;
-                 scriptSetupParts.push(propsContent);
+                const propsDefinitions = specDetails.inputs.map(p => {
+                    const [name, typeDetails] = p.split(':');
+                    const type = typeDetails?.trim() || 'Object'; // Default to Object if no type specified
+                    return `${name.trim()}: ${type}`; // e.g. myProp: String, anotherProp: { type: Number, default: 0 }
+                }).join(',\n  ');
+                parts.push(`const props = defineProps({\n  ${propsDefinitions}\n});`);
             }
             if (emitsArray.length > 0) {
-                const emitsDefine = `const emit = defineEmits(['${emitsArray.join("', '")}']);`;
-                scriptSetupParts.push(emitsDefine);
+                const emitsList = emitsArray.map(e => `'${e}'`).join(", ");
+                parts.push(`const emit = defineEmits([${emitsList}]);`);
             }
-            // Add more composition API parts as prompts are defined in spec (e.g. reactive state, lifecycle hooks)
             if (specDetails.logicPrompt) {
-                 const logic = await llmGenerator(specDetails.logicPrompt, modelPreference, null) || '// LLM failed to generate setup logic';
-                 scriptSetupParts.push(logic);
+                const logicContent = await llmGenerator(specDetails.logicPrompt, modelPreference, null) || '// LLM failed to generate setup logic from logicPrompt.';
+                parts.push(logicContent);
+            } else if (!specDetails.propsPrompt) { // Only add default if no other script content was prompted
+                 parts.push(`import { ref } from 'vue';\n\nconst exampleRef = ref('Example ref for ${componentNamePascal}');`);
             }
-            scriptSetupContent = scriptSetupParts.join('\n\n');
+            scriptSetupBody = parts.join('\n\n');
         }
-        // For <script setup>, props, data, methods, computed, watch are usually defined within the setup block directly or via composables.
-        // The baseTemplate should ideally have a {{scriptSetupContent}} placeholder.
-        // For simplicity, we are injecting primarily into scriptSetupContent.
-        // Clear Options API placeholders as they are not used with <script setup>
-        propsContent = ""; dataContent = ""; methodsContent = ""; computedContent = ""; watchContent = ""; emitsContent = "";
-      } else { // Vue 2 Options API or Vue 3 Options API
-        sendSseMessage('log_entry', { message: `${logPrefix} Using Options API for ${componentName}` });
+        scriptBlock = `<script setup${langAttr}>\n${scriptSetupBody}\n</script>`;
+      } else { // Options API
+        sendSseMessage('log_entry', { message: `${logPrefix} Using Options API for ${componentNamePascal}` });
+        let propsContent = "";
         if (specDetails.inputs && specDetails.inputs.length > 0) {
-          propsContent = `props: {\n    ${specDetails.inputs.map(p => `${p.split(':')[0].trim()}: { type: ${p.split(':')[1]?.trim() || 'Object'}, default: null }`).join(',\n    ')}\n  },`;
-        } else {
-          propsContent = "props: {},";
+            propsContent = specDetails.inputs.map(p => {
+                 const [name, typeDetails] = p.split(':');
+                 const type = typeDetails?.trim() || 'Object';
+                 return `${name.trim()}: { type: ${type}, default: null }`; // Basic default
+            }).join(',\n        ');
         }
+
+        let emitsContent = "";
+        if (emitsArray.length > 0) {
+            emitsContent = emitsArray.map(e => `'${e}'`).join(", ");
+        }
+
+        let dataContent = `message: 'Hello from ${componentNamePascal}',\n      count: 0`; // Default
         if (specDetails.dataPrompt) {
-          dataContent = await llmGenerator(specDetails.dataPrompt, modelPreference, null) || dataContent;
+            dataContent = await llmGenerator(specDetails.dataPrompt, modelPreference, null) || dataContent;
         }
+
+        let methodsContent = "// No methods defined";
         if (specDetails.methods && specDetails.methods.length > 0) {
-          const methodStrings = await Promise.all(specDetails.methods.map(async (m) => {
-            const body = m.bodyPrompt ? (await llmGenerator(m.bodyPrompt, modelPreference, null) || '// LLM failed to generate method body') : '// Method body placeholder';
-            return `${m.methodName || 'unnamedMethod'}() {\n      ${body.replace(/\n/g, '\n      ')}\n    }`;
-          }));
-          methodsContent = `methods: {\n    ${methodStrings.join(',\n    ')}\n  },`;
+            const methodStrings = await Promise.all(specDetails.methods.map(async (m) => {
+                const prompt = m.bodyPrompt || `You are generating the body of a JavaScript method named '${m.methodName || 'unnamedMethod'}' for a Vue component (Options API). The method is described as: '${m.description || 'No description provided'}'. Only output the raw JavaScript code for the method body, without any surrounding function keyword or braces unless they are part of a nested structure like an anonymous function.`;
+                const body = await llmGenerator(prompt, modelPreference, null) || '// LLM failed to generate method body';
+                return `${m.methodName || 'unnamedMethod'}() {\n      ${body.replace(/\n/g, '\n      ')}\n    }`;
+            }));
+            methodsContent = methodStrings.join(',\n    ');
         }
-         if (specDetails.computedPrompt) { // Assuming one prompt for all computed properties
-            const allComputed = await llmGenerator(specDetails.computedPrompt, modelPreference, null) || "";
-            if(allComputed) computedContent = `computed: {\n  ${allComputed.replace(/\n/g, '\n    ')}\n },`;
+
+        let computedContent = "// No computed properties defined";
+        if (specDetails.computedPrompt) {
+            computedContent = await llmGenerator(specDetails.computedPrompt, modelPreference, null) || computedContent;
         }
+
+        let watchContent = "// No watchers defined";
+        if (specDetails.watchPrompt) { // Assuming watchPrompt is for the entire watch object's content
+            watchContent = await llmGenerator(specDetails.watchPrompt, modelPreference, null) || watchContent;
+        }
+
+        let scriptBlockContent = `
+export default {
+  name: '${componentNamePascal}',
+  props: {
+    ${propsContent}
+  },
+  emits: [${emitsContent}],
+  data() {
+    return {
+      ${dataContent}
+    };
+  },
+  computed: {
+    ${computedContent}
+  },
+  watch: {
+    ${watchContent}
+  },
+  methods: {
+    ${methodsContent}
+  },
+  mounted() {
+    console.log('${componentNamePascal} component mounted.');
+  }
+};`;
+        scriptBlock = `<script${langAttr}>${scriptBlockContent}\n</script>`;
       }
 
-      // Assemble the component
       let finalContent = baseTemplate
-        .replace(/\{\{componentName\}\}/g, componentName)
-        .replace(/\{\{componentNameKebabCase\}\}/g, toKebabCase(componentName))
-        .replace(/\{\{templateContent\}\}/g, templateContent)
-        .replace(/\{\{scriptLangAttribute\}\}/g, specDetails.scriptLang === 'ts' ? ' lang="ts"' : '')
-        .replace(/\{\{scriptContent\}\}/g, scriptSetupContent ? scriptSetupContent : [propsContent, emitsContent, `data() {\n    ${dataContent}\n  },`, methodsContent, computedContent, watchContent].filter(Boolean).join('\n\n  '))
-        .replace(/\{\{scriptSetupContent\}\}/g, scriptSetupContent) // If template has specific setup placeholder
-        .replace(/\{\{propsContent\}\}/g, propsContent)
-        .replace(/\{\{emitsContent\}\}/g, emitsContent)
-        .replace(/\{\{dataContent\}\}/g, dataContent)
-        .replace(/\{\{methodsContent\}\}/g, methodsContent)
-        .replace(/\{\{computedContent\}\}/g, computedContent)
-        .replace(/\{\{watchContent\}\}/g, watchContent);
+        .replace(/\{\{componentNameKebab\}\}/g, componentNameKebab)
+        .replace(/\{\{\{templateContent\}\}\}/g, templateContent) // Triple braces for raw HTML
+        .replace(/\{\{scriptBlock\}\}/g, scriptBlock);
 
       return finalContent;
 
     } else if (specType === "serviceSpec") {
       const serviceName = specDetails.serviceName || "MyService";
       sendSseMessage('log_entry', { message: `${logPrefix} Generating service: ${serviceName}` });
-      const functions = specDetails.methods || []; // Renamed from 'functions' to 'methods' in schema
+      const functions = specDetails.methods || [];
       let functionStrings = [];
 
       for (const func of functions) {
         let body = `// TODO: Implement ${func.methodName || 'unnamedFunction'}\n    throw new Error('Not implemented');`;
-        if (func.bodyPrompt || func.description) { // Use description as a fallback for body prompt
-          const prompt = func.bodyPrompt || `Implement the function ${func.methodName} which is described as: ${func.description}. Only output the function body.`;
+        const prompt = func.bodyPrompt || `You are generating the body of an asynchronous JavaScript method named '${func.methodName || 'unnamedFunction'}' for a service class. The method is described as: '${func.description || 'No description provided'}'. Only output the raw JavaScript code for the method body, without any surrounding function keyword or braces unless they are part of a nested structure like an anonymous function.`;
+        if (func.bodyPrompt || func.description) {
           body = await llmGenerator(prompt, modelPreference, null) || body;
         }
-        const params = (func.parameters || []).join(', '); // Assuming 'parameters' array in spec
+        const params = (func.parameters || []).join(', ');
         functionStrings.push(`  async ${func.methodName || 'unnamedFunction'}(${params}) {\n    ${body.replace(/\n/g, '\n    ')}\n  }`);
       }
 
-      // Basic class or object structure
       return `// ${serviceName} - Generated Service\n\nclass ${serviceName} {\n${functionStrings.join('\n\n')}\n}\n\nexport default new ${serviceName}();\n`;
 
     } else {

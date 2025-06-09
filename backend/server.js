@@ -37,6 +37,7 @@ const { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteF
 const { GitAddTool, GitCommitTool, GitPushTool, GitPullTool, GitRevertTool } = require('./langchain_tools/git_tools');
 const { CodeGeneratorTool } = require('./langchain_tools/code_generator_tool');
 const { ConferenceTool } = require('./langchain_tools/conference_tool');
+const { ProposePlanTool, RequestUserActionOnFailureTool } = require('./langchain_tools/planning_tools.js'); // Added RequestUserActionOnFailureTool
 const { ConfirmationRequiredError } = require('./langchain_tools/common');
 
 // Initialize Tools
@@ -45,6 +46,8 @@ const tools = [
   new GitAddTool(), new GitCommitTool(), new GitPushTool(), new GitPullTool(), new GitRevertTool(),
   new CodeGeneratorTool(),
   new ConferenceTool(),
+  new ProposePlanTool(),
+  new RequestUserActionOnFailureTool(), // Added RequestUserActionOnFailureTool instance
 ];
 
 // Agent and AgentExecutor definition
@@ -189,6 +192,43 @@ function loadBackendConfig() {
 }
 loadBackendConfig();
 
+const CONFERENCE_INSTRUCTIONS_FILE_PATH = process.env.TEST_CONFERENCE_INSTRUCTIONS_PATH || path.join(__dirname, 'config', 'conference_agent_instructions.json');
+
+function initializeConferenceInstructionsFile() {
+  if (!fs.existsSync(CONFERENCE_INSTRUCTIONS_FILE_PATH)) {
+    try {
+      fs.writeFileSync(CONFERENCE_INSTRUCTIONS_FILE_PATH, JSON.stringify({}, null, 2), 'utf-8');
+      console.log(`[Config] Created empty conference agent instructions file at ${CONFERENCE_INSTRUCTIONS_FILE_PATH}`);
+    } catch (error) {
+      console.error(`[Config] Failed to create conference agent instructions file:`, error);
+    }
+  }
+}
+initializeConferenceInstructionsFile(); // Call on startup
+
+function loadConferenceInstructions() {
+  try {
+    if (fs.existsSync(CONFERENCE_INSTRUCTIONS_FILE_PATH)) {
+      const fileContent = fs.readFileSync(CONFERENCE_INSTRUCTIONS_FILE_PATH, 'utf-8');
+      return JSON.parse(fileContent);
+    }
+    return {}; // Return empty object if file doesn't exist (should have been created by initialize)
+  } catch (error) {
+    console.error(`[Config] Error reading or parsing conference agent instructions file:`, error);
+    return {}; // Return empty object on error
+  }
+}
+
+function saveConferenceInstructions(instructions) {
+  try {
+    fs.writeFileSync(CONFERENCE_INSTRUCTIONS_FILE_PATH, JSON.stringify(instructions, null, 2), 'utf-8');
+  } catch (error) {
+    console.error(`[Config] Error saving conference agent instructions file:`, error);
+    throw error; // Re-throw to be caught by route handler
+  }
+}
+
+
 // Moved the logic for handling autonomous task execution into a named function
 const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
     console.log(`[POST /execute-autonomous-task] Request received.`);
@@ -237,6 +277,9 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
         safetyMode: safetyMode,
         originalExpressHttpRes: expressHttpRes,
         sendSseMessage: sendSseMessage,
+        overallExecutionLog: overallExecutionLog, // Added for ProposePlanTool
+        originalTaskDescription: task_description,
+        agentExecutor: agentExecutor,
       }
     };
 
@@ -274,11 +317,15 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
 
             pendingToolConfirmations[confirmationId] = {
                 originalTaskDescription: task_description,
-                // Store the agentRunConfig's configurable part, which is what's needed for resumption.
-                // agentConfig was not defined; agentRunConfig is the correct variable.
-                agentRunConfigurable: agentRunConfig.configurable,
-                toolName, toolInput, safetyMode, originalExpressHttpRes: expressHttpRes, sendSseMessage, overallExecutionLog,
+                agentRunConfigurable: agentRunConfig.configurable, // Store the original agentRunConfig.configurable
+                toolName,
+                toolInput,
+                safetyMode,
+                originalExpressHttpRes: expressHttpRes,
+                sendSseMessage,
+                overallExecutionLog,
                 chatHistoryMessages: currentChatHistory,
+                activeAgentExecutor: agentExecutor, // Store the active agentExecutor instance
             };
             sendSseMessage('confirmation_required', { confirmationId, toolName, toolInput, message: confirmationMessage });
             return;
@@ -317,6 +364,113 @@ const pendingPlans = {}; // Added for storing proposed plans
 const pendingFailures = {}; // Added for storing step failure information
 
 // Removed unused fetch import: const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+
+async function requestUserActionOnStepFailure({
+  failureDetails, // An object containing information about the failed step, the error, etc.
+  expressHttpRes,
+  sendSseMessage,
+  overallExecutionLog,
+  originalTaskDescription,
+  agentExecutor,
+}) {
+  const failureId = uuidv4();
+  console.log(`[Step Failure] Requesting user action for failure ${failureId} during task: "${originalTaskDescription}". Details: ${JSON.stringify(failureDetails)}`);
+
+  return new Promise((resolve, reject) => {
+    pendingFailures[failureId] = {
+      details: failureDetails,
+      expressHttpRes,
+      sendSseMessage,
+      overallExecutionLog,
+      originalTaskDescription,
+      agentExecutor,
+      resolve,
+      reject, // For timeouts or errors in this mechanism itself
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      if (sendSseMessage && typeof sendSseMessage === 'function') {
+        sendSseMessage('step_failure_requires_action', {
+          failureId,
+          details: failureDetails,
+          available_actions: ['retry', 'skip', 'manual'], // Explicitly list user options
+        });
+        const logMessage = `[Step Failure] User action requested for failureId: ${failureId}. Waiting for user response. Failure: ${JSON.stringify(failureDetails).substring(0, 200)}...`;
+        console.log(logMessage);
+        if (overallExecutionLog && Array.isArray(overallExecutionLog)) {
+          overallExecutionLog.push(logMessage);
+        }
+      } else {
+        console.error(`[Step Failure] CRITICAL: sendSseMessage function not available for failureId ${failureId}. Cannot notify client for action.`);
+        reject(new Error(`Failed to request user action for failure ${failureId}: SSE mechanism unavailable.`));
+        delete pendingFailures[failureId]; // Clean up
+        return;
+      }
+    } catch (error) {
+      console.error(`[Step Failure] Error sending step_failure_requires_action SSE for failureId ${failureId}:`, error);
+      reject(new Error(`Failed to send step failure notification for ${failureId} to client: ${error.message}`));
+      delete pendingFailures[failureId]; // Clean up
+      return;
+    }
+    // Promise resolved by API endpoints like /api/retry-step/:failureId
+  });
+}
+
+async function requestPlanApproval({
+  planContent,
+  expressHttpRes, // The Express response object for the current agent's SSE stream
+  sendSseMessage, // The function to send SSE messages for the current agent
+  overallExecutionLog, // The overall execution log array for the current task
+  originalTaskDescription, // The original task description
+  agentExecutor, // The current agentExecutor instance (not strictly used now, but for future context)
+}) {
+  const planId = uuidv4();
+  console.log(`[Plan Approval] Requesting approval for plan ${planId} for task: "${originalTaskDescription}"`);
+
+  return new Promise((resolve, reject) => {
+    pendingPlans[planId] = {
+      plan: planContent,
+      expressHttpRes,
+      sendSseMessage,
+      resolve,
+      reject,
+      overallExecutionLog,
+      originalTaskDescription,
+      agentExecutor, // Storing for potential future use
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      if (sendSseMessage && typeof sendSseMessage === 'function') {
+        sendSseMessage('plan_approval_required', { planId, plan: planContent });
+        const logMessage = `[Plan Approval] Plan approval requested for planId: ${planId}. Waiting for user response. Plan: ${JSON.stringify(planContent).substring(0, 200)}...`;
+        console.log(logMessage);
+        if (overallExecutionLog && Array.isArray(overallExecutionLog)) {
+          overallExecutionLog.push(logMessage);
+        }
+      } else {
+        // This is a critical issue if SSE is the only way to notify the user.
+        console.error(`[Plan Approval] CRITICAL: sendSseMessage function not available for planId ${planId}. Cannot notify client for approval.`);
+        // Immediately reject the promise as the user cannot be notified.
+        // This prevents the agent from hanging indefinitely.
+        reject(new Error(`Failed to request plan approval for ${planId}: SSE mechanism unavailable.`));
+        // Clean up the pending plan to prevent orphaned entries
+        delete pendingPlans[planId];
+        return; // Exit early
+      }
+    } catch (error) {
+        console.error(`[Plan Approval] Error sending plan_approval_required SSE for planId ${planId}:`, error);
+        // Reject the promise if sending the SSE message fails, as the user won't get the prompt.
+        reject(new Error(`Failed to send plan approval request for ${planId} to client: ${error.message}`));
+        // Clean up the pending plan
+        delete pendingPlans[planId];
+        return; // Exit early
+    }
+    // Note: The promise returned here will be resolved or rejected by the
+    // /api/approve-plan/:planId or /api/decline-plan/:planId endpoints.
+  });
+}
 
 async function generateFromLocal(originalPrompt, modelName, expressRes, options = {}) {
     const provider = options.llmProvider || backendSettings.llmProvider;
@@ -396,50 +550,64 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
     }
 
     // Destructure with the corrected stored property name: agentRunConfigurable
-    const { originalTaskDescription, agentRunConfigurable: originalAgentRunConfigurable, toolName, toolInput, safetyMode, originalExpressHttpRes, sendSseMessage, overallExecutionLog, chatHistoryMessages } = pendingConfirmation;
+    const {
+        originalTaskDescription,
+        agentRunConfigurable: originalAgentRunConfigurable,
+        toolName,
+        toolInput,
+        safetyMode, // Retain safetyMode from original config if needed, or decide if it can change
+        originalExpressHttpRes,
+        sendSseMessage,
+        overallExecutionLog,
+        chatHistoryMessages, // These are the messages *before* the action that required confirmation
+        activeAgentExecutor // This is the agentExecutor instance to reuse
+    } = pendingConfirmation;
+
+    if (!activeAgentExecutor) {
+        console.error(`[API /api/confirm-action] CRITICAL: activeAgentExecutor not found for confirmationId ${confirmationId}. Cannot resume.`);
+        sendSseMessage('error', { content: `Critical server error: Agent context lost for confirmation ${confirmationId}.` });
+        if (originalExpressHttpRes.writable) originalExpressHttpRes.end();
+        // Do not delete pendingConfirmation here, so it can be investigated.
+        if (!res.headersSent) res.status(500).json({ message: 'Critical server error: Agent context lost.' });
+        return;
+    }
+
+    // Use the retrieved activeAgentExecutor. The global agentExecutor variable is not used here.
+    // The `initializeAgentExecutor()` call is removed.
 
     if (!originalExpressHttpRes || !originalExpressHttpRes.writable) {
+        // If the original connection is lost, we can't send SSE updates.
+        // The agent's action might proceed, but the client won't see it.
+        console.warn(`[API /api/confirm-action] Original client connection lost for confirmationId ${confirmationId}. Proceeding without SSE updates.`);
+        // We don't necessarily need to delete pendingToolConfirmations[confirmationId] here,
+        // as the primary issue is the client connection, not the confirmation data itself.
+        // However, to prevent re-processing if the client somehow retries on a new connection with the same ID,
+        // it's safer to remove it.
         delete pendingToolConfirmations[confirmationId];
-        return res.status(500).json({ message: 'Original client connection lost.' });
+        // Respond to the current HTTP request, even if SSE is gone.
+        // The status of this response depends on whether we want to indicate partial success.
+        return res.status(202).json({ message: 'Action processed, but original client connection for SSE updates was lost.' });
     }
-    delete pendingToolConfirmations[confirmationId];
+
+    delete pendingToolConfirmations[confirmationId]; // Processed, remove it.
 
     let agentInputTextForResume;
     const toolInputString = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput);
 
-    // Re-initialize agent and executor to use the *same memory instance* or correctly repopulate it.
-    // For simplicity with request-scoped memory, we re-initialize and then could potentially re-populate.
-    // However, agentExecutor uses the memory instance it was created with.
-    // The key is that the *same agentExecutor instance* that was paused should be used.
-    // We currently re-initialize agentExecutor on every /execute-autonomous-task call if it's not set,
-    // which means memory is fresh for each new task. For confirmations WITHIN a task,
-    // we need to ensure the memory state from the initial part of the task is carried over.
-    // The current `initializeAgentExecutor()` creates a NEW memory instance each time.
-    // This needs to be addressed for memory to persist across confirmations for the *same* task.
-
-    // For this iteration, we will re-initialize a new executor but pass the history.
-    // This is not ideal for perfect context carry-over of the agent's internal state/scratchpad,
-    // but will carry over the chat history for the LLM's context.
-    try {
-        await initializeAgentExecutor(); // This will create a new agentExecutor with fresh memory
-        if (chatHistoryMessages && agentExecutor.memory) { // If we have history and new memory exists
-            agentExecutor.memory.chatHistory.clear(); // Clear fresh memory
-            await agentExecutor.memory.chatHistory.addMessages(chatHistoryMessages); // Add back stored messages
-            console.log(`[API /api/confirm-action] Repopulated memory with ${chatHistoryMessages.length} messages.`);
-        }
-    } catch (initError) {
-        console.error("[API /api/confirm-action] CRITICAL: AgentExecutor re-initialization failed:", initError);
-        sendSseMessage('error', { content: `AgentExecutor re-initialization failed: ${initError.message}` });
-        if (originalExpressHttpRes.writable) originalExpressHttpRes.end();
-        if (!res.headersSent) res.status(500).json({ message: 'Agent re-initialization failed.' });
-        return;
-    }
-
-
+    // Construct the agent configuration for the resumed call.
+    // It's crucial that this config is compatible with the `activeAgentExecutor`.
+    // We are primarily adding `isConfirmedActionForTool` to the existing configurable context.
     let resumedAgentConfig = {
         configurable: {
-            ...(originalAgentRunConfigurable || {}), // Spread the original configurable properties
-            isConfirmedActionForTool: {
+            ...(originalAgentRunConfigurable || {}), // Spread properties from the initial agent run
+            // Ensure these are correctly sourced for the resumed context
+            safetyMode: safetyMode, // from pendingConfirmation
+            originalExpressHttpRes: originalExpressHttpRes, // from pendingConfirmation
+            sendSseMessage: sendSseMessage, // from pendingConfirmation
+            overallExecutionLog: overallExecutionLog, // from pendingConfirmation
+            originalTaskDescription: originalTaskDescription, // from pendingConfirmation
+            agentExecutor: activeAgentExecutor, // Pass the active agentExecutor itself
+            isConfirmedActionForTool: { // Specific to confirmation resumption
                 [toolName]: { [toolInputString]: confirmed }
             }
         }
@@ -457,10 +625,13 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
 
     let errorOccurredInResume = false;
     try {
-        console.log(`[API /api/confirm-action] Re-invoking agent with input for memory: "${agentInputTextForResume.substring(0,100)}...", Config: ${JSON.stringify(resumedAgentConfig.configurable)}`);
-        const eventStream = await agentExecutor.stream({ input: agentInputTextForResume, chat_history: chatHistoryMessages /* Pass manually if memory not perfectly resumed */ }, resumedAgentConfig);
+        console.log(`[API /api/confirm-action] Re-invoking agent (ID: ${activeAgentExecutor.agent.constructor.name}) with input for memory: "${agentInputTextForResume.substring(0,100)}...", Config: ${JSON.stringify(resumedAgentConfig.configurable)}`);
+        // Use the activeAgentExecutor for the stream call.
+        // The `chat_history` is passed to the stream method. The agentExecutor's memory
+        // should already contain this history, but explicitly passing it ensures the LLM
+        // gets it if the specific agent implementation relies on it being in the call options.
+        const eventStream = await activeAgentExecutor.stream({ input: agentInputTextForResume, chat_history: chatHistoryMessages }, resumedAgentConfig);
         for await (const event of eventStream) {
-            // ... (event handling as in handleExecuteAutonomousTask)
             const eventType = Object.keys(event)[0];
             const eventData = event[eventType];
             sendSseMessage('agent_event', { event_type: eventType, data: eventData });
@@ -484,13 +655,19 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
         errorOccurredInResume = true;
         if (error instanceof ConfirmationRequiredError) {
             const { toolName: newToolName, toolInput: newToolInput, confirmationId: newConfirmationId, message: newConfirmationMessage } = error.data;
-            const currentChatHistoryForNewConfirmation = await agentExecutor.memory.chatHistory.getMessages();
+            // If a new confirmation is required, it's from the activeAgentExecutor
+            const currentChatHistoryForNewConfirmation = await activeAgentExecutor.memory.chatHistory.getMessages();
             pendingToolConfirmations[newConfirmationId] = {
-                originalTaskDescription,
-                agentRunConfigurable: resumedAgentConfig.configurable, // Store the new configurable part
-                toolName: newToolName, toolInput: newToolInput, safetyMode,
-                originalExpressHttpRes, sendSseMessage, overallExecutionLog,
+                originalTaskDescription, // from the initial task
+                agentRunConfigurable: resumedAgentConfig.configurable, // use the latest config
+                toolName: newToolName,
+                toolInput: newToolInput,
+                safetyMode: safetyMode, // from the original pendingConfirmation
+                originalExpressHttpRes,
+                sendSseMessage,
+                overallExecutionLog, // from the original pendingConfirmation, but it has been updated
                 chatHistoryMessages: currentChatHistoryForNewConfirmation,
+                activeAgentExecutor: activeAgentExecutor, // Persist the same agent executor
             };
             sendSseMessage('confirmation_required', { confirmationId: newConfirmationId, toolName: newToolName, toolInput: newToolInput, message: newConfirmationMessage });
             if(!res.headersSent) res.status(202).json({ message: `Further confirmation required for ${newConfirmationId}.`});
@@ -545,86 +722,168 @@ app.post('/api/config/openai-key', (req, res) => {
 // Routes for explicit plan approval
 app.post('/api/approve-plan/:planId', (req, res) => {
   const { planId } = req.params;
-  const plan = pendingPlans[planId];
+  const planContext = pendingPlans[planId];
 
-  if (!plan) {
+  if (!planContext) {
     return res.status(404).json({ message: 'Plan not found or already processed.' });
   }
 
-  console.log(`[API /api/approve-plan] Plan ${planId} approved by user.`);
-  // In a real implementation, this would trigger resumption of the agent or further processing.
-  // For now, we just log and remove it.
+  const { sendSseMessage, resolve, overallExecutionLog, originalTaskDescription } = planContext;
+
+  console.log(`[API /api/approve-plan] Plan ${planId} for task "${originalTaskDescription}" approved by user.`);
+  overallExecutionLog.push(`[User Interaction] Plan ${planId} approved by user.`);
+
+  if (sendSseMessage && typeof sendSseMessage === 'function') {
+    sendSseMessage('plan_approved', { planId });
+  } else {
+    console.warn(`[API /api/approve-plan] sendSseMessage function not available for planId ${planId}. Client might not be notified via SSE.`);
+  }
+
+  if (resolve && typeof resolve === 'function') {
+    resolve({ status: 'approved', planId });
+  } else {
+    console.error(`[API /api/approve-plan] Resolve function not available for planId ${planId}. Agent execution cannot be resumed.`);
+    // Potentially send an error back via SSE if possible, or log this critical failure
+    if (sendSseMessage && typeof sendSseMessage === 'function') {
+        sendSseMessage('error', { content: `Critical error: Approval for plan ${planId} recorded, but agent resumption mechanism missing.` });
+    }
+  }
+
   delete pendingPlans[planId];
-
-  // TODO: Add logic here to inform the agent execution process associated with this planId
-  // This could involve finding the correct SSE connection (expressHttpRes) if still active,
-  // or interacting with a state machine managing the agent's lifecycle.
-
-  res.json({ message: `Plan ${planId} approved. Agent execution would proceed.` });
+  res.json({ message: 'Plan approved and agent notified.' });
 });
 
 app.post('/api/decline-plan/:planId', (req, res) => {
   const { planId } = req.params;
-  const plan = pendingPlans[planId];
+  const planContext = pendingPlans[planId];
 
-  if (!plan) {
+  if (!planContext) {
     return res.status(404).json({ message: 'Plan not found or already processed.' });
   }
 
-  console.log(`[API /api/decline-plan] Plan ${planId} declined by user.`);
-  // Similar to approval, this would notify the agent.
+  const { sendSseMessage, reject, overallExecutionLog, originalTaskDescription } = planContext;
+
+  console.log(`[API /api/decline-plan] Plan ${planId} for task "${originalTaskDescription}" declined by user.`);
+  overallExecutionLog.push(`[User Interaction] Plan ${planId} declined by user.`);
+
+
+  if (sendSseMessage && typeof sendSseMessage === 'function') {
+    sendSseMessage('plan_declined', { planId });
+  } else {
+    console.warn(`[API /api/decline-plan] sendSseMessage function not available for planId ${planId}. Client might not be notified via SSE.`);
+  }
+
+  if (reject && typeof reject === 'function') {
+    reject(new Error(`Plan ${planId} declined by user.`));
+    // Or using an object: reject({ status: 'declined', planId, reason: 'User declined' });
+  } else {
+    console.error(`[API /api/decline-plan] Reject function not available for planId ${planId}. Agent execution cannot be properly terminated or informed of declination.`);
+    if (sendSseMessage && typeof sendSseMessage === 'function') {
+        sendSseMessage('error', { content: `Critical error: Declination for plan ${planId} recorded, but agent rejection mechanism missing.` });
+    }
+  }
+
   delete pendingPlans[planId];
-
-  // TODO: Add logic here to inform the agent that the plan was declined.
-  // The agent might then halt, re-plan, or ask for clarification.
-
-  res.json({ message: `Plan ${planId} declined. Agent would be notified.` });
+  res.json({ message: 'Plan declined and agent notified.' });
 });
 // End routes for explicit plan approval
 
 // Routes for step failure recovery options
 app.post('/api/retry-step/:failureId', (req, res) => {
   const { failureId } = req.params;
-  const failureInfo = pendingFailures[failureId];
+  const failureContext = pendingFailures[failureId];
 
-  if (!failureInfo) {
+  if (!failureContext) {
     return res.status(404).json({ message: 'Failure ID not found or already processed.' });
   }
 
-  console.log(`[API /api/retry-step] User chose to RETRY step for failure ID: ${failureId}. Details:`, failureInfo);
-  // TODO: Implement logic to signal the agent execution process to retry the step.
-  // This would involve using the stored failureInfo (e.g., original step details, task context).
+  const { sendSseMessage, resolve, overallExecutionLog, originalTaskDescription, details } = failureContext;
+
+  const logMessage = `[API /api/retry-step] User chose to RETRY step for failure ID: ${failureId}. Task: "${originalTaskDescription}". Failure Details: ${JSON.stringify(details)}`;
+  console.log(logMessage);
+  if (overallExecutionLog && Array.isArray(overallExecutionLog)) {
+    overallExecutionLog.push(logMessage);
+  }
+
+  if (sendSseMessage && typeof sendSseMessage === 'function') {
+    sendSseMessage('user_chose_retry', { failureId });
+  } else {
+    console.warn(`[API /api/retry-step] sendSseMessage function not available for failureId ${failureId}.`);
+  }
+
+  if (resolve && typeof resolve === 'function') {
+    resolve({ action: 'retry', failureId });
+  } else {
+    console.error(`[API /api/retry-step] Resolve function not available for failureId ${failureId}. Agent cannot be notified to retry.`);
+    // This is a server-side issue if resolve is missing, client already acted.
+  }
+
   delete pendingFailures[failureId];
-  res.json({ message: `Step retry for ${failureId} acknowledged. Agent would attempt to retry.` });
+  res.json({ message: 'Retry action acknowledged. Agent notified.' });
 });
 
 app.post('/api/skip-step/:failureId', (req, res) => {
   const { failureId } = req.params;
-  const failureInfo = pendingFailures[failureId];
+  const failureContext = pendingFailures[failureId];
 
-  if (!failureInfo) {
+  if (!failureContext) {
     return res.status(404).json({ message: 'Failure ID not found or already processed.' });
   }
 
-  console.log(`[API /api/skip-step] User chose to SKIP step for failure ID: ${failureId}. Details:`, failureInfo);
-  // TODO: Implement logic to signal the agent to skip this step and proceed with the next.
+  const { sendSseMessage, resolve, overallExecutionLog, originalTaskDescription, details } = failureContext;
+
+  const logMessage = `[API /api/skip-step] User chose to SKIP step for failure ID: ${failureId}. Task: "${originalTaskDescription}". Failure Details: ${JSON.stringify(details)}`;
+  console.log(logMessage);
+  if (overallExecutionLog && Array.isArray(overallExecutionLog)) {
+    overallExecutionLog.push(logMessage);
+  }
+
+  if (sendSseMessage && typeof sendSseMessage === 'function') {
+    sendSseMessage('user_chose_skip', { failureId });
+  } else {
+    console.warn(`[API /api/skip-step] sendSseMessage function not available for failureId ${failureId}.`);
+  }
+
+  if (resolve && typeof resolve === 'function') {
+    resolve({ action: 'skip', failureId });
+  } else {
+    console.error(`[API /api/skip-step] Resolve function not available for failureId ${failureId}. Agent cannot be notified to skip.`);
+  }
+
   delete pendingFailures[failureId];
-  res.json({ message: `Step skip for ${failureId} acknowledged. Agent would skip and continue.` });
+  res.json({ message: 'Skip action acknowledged. Agent notified.' });
 });
 
 app.post('/api/convert-to-manual/:failureId', (req, res) => {
   const { failureId } = req.params;
-  const failureInfo = pendingFailures[failureId];
+  const failureContext = pendingFailures[failureId];
 
-  if (!failureInfo) {
+  if (!failureContext) {
     return res.status(404).json({ message: 'Failure ID not found or already processed.' });
   }
 
-  console.log(`[API /api/convert-to-manual] User chose to CONVERT TO MANUAL for failure ID: ${failureId}. Details:`, failureInfo);
-  // TODO: Implement logic to signal the agent to halt autonomous execution.
-  // The agent might then provide remaining steps or context to the user for manual completion.
+  const { sendSseMessage, resolve, overallExecutionLog, originalTaskDescription, details } = failureContext;
+
+  const logMessage = `[API /api/convert-to-manual] User chose to CONVERT TO MANUAL for failure ID: ${failureId}. Task: "${originalTaskDescription}". Failure Details: ${JSON.stringify(details)}`;
+  console.log(logMessage);
+  if (overallExecutionLog && Array.isArray(overallExecutionLog)) {
+    overallExecutionLog.push(logMessage);
+  }
+
+  if (sendSseMessage && typeof sendSseMessage === 'function') {
+    sendSseMessage('user_chose_manual', { failureId });
+  } else {
+    console.warn(`[API /api/convert-to-manual] sendSseMessage function not available for failureId ${failureId}.`);
+  }
+
+  if (resolve && typeof resolve === 'function') {
+    resolve({ action: 'manual', failureId });
+  } else {
+    console.error(`[API /api/convert-to-manual] Resolve function not available for failureId ${failureId}. Agent cannot be notified for manual conversion.`);
+  }
+
   delete pendingFailures[failureId];
-  res.json({ message: `Task conversion to manual for ${failureId} acknowledged. Agent would halt autonomous operations.` });
+  res.json({ message: 'Manual conversion acknowledged. Agent notified.' });
 });
 // End routes for step failure recovery
 
@@ -845,8 +1104,51 @@ app.post('/api/ollama/pull-model', async (req, res) => {
 
 app.get('/api/instructions/:agentType', (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
 app.post('/api/instructions/:agentType', (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
-app.get('/api/instructions/conference_agent/:agentRole', (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
-app.post('/api/instructions/conference_agent/:agentRole', (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
+
+// GET instructions for a specific conference agent role
+app.get('/api/instructions/conference_agent/:agentRole', (req, res) => {
+  try {
+    const instructions = loadConferenceInstructions();
+    const { agentRole } = req.params;
+
+    if (instructions.hasOwnProperty(agentRole)) {
+      res.json({ agentRole, instructions: instructions[agentRole] });
+    } else {
+      res.status(404).json({ message: `Instructions for agent role '${agentRole}' not found.` });
+    }
+  } catch (error) {
+    // This catch is for unexpected errors during the process, though loadConferenceInstructions handles its own file errors.
+    console.error(`[API GET /instructions/conference_agent/:agentRole] Error:`, error);
+    res.status(500).json({ message: 'Error loading conference agent instructions.' });
+  }
+});
+
+// POST (update) instructions for a specific conference agent role
+app.post('/api/instructions/conference_agent/:agentRole', (req, res) => {
+  const { agentRole } = req.params;
+  const newInstructionText = req.body.instructions; // Ensure client sends { "instructions": "..." }
+
+  if (typeof newInstructionText !== 'string' ) {
+    return res.status(400).json({ message: 'Invalid or missing instructions in request body. Expected a string in "instructions" field.' });
+  }
+
+  try {
+    const instructions = loadConferenceInstructions();
+    instructions[agentRole] = newInstructionText; // Add or update the instruction for the role
+    saveConferenceInstructions(instructions); // This will throw on actual write error
+
+    res.json({
+      message: `Instructions for agent role '${agentRole}' updated successfully.`,
+      agentRole,
+      instructions: newInstructionText,
+    });
+  } catch (error) {
+    // Catches errors from saveConferenceInstructions or any other unexpected issue
+    console.error(`[API POST /instructions/conference_agent/:agentRole] Error saving for role '${agentRole}':`, error);
+    res.status(500).json({ message: `Error saving instructions for agent role '${agentRole}'.`, details: error.message });
+  }
+});
+
 app.post('/execute-conference-task', async (req, res) => {
     console.warn("[Deprecated Endpoint] /execute-conference-task was called. Use agent with 'multi_model_debate' tool instead.");
     res.status(501).json({ message: "This endpoint is deprecated. Please use the agent with the 'multi_model_debate' tool."});
@@ -920,4 +1222,8 @@ module.exports = {
   loadBackendConfig,
   handleExecuteAutonomousTask,
   generateFromLocal,
+  requestPlanApproval,
+  requestUserActionOnStepFailure,
+  pendingPlans,       // Add this for testing
+  pendingFailures     // Add this for testing
 };
