@@ -109,3 +109,4 @@ Target Version: **v1.3.0**
 - Added terminal-style conference log display per model in ConferenceTab
 - [x] Added SVG icon set and updated buttons
 - [x] Fixed service import path and migrated modal styles
+- [x] Corrected API service import in App.vue build
