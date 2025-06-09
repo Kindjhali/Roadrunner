@@ -220,9 +220,9 @@ app.on('before-quit', () => {
   //   coderTaskEventSource = null;
   // }
   if (conferenceEventSource) {
+    console.log('[Electron Main] before-quit: Closing conferenceEventSource.');
     conferenceEventSource.close();
     conferenceEventSource = null;
-  });
   }
 });
 

@@ -16,38 +16,41 @@ This document outlines the Inter-Process Communication (IPC) API expected by `fr
 
 ## Receiving Conference Events
 
-The frontend component listens for the following events using `window.electronAPI.on<EventName>(handler)`:
+The frontend component listens for the following events using `window.electronAPI.on(channelName, handler)` or individual `window.electronAPI.on<EventName>(handler)` methods if defined by the preload script. The `electron.js` `start-conference-stream` handler forwards backend SSE events to the renderer using specific channel names:
 
-### 1. `window.electronAPI.onConferenceStreamChunk((event, data) => {})`
+### 1. `conference-stream-llm-chunk`
+   Listener: `window.electronAPI.on('conference-stream-llm-chunk', (event, data) => {})`
+*   **Purpose**: Streams content chunks from an LLM (a participant in the conference).
+*   **`data` (Object)**:
+    *   `type` (String): `"llm_chunk"` (This is part of the original SSE message forwarded by `electron.js`)
+    *   `content` (String): The text content of the chunk.
+    *   `speaker` (String): Identifier for the speaking model (e.g., "ModelA", "ModelB", "Arbiter", or the actual model name/ID).
 
-*   **Purpose**: Streams individual turns or log entries from the ongoing conference.
-*   **`data` (Object)**: Can be one of a few structures, typically identified by a `type` field:
-    *   **Turn Event**:
-        *   `type` (String): `"turn"`
-        *   `speaker` (String): Identifier for who is speaking (e.g., "ModelA", "ModelB", "Arbiter", or the actual model name).
-        *   `message` (String): The content of the turn/utterance.
-    *   **Arbiter Summary (Intermediate)**: This might be used if the arbiter provides thoughts or summaries before the final result.
-        *   `type` (String): `"arbiter_summary"`
-        *   `speaker` (String): Typically "Arbiter" or the arbiter model name.
-        *   `message` (String): The arbiter's intermediate message.
-        *   `model_a_response` (String, Optional): A specific segment attributed to Model A by the arbiter.
-        *   `model_b_response` (String, Optional): A specific segment attributed to Model B by the arbiter.
+### 2. `conference-stream-log-entry`
+   Listener: `window.electronAPI.on('conference-stream-log-entry', (event, data) => {})`
+*   **Purpose**: Provides log messages or system status updates related to the conference.
+*   **`data` (Object)**:
+    *   `type` (String): `"log_entry"` (This is part of the original SSE message or set by `electron.js` for its own logs)
+    *   `message` (String): The log message content.
+    *   `speaker` (String): Typically "System" or an identifier for the source of the log.
+    *   `data` (Object, Optional): If the log entry is for an unknown SSE event type, this will contain the original unknown message.
 
-### 2. `window.electronAPI.onConferenceStreamError((event, errorDetails) => {})`
-
+### 3. `conference-stream-error`
+   Listener: `window.electronAPI.on('conference-stream-error', (event, data) => {})`
 *   **Purpose**: Signals an error occurred during the conference stream.
-*   **`errorDetails` (Object)**:
+*   **`data` (Object)**:
     *   `error` (String): A human-readable error message.
-    *   `details` (Object, Optional): Additional details or context about the error.
+    *   `details` (String | Object, Optional): Additional details or context about the error. This could be a string or an object containing more structured error information from the backend or EventSource.
+    *   If the error originates from a backend SSE `step_failed_options` event, the `data` object will be the full payload of that SSE message.
 
-### 3. `window.electronAPI.onConferenceStreamEnd((event, summary) => {})`
-
-*   **Purpose**: Signals that the conference has completed successfully and provides the final summary.
-*   **`summary` (Object)**:
-    *   `final_response` (String): The final, synthesized response from the arbiter.
-    *   `model_a_response` (String): The complete final response or contribution from Model A, as determined by the arbiter.
-    *   `model_b_response` (String): The complete final response or contribution from Model B, as determined by the arbiter.
-    *   (Other summary fields can be added as needed).
+### 4. `conference-stream-complete`
+   Listener: `window.electronAPI.on('conference-stream-complete', (event, data) => {})`
+*   **Purpose**: Signals that the conference has completed successfully.
+*   **`data` (Object)**:
+    *   `type` (String): `"execution_complete"` (This is part of the original SSE message)
+    *   `message` (String, Optional): A summary message about the completion.
+    *   `final_output` (String | Object, Optional): The final result or output of the conference (e.g., arbiter's decision, combined text). The structure of `final_output` depends on the backend agent's implementation.
+    *   Other fields from the backend's `execution_complete` SSE message may also be present.
 
 ## Cleaning Up Listeners
 

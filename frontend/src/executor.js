@@ -45,7 +45,8 @@ class Executor {
 
     // Assuming backend is running on localhost:3030
     // TODO: Make the base URL configurable
-    const fullUrl = `http://localhost:3030/execute-autonomous-task?${params.toString()}`;
+    const backendPort = this.store?.state?.backendPort || 3030; // Use store port or fallback
+    const fullUrl = `http://127.0.0.1:${backendPort}/execute-autonomous-task?${params.toString()}`;
 
     this._commitLogEntry({
       id: this._getNextLogId(),
@@ -174,7 +175,8 @@ class Executor {
     }
     try {
       // TODO: Make the base URL configurable
-      const response = await fetch(`http://localhost:3030/api/confirm-action/${confirmationId}`, {
+      const backendPort = this.store?.state?.backendPort || 3030; // Use store port or fallback
+      const response = await fetch(`http://127.0.0.1:${backendPort}/api/confirm-action/${confirmationId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmed }),

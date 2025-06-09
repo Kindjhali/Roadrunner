@@ -17,6 +17,7 @@ const path = require('path');
 // const os = require('os'); // Removed unused import
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args)); // Added node-fetch
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 
@@ -29,7 +30,7 @@ const { createOpenAIFunctionsAgent, createReactAgent, AgentExecutor } = require(
 const { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
 // Removed RunnableSequence and StringOutputParser as they are not directly used.
 const { renderTextDescription } = require("@langchain/core/tools"); // renderTextDescription is implicitly used by agent creation
-const { ConversationBufferWindowMemory } = require("langchain/memory"); // Memory import
+const { ConversationBufferWindowMemory } = require("langchain"); // Memory import CHANGED
 
 // Import tools and custom error
 const { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } = require('./langchain_tools/fs_tools');
@@ -312,6 +313,9 @@ if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
 
 const pendingToolConfirmations = {};
+const pendingPlans = {}; // Added for storing proposed plans
+const pendingFailures = {}; // Added for storing step failure information
+
 // Removed unused fetch import: const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 async function generateFromLocal(originalPrompt, modelName, expressRes, options = {}) {
@@ -378,6 +382,7 @@ app.use(cors());
 app.use(express.json());
 
 // Assign the named function to the route
+app.get('/execute-autonomous-task', handleExecuteAutonomousTask); // Added for EventSource GET requests
 app.post('/execute-autonomous-task', handleExecuteAutonomousTask);
 
 app.post('/api/confirm-action/:confirmationId', async (req, res) => {
@@ -537,8 +542,307 @@ app.post('/api/config/openai-key', (req, res) => {
     }
 });
 
-app.get('/api/ollama-models/categorized', async (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
-app.post('/api/ollama/pull-model', async (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
+// Routes for explicit plan approval
+app.post('/api/approve-plan/:planId', (req, res) => {
+  const { planId } = req.params;
+  const plan = pendingPlans[planId];
+
+  if (!plan) {
+    return res.status(404).json({ message: 'Plan not found or already processed.' });
+  }
+
+  console.log(`[API /api/approve-plan] Plan ${planId} approved by user.`);
+  // In a real implementation, this would trigger resumption of the agent or further processing.
+  // For now, we just log and remove it.
+  delete pendingPlans[planId];
+
+  // TODO: Add logic here to inform the agent execution process associated with this planId
+  // This could involve finding the correct SSE connection (expressHttpRes) if still active,
+  // or interacting with a state machine managing the agent's lifecycle.
+
+  res.json({ message: `Plan ${planId} approved. Agent execution would proceed.` });
+});
+
+app.post('/api/decline-plan/:planId', (req, res) => {
+  const { planId } = req.params;
+  const plan = pendingPlans[planId];
+
+  if (!plan) {
+    return res.status(404).json({ message: 'Plan not found or already processed.' });
+  }
+
+  console.log(`[API /api/decline-plan] Plan ${planId} declined by user.`);
+  // Similar to approval, this would notify the agent.
+  delete pendingPlans[planId];
+
+  // TODO: Add logic here to inform the agent that the plan was declined.
+  // The agent might then halt, re-plan, or ask for clarification.
+
+  res.json({ message: `Plan ${planId} declined. Agent would be notified.` });
+});
+// End routes for explicit plan approval
+
+// Routes for step failure recovery options
+app.post('/api/retry-step/:failureId', (req, res) => {
+  const { failureId } = req.params;
+  const failureInfo = pendingFailures[failureId];
+
+  if (!failureInfo) {
+    return res.status(404).json({ message: 'Failure ID not found or already processed.' });
+  }
+
+  console.log(`[API /api/retry-step] User chose to RETRY step for failure ID: ${failureId}. Details:`, failureInfo);
+  // TODO: Implement logic to signal the agent execution process to retry the step.
+  // This would involve using the stored failureInfo (e.g., original step details, task context).
+  delete pendingFailures[failureId];
+  res.json({ message: `Step retry for ${failureId} acknowledged. Agent would attempt to retry.` });
+});
+
+app.post('/api/skip-step/:failureId', (req, res) => {
+  const { failureId } = req.params;
+  const failureInfo = pendingFailures[failureId];
+
+  if (!failureInfo) {
+    return res.status(404).json({ message: 'Failure ID not found or already processed.' });
+  }
+
+  console.log(`[API /api/skip-step] User chose to SKIP step for failure ID: ${failureId}. Details:`, failureInfo);
+  // TODO: Implement logic to signal the agent to skip this step and proceed with the next.
+  delete pendingFailures[failureId];
+  res.json({ message: `Step skip for ${failureId} acknowledged. Agent would skip and continue.` });
+});
+
+app.post('/api/convert-to-manual/:failureId', (req, res) => {
+  const { failureId } = req.params;
+  const failureInfo = pendingFailures[failureId];
+
+  if (!failureInfo) {
+    return res.status(404).json({ message: 'Failure ID not found or already processed.' });
+  }
+
+  console.log(`[API /api/convert-to-manual] User chose to CONVERT TO MANUAL for failure ID: ${failureId}. Details:`, failureInfo);
+  // TODO: Implement logic to signal the agent to halt autonomous execution.
+  // The agent might then provide remaining steps or context to the user for manual completion.
+  delete pendingFailures[failureId];
+  res.json({ message: `Task conversion to manual for ${failureId} acknowledged. Agent would halt autonomous operations.` });
+});
+// End routes for step failure recovery
+
+app.get('/api/ollama-models/categorized', async (req, res) => {
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    if (!response.ok) {
+      if (response.status === 404) { // Common if Ollama is running but /api/tags isn't found (less likely) or no models
+         console.warn(`[API /ollama-models/categorized] Ollama API /api/tags not found or no models available. Status: ${response.status}`);
+         // Return empty categories instead of 503, as Ollama *is* technically reachable
+         return res.json({});
+      }
+      // For other errors (e.g. 500 from Ollama itself)
+      const errorText = await response.text();
+      console.error(`[API /ollama-models/categorized] Ollama API error: ${response.status} ${errorText}`);
+      return res.status(response.status).json({ message: `Failed to fetch models from Ollama: ${errorText}` });
+    }
+    const ollamaData = await response.json();
+    const localModels = ollamaData.models || [];
+
+    const modelCategoriesConfigPath = path.join(__dirname, 'config', 'model_categories.json');
+    let modelCategoriesConfig;
+    try {
+      const configFileContent = fs.readFileSync(modelCategoriesConfigPath, 'utf-8');
+      modelCategoriesConfig = JSON.parse(configFileContent);
+    } catch (err) {
+      console.error(`[API /ollama-models/categorized] Error reading model_categories.json: ${err.message}`);
+      return res.status(500).json({ message: "Error reading model categories configuration." });
+    }
+
+    const { categories: categoryKeywords, default_category: defaultCategory, static_models: staticModels } = modelCategoriesConfig;
+    const categorized = {};
+
+    // Initialize categories
+    Object.keys(categoryKeywords).forEach(cat => categorized[cat] = []);
+    if (defaultCategory && !categorized[defaultCategory]) {
+        categorized[defaultCategory] = [];
+    }
+     // Add static models first (e.g. OpenAI models)
+    if (staticModels && Array.isArray(staticModels)) {
+        staticModels.forEach(model => {
+            const category = model.category || defaultCategory;
+            if (!categorized[category]) {
+                categorized[category] = [];
+            }
+            categorized[category].push({
+                id: model.id, // Ensure 'id' field is used
+                name: model.name,
+                details: model.details || {},
+                type: model.type || 'static' // Add a type to distinguish
+            });
+        });
+    }
+
+
+    localModels.forEach(model => {
+      let assignedCategory = null;
+      const modelNameLower = model.name.toLowerCase();
+
+      for (const category in categoryKeywords) {
+        if (categoryKeywords[category].some(keyword => modelNameLower.includes(keyword.toLowerCase()))) {
+          assignedCategory = category;
+          break;
+        }
+      }
+      if (!assignedCategory) {
+        assignedCategory = defaultCategory;
+      }
+
+      if (!categorized[assignedCategory]) { // Should be initialized, but as a safeguard
+        categorized[assignedCategory] = [];
+      }
+      categorized[assignedCategory].push({
+        // Ollama's /api/tags returns 'name' (e.g., "codellama:7b") and 'model' (e.g., "codellama:7b")
+        // The frontend expects 'id' and 'name'. We'll use Ollama's 'name' as 'id' for uniqueness
+        // and 'name' as 'name' for display.
+        id: model.name, // Use the full model name with tag as ID
+        name: model.name, // Display name
+        details: model.details || {}, // Include other details if needed
+        modified_at: model.modified_at,
+        size: model.size,
+        type: 'ollama_local' // Add a type to distinguish
+      });
+    });
+
+    // Remove empty categories unless they are 'static' categories that might be empty of local models
+    // but contain static ones (like remote_chat)
+    Object.keys(categorized).forEach(cat => {
+        if (categorized[cat].length === 0 && !(staticModels && staticModels.some(sm => sm.category === cat))) {
+            delete categorized[cat];
+        }
+    });
+
+    res.json(categorized);
+
+  } catch (error) {
+    // This catch block handles errors like network issues (Ollama not running at all)
+    // or issues within the try block itself (e.g., JSON parsing of config).
+    console.error(`[API /ollama-models/categorized] Error: ${error.message}`);
+    if (error.code === 'ECONNREFUSED') {
+      // If Ollama server is not running, return empty categories, as per frontend expectation for graceful degradation.
+      // Also include static models if available and config is readable.
+      console.warn(`[API /ollama-models/categorized] Ollama connection refused. Returning static models only (if any).`);
+       const modelCategoriesConfigPath = path.join(__dirname, 'config', 'model_categories.json');
+       const categorized = {};
+       try {
+           const configFileContent = fs.readFileSync(modelCategoriesConfigPath, 'utf-8');
+           const { static_models: staticModelsFromConfig, default_category, categories: categoryKeywordsFromFile } = JSON.parse(configFileContent);
+
+            // Initialize categories from config file to ensure all potential static categories are present
+            if (categoryKeywordsFromFile) {
+                Object.keys(categoryKeywordsFromFile).forEach(cat => categorized[cat] = []);
+            }
+            if (default_category && !categorized[default_category]) {
+                categorized[default_category] = [];
+            }
+
+           if (staticModelsFromConfig && Array.isArray(staticModelsFromConfig)) {
+               staticModelsFromConfig.forEach(model => {
+                   const category = model.category || default_category;
+                   if (!categorized[category]) {
+                       categorized[category] = [];
+                   }
+                   categorized[category].push({
+                       id: model.id,
+                       name: model.name,
+                       details: model.details || {},
+                       type: model.type || 'static'
+                   });
+               });
+           }
+           // Remove categories that are still empty after adding static models
+            Object.keys(categorized).forEach(cat => {
+                if (categorized[cat].length === 0) {
+                    delete categorized[cat];
+                }
+            });
+       } catch (configError) {
+           console.error(`[API /ollama-models/categorized] Error reading model_categories.json during ECONNREFUSED fallback: ${configError.message}`);
+           // If config also fails, return truly empty
+           return res.json({});
+       }
+       return res.json(categorized);
+    }
+    // For other types of errors (not ECONNREFUSED, not an Ollama API error handled above)
+    return res.status(500).json({ message: `Internal server error: ${error.message}` });
+  }
+});
+
+app.post('/api/ollama/pull-model', async (req, res) => {
+  const { modelName } = req.body;
+
+  if (!modelName) {
+    return res.status(400).json({ message: 'Missing modelName in request body.' });
+  }
+
+  console.log(`[API /ollama/pull-model] Attempting to pull model: ${modelName}`);
+
+  try {
+    const ollamaResponse = await fetch(`${OLLAMA_BASE_URL}/api/pull`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: modelName, stream: true }),
+    });
+
+    if (!ollamaResponse.ok) {
+      const errorText = await ollamaResponse.text();
+      console.error(`[API /ollama/pull-model] Ollama API error when starting pull: ${ollamaResponse.status} ${errorText}`);
+      // Try to parse errorText if it's JSON, otherwise send as plain text
+      try {
+        const errorJson = JSON.parse(errorText);
+        return res.status(ollamaResponse.status).json(errorJson);
+      } catch (e) {
+        return res.status(ollamaResponse.status).json({ message: errorText });
+      }
+    }
+
+    // Stream the response from Ollama back to the client
+    // Set appropriate headers for streaming
+    res.setHeader('Content-Type', 'application/x-ndjson'); // Or text/event-stream if formatting as SSE
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    ollamaResponse.body.pipe(res);
+
+    ollamaResponse.body.on('error', (err) => {
+      console.error('[API /ollama/pull-model] Error piping stream from Ollama:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Error streaming data from Ollama.' });
+      } else if (res.writable) {
+        // If headers already sent, try to write an error chunk if possible, then end.
+        res.write(JSON.stringify({ error: 'Stream pipe error', details: err.message }) + '\n');
+        res.end();
+      }
+    });
+
+    ollamaResponse.body.on('end', () => {
+      console.log(`[API /ollama/pull-model] Stream ended for model: ${modelName}`);
+      if (!res.writableEnded) {
+        res.end();
+      }
+    });
+
+  } catch (error) {
+    console.error(`[API /ollama/pull-model] General error: ${error.message}`);
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({ message: 'Ollama server is not reachable.' });
+    }
+    if (!res.headersSent) {
+      return res.status(500).json({ message: `Internal server error: ${error.message}` });
+    } else if (res.writable) {
+      res.write(JSON.stringify({ error: 'General error', details: error.message }) + '\n');
+      res.end();
+    }
+  }
+});
+
 app.get('/api/instructions/:agentType', (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
 app.post('/api/instructions/:agentType', (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
 app.get('/api/instructions/conference_agent/:agentRole', (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
@@ -548,8 +852,28 @@ app.post('/execute-conference-task', async (req, res) => {
     res.status(501).json({ message: "This endpoint is deprecated. Please use the agent with the 'multi_model_debate' tool."});
 });
 
-async function checkOllamaStatus() { return true;}
-async function startOllama() {}
+async function checkOllamaStatus() {
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`); // Simple check, /api/tags is common
+    if (response.ok) {
+      console.log('[Ollama Status] Ollama is responsive.');
+      return true;
+    } else {
+      console.warn(`[Ollama Status] Ollama responded with status: ${response.status}`);
+      return false;
+    }
+  } catch (error) {
+    if (error.code === 'ECONNREFUSED') {
+      console.warn('[Ollama Status] Ollama connection refused. Server likely not running.');
+    } else {
+      console.error(`[Ollama Status] Error checking Ollama status: ${error.message}`);
+    }
+    return false;
+  }
+}
+
+// startOllama function is removed as per cleanup plan.
+
 function attemptToListen(port) {
     app.listen(port, () => {
         console.log(`[Server Startup] Roadrunner backend server listening on port ${port}`);
@@ -562,17 +886,13 @@ function attemptToListen(port) {
 async function main() {
   try {
     console.log('[Server Startup] Checking Ollama status...');
-    let ollamaReady = await checkOllamaStatus();
+    const ollamaReady = await checkOllamaStatus();
+
     if (!ollamaReady) {
-      console.log('[Server Startup] Ollama not detected or not responsive. Attempting to start Ollama...');
-      try {
-        await startOllama();
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        ollamaReady = await checkOllamaStatus();
-      } catch (startError) { console.error(`[Server Startup] Error during Ollama start attempt: ${startError.message}`); }
+      console.warn('[Server Startup] WARNING: Ollama is not running or not responsive. Backend will start, but Ollama-dependent features will not work.');
+    } else {
+      console.log('[Server Startup] Ollama reported as operational.');
     }
-    if (!ollamaReady) console.warn('[Server Startup] WARNING: Ollama is not running and/or could not be started.');
-    else console.log('[Server Startup] Ollama reported as operational.');
 
     // Initialize agentExecutor once at startup.
     // If memory needs to be request-scoped and fresh for each /execute-autonomous-task,

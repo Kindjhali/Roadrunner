@@ -32,30 +32,28 @@ This framework ensures that development is transparent, traceable, and aligned w
 ## I. Completed Enhancements (Post-Tabbed UI Implementation)
 
 ### 1. Core UI Structure
-    *   **Two-Tab Interface:** Roadrunner now features a primary two-tab layout:
-        *   **"Coder" Tab:** Dedicated to autonomous code generation, task execution from uploaded files, and interaction with coding-focused models.
-        *   **"Brainstorming" Tab:** Designed for interactive chat with language models, idea generation, and quick Q&A.
-    *   **Header Bar:** The application retains its distinct orange header bar with black text and a functional close button, consistent across both tabs.
+    *   **Multi-Tab Interface:** Roadrunner now features a multi-tab layout defined in `App.vue`:
+        *   **"Coder" Tab:** Dedicated to task execution based on user descriptions, interaction with coding-focused models, and viewing agent logs.
+        *   **"Brainstorming" Tab:** Currently a UI placeholder in `App.vue`. (The backend IPC `send-brainstorming-chat` in `electron.js` supports streaming Ollama responses, intended for this tab's future implementation).
+        *   **"Conference" Tab:** For managing and observing multi-model debates/conferences.
+        *   **"Configuration" Tab:** Allows users to configure LLM providers, API keys, default models, and other application settings.
+    *   **Header Bar:** The application retains its distinct header bar with application title, logo, and a functional close button, consistent across all tabs.
 
 ### 2. Model Management
-    *   **Unified Model Loading:** A centralized system loads both dynamic local Ollama models (via API query) and predefined static remote AI models (e.g., OpenAI/ChatGPT).
-    *   **Independent Tab Model Selection:** Both the "Coder" and "Brainstorming" tabs feature their own model selection dropdowns. These are populated from the unified model list, allowing each tab to maintain its own selected model state (`selectedModel` for Coder, `selectedBrainstormingModel` for Brainstorming).
-    *   **Model List Refresh:** A refresh button (currently in the Coder tab) updates the model list for both tabs.
+    *   **Unified Model Loading:** A centralized system (via `loadAvailableModels` in `App.vue` calling the backend `/api/ollama-models/categorized` endpoint) loads local Ollama models and static model definitions (like OpenAI models).
+    *   **Model Selection:** The 'Coder' tab features a "Default Task Model" selection dropdown. The 'Brainstorming' and 'Conference' tabs will also utilize model selection once their UI and logic are fully integrated. Model lists are populated from a unified source (Vuex store).
+    *   **Model List Refresh:** A refresh button in the "Coder" tab updates the available model list.
 
 ### 3. "Coder" Tab Functionality
-    *   **Task Execution Engine:** Successfully integrates previous functionalities for loading tasks from:
-        *   Selected predefined task sets (legacy 'modules').
-        *   User-uploaded task definition files (e.g., `.md` "sniper" files).
-    *   **Execution Control:** Users can execute these tasks, with logs displayed within this tab.
-    *   **Dedicated Model Selection:** Utilizes its own model dropdown for tasks that might involve AI interaction.
+    *   **Task Input:** Allows users to provide a task description directly in a textarea or by uploading a `.md` or `.txt` file, the content of which populates the task description.
+    *   **Safety Mode:** Includes a 'Safety Mode' toggle to enable/disable user confirmations for potentially destructive agent actions.
+    *   **Execution Control:** Users can initiate tasks using the "Run Task" button.
+    *   **Log Display:** Task execution logs, agent actions, tool outputs, and errors are displayed in real-time within this tab.
+    *   **Instruction Editing:** Provides a button to edit the base instructions for the Coder agent.
 
 ### 4. "Brainstorming" Tab Functionality
-    *   **Interactive Chat Interface:**
-        *   Features a dedicated chat history panel to display conversations.
-        *   Includes a text input area for user prompts and a "Send" button.
-    *   **Ollama Model Integration:** Users can select a local Ollama model from the tab's dropdown and engage in chat conversations. Responses are currently handled as a full response from the model (non-streaming).
-    *   **Basic File Upload:** A file upload button is present, currently logging the selected file name and adding a system message to the chat history. Full contextual use of files is a future enhancement.
-    *   **Remote Model Placeholder:** Interaction with remote models (e.g., "OpenAI/ChatGPT") is currently via a placeholder response, indicating future integration.
+    *   **UI Placeholder:** The 'Brainstorming' tab in the current `App.vue` is a UI placeholder (an empty `div`).
+    *   **Backend Support:** Backend support via Electron IPC (`send-brainstorming-chat` in `electron.js`) is implemented for direct chat with local Ollama models, including streaming responses. Full UI integration of this chat functionality, including a dedicated chat interface, history management, and model selection, is a planned enhancement for this tab.
 
 ## II. Future Development Plan
 
