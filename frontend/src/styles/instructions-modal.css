@@ -1,0 +1,267 @@
+/* Styles for InstructionsModal component */
+.instructions-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000; /* Ensure it's on top */
+}
+
+.instructions-modal-content {
+  background-color: #2d3748; /* bg-gray-800 */
+  color: #e2e8f0; /* text-gray-200 */
+  padding: 20px;
+  border-radius: 8px;
+  min-width: 600px; /* Changed */
+  max-width: 80%;   /* Changed */
+  max-height: 75vh;  /* Changed */
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.modal-title {
+  font-size: 1.25rem; /* text-xl */
+  font-weight: 600; /* font-semibold */
+  margin-bottom: 1rem;
+  color: #a0aec0; /* text-gray-400 */
+}
+.role-specifier {
+  font-size: 0.9rem;
+  font-style: italic;
+  color: #718096; /* text-gray-500 */
+}
+
+.loading-indicator {
+  text-align: center;
+  padding: 20px;
+  color: #cbd5e0; /* text-gray-300 */
+}
+
+.error-message {
+  color: #fc8181; /* text-red-400 */
+  background-color: #4a5568; /* bg-gray-700 */
+  padding: 10px;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.instructions-editor {
+  flex-grow: 1;
+  overflow-y: auto; /* Allows instruction list to scroll */
+  margin-bottom: 1rem;
+}
+
+.instructions-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.instruction-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.instruction-input {
+  flex-grow: 1;
+  padding: 0.5rem;
+  background-color: #1a202c; /* bg-gray-900 */
+  border: 1px solid #4a5568; /* border-gray-600 */
+  color: #e2e8f0; /* text-gray-200 */
+  border-radius: 4px;
+}
+.instruction-input:focus {
+  outline: none;
+  border-color: #4299e1; /* focus:border-blue-500 */
+  box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.5); /* focus:ring-blue-500 */
+}
+
+
+.button-remove-instruction {
+  background-color: #e53e3e; /* bg-red-600 */
+  color: white;
+  border: none;
+  padding: 0.3rem 0.6rem;
+  margin-left: 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+.button-remove-instruction:hover {
+  background-color: #c53030; /* hover:bg-red-700 */
+}
+
+.add-instruction-area {
+  display: flex;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem; /* Space before overall actions */
+}
+
+.instruction-input-new {
+  flex-grow: 1;
+  padding: 0.5rem;
+  background-color: #1a202c; /* bg-gray-900 */
+  border: 1px solid #4a5568; /* border-gray-600 */
+  color: #e2e8f0; /* text-gray-200 */
+  border-radius: 4px;
+}
+.instruction-input-new:focus {
+   outline: none;
+  border-color: #4299e1; /* focus:border-blue-500 */
+  box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.5); /* focus:ring-blue-500 */
+}
+
+.button-add-instruction {
+  background-color: #38a169; /* bg-green-600 */
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  margin-left: 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.button-add-instruction:hover {
+  background-color: #2f855a; /* hover:bg-green-700 */
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 1rem;
+  border-top: 1px solid #4a5568; /* border-gray-700 */
+}
+
+.button-save {
+  background-color: #3182ce; /* bg-blue-600 */
+  color: white;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 0.5rem;
+}
+.button-save:hover {
+  background-color: #2b6cb0; /* hover:bg-blue-700 */
+}
+.button-save:disabled {
+  background-color: #4a5568; /* bg-gray-600 */
+  cursor: not-allowed;
+}
+
+.button-cancel {
+  background-color: #718096; /* bg-gray-500 */
+  color: white;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.button-cancel:hover {
+  background-color: #4a5568; /* hover:bg-gray-600 */
+}
+
+/* Styling for the new textarea */
+.instruction-textarea {
+  width: 100%;
+  min-height: 60px;
+  resize: vertical;
+  padding: 0.5rem;
+  background-color: #1a202c; /* bg-gray-900 */
+  border: 1px solid #4a5568; /* border-gray-600 */
+  color: #e2e8f0; /* text-gray-200 */
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.instruction-textarea:focus {
+  outline: none;
+  border-color: #4299e1; /* focus:border-blue-500 */
+  box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.5); /* focus:ring-blue-500 */
+}
+
+/* Minimal table styling if not using Tailwind utility classes directly in template */
+.w-full { width: 100%; }
+.text-sm { font-size: 0.875rem; }
+.text-left { text-align: left; }
+/* text-gray-400 is already defined in the template on table */
+/* dark:text-gray-400 is already defined in the template on table */
+
+.px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+.py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+.py-4 { padding-top: 1rem; padding-bottom: 1rem; } /* Added for td cells */
+.px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+
+
+/* text-xs, uppercase, bg-gray-50, dark:bg-gray-700, dark:text-gray-400 are on thead */
+
+.bg-white { background-color: #fff; } /* Used for table rows */
+.dark .bg-gray-800 { background-color: #1f2937; } /* Used for table rows in dark */
+.border-b { border-bottom-width: 1px; } /* Used for table rows */
+.dark .border-gray-700 { border-color: #374151; } /* Used for table rows in dark */
+
+.cursor-pointer { cursor: pointer; }
+.hover\:bg-gray-600:hover { background-color: #4b5563; } /* Slightly different from previous for variety */
+.dark .hover\:bg-gray-700:hover { background-color: #374151; }
+.p-1 { padding: 0.25rem; }
+.rounded { border-radius: 0.25rem; }
+.min-h-\[30px\] { min-height: 30px; } /* Ensure clickable area for short instructions */
+.whitespace-nowrap { white-space: nowrap; } /* For action buttons cell */
+.disabled\:opacity-50:disabled { opacity: 0.5; }
+
+
+.text-blue-500 { color: #3b82f6; }
+.hover\:text-blue-700:hover { color: #1d4ed8; }
+.text-red-500 { color: #ef4444; }
+.hover\:text-red-700:hover { color: #b91c1c; }
+.text-xs { font-size: 0.75rem; }
+.mr-2 { margin-right: 0.5rem; }
+.ml-1 { margin-left: 0.25rem; }
+
+
+.button-save-edit, .button-cancel-edit {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  color: white;
+  font-size: 0.75rem; /* text-xs */
+}
+.button-save-edit {
+  background-color: #2563eb; /* blue-600 */
+}
+.button-save-edit:hover {
+  background-color: #1d4ed8; /* blue-700 */
+}
+.button-cancel-edit {
+  background-color: #6b7280; /* gray-500 */
+}
+.button-cancel-edit:hover {
+  background-color: #4b5563; /* gray-600 */
+}
+
+.mt-1 { margin-top: 0.25rem; } /* For spacing edit buttons from textarea */
+.text-center { text-align: center; }
+.text-gray-500 { color: #6b7280; }
+
+
+.mt-4 { margin-top: 1rem; }
+.ml-2 { margin-left: 0.5rem; }
+
+/* Added styles for refactored table layout */
+.instructions-table {
+  table-layout: fixed;
+}
+
+.instruction-column {
+  width: 70%;
+}
+
+.actions-column {
+  width: 30%;
+}
