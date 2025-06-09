@@ -191,7 +191,7 @@ ipcMain.handle('get-backend-port', async () => {
 });
 
 app.on('before-quit', () => {
-  isAppQuitting = true;
+  // isAppQuitting = true; // Removed unused flag
   // Removed coderTaskEventSource handling as the related IPC is removed
   // if (coderTaskEventSource) {
   //   coderTaskEventSource.close();
@@ -202,6 +202,7 @@ app.on('before-quit', () => {
     conferenceEventSource.close();
     conferenceEventSource = null;
   }
+  // Removed extraneous parenthesis and semicolon from the line above
 });
 
 app.on('quit', () => {
@@ -241,7 +242,7 @@ ipcMain.handle('select-directory', async () => {
 
 let conferenceEventSource = null; // Variable to hold the EventSource for conference streams
 // let coderTaskEventSource = null;  // Removed as the related IPC handler 'execute-task-with-events' is removed
-let isAppQuitting = false;        // Track app shutdown to suppress benign errors
+// let isAppQuitting = false;        // Removed unused flag
 
 ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt, history }) => {
   // At the beginning of the handler
