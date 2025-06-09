@@ -8,75 +8,89 @@ For a full list of features, technical details, and API specifications, please r
 
 ## Getting Started
 
-This guide assumes you have already set up Roadrunner according to the instructions in [ROADRUNNER_SETUP_AND_FEATURES.md](./ROADRUNNER_SETUP_AND_FEATURES.md).
+This guide assumes you have already set up Roadrunner according to the instructions in the main [README.md](./README.md).
 
 To launch the application:
-1.  Ensure the backend server is running (usually by navigating to `roadrunner/backend` and running `npm start`).
-2.  Launch the Electron application (usually by navigating to the `roadrunner` root directory and running `npm start`).
+1.  Ensure the backend server is running: navigate to the `roadrunner/backend` directory in your terminal and run `npm start`.
+2.  Launch the Electron application: navigate to the `roadrunner` root directory in another terminal and run `npm start`.
 
 ## Understanding the UI
 
-The Roadrunner application interface is primarily organized into three tabs:
+The Roadrunner application interface is primarily organized into tabs:
 
-*   **Coder Tab:** This is the main operational tab. Here you will define tasks, manage sessions, select active tasks, and initiate their execution. You'll also monitor the output in the executor panel.
-*   **Brainstorming Tab:** The Brainstorming Tab provides an interactive chat interface for direct conversations with selected Language Models. Conversations persist within the tab so you can send follow-up messages and maintain context. Basic file upload functionality is present (it logs the uploaded file's name and notes it in the chat). Saving and loading past chats and remote model integration remain future enhancements.
-*   **Configuration Tab:** The Configuration Tab is intended for managing application settings. This will include configurations for LLM connections (like API keys for remote models), defining default paths, and other application-level preferences. Currently, most of these configuration options are planned for future development. Please refer to [roadrunner.steps.md](./roadrunner.steps.md) for updates on feature implementation.
+*   **Coder Tab:** This is the main operational tab for running tasks.
+    *   **Default Task Model:** Select the primary LLM to be used for interpreting and executing your task.
+    *   **Custom Task File:** Upload a `.md` or `.txt` file. Its content will populate the "Task Description" field.
+    *   **Enable Safety Mode:** A checkbox (usually enabled by default). When active, Roadrunner will ask for your confirmation before performing potentially destructive operations.
+    *   **Task Description:** A textarea where you describe the goal for the AI agent. This can be typed directly or populated by uploading a task file.
+    *   **Run Task Button:** Initiates the execution of the task described in the "Task Description" field using the selected model and safety mode setting.
+    *   **Agent Output:** A panel that displays real-time logs, agent actions, tool results, and any errors during task execution.
+    *   **Edit Coder Instructions:** A button to open a modal for editing the base instructions for the Coder agent.
 
-## Customizing Agent Behavior with `agent-profile.md`
+*   **Brainstorming Tab:** This tab is currently a placeholder. The planned feature is an interactive chat interface for direct conversations with selected Language Models, useful for exploring ideas or getting quick answers.
 
-Roadrunner's AI agent behavior can be significantly customized by editing the `agent-profile.md` file, found in the main `roadrunner/` directory.
+*   **Conference Tab:** This tab allows you to set up and run a "conference" between multiple AI personas (driven by different models or instruction sets) to debate or collaborate on a given topic. You can edit instructions for each participating agent role.
 
-This Markdown file contains a set of rules, preferences, and constraints (e.g., communication style, output formatting, decision-making filters) that define a specific agent persona (e.g., 'Aaron' as per the default profile).
+*   **Configuration Tab:** This tab allows you to manage application settings:
+    *   **LLM Configuration:**
+        *   Select the primary LLM Provider (e.g., Ollama, OpenAI, Anthropic, Google).
+        *   Enter an API Key (required for providers like OpenAI, Anthropic, Google; optional for local Ollama).
+        *   Specify up to three Default Ollama Models to be used if Ollama is the selected provider.
+    *   **OpenAI Configuration:**
+        *   Enter a specific OpenAI API Key.
+        *   Toggle whether to use this stored OpenAI Key for tasks.
+        *   Save the OpenAI Key.
+    *   **General Settings:**
+        *   Set the Output Directory where the application may save files or logs.
 
-The Roadrunner backend processes this profile before executing any task, using its contents to guide LLM interactions, ensuring the agent's responses and actions align with the defined persona.
+## Customizing Agent Behavior
 
-Users can modify this file to tailor the agent's personality for a more consistent and preferred interaction style. For example, you can define how verbose the agent should be, its preferred coding languages or architectural styles, and even its 'cognitive triggers' to avoid.
+The core behavior of the AI agent is defined by prompts and configurations within the backend system.
 
-## Working with Tasks and Sessions
+*   **Coder Agent Instructions:** You can customize the base instructions for the main Coder agent directly via the "Edit Coder Instructions" button on the Coder tab.
+*   **Conference Agent Instructions:** Similarly, instructions for different roles in the Conference tab (e.g., "Model A," "Model B," "Arbiter") can be edited within that tab.
+*   **Advanced Customization:** Some tools or specific agent functionalities might have their own instruction templates within the `backend/config/` directory (e.g., for specific tool behaviors or fixed personas in the Conference tool). Modifying these requires direct changes to the backend configuration files and is intended for advanced users.
 
-Roadrunner organizes work into "tasks" which are part of a "session." A task typically consists of an overall goal and a sequence of steps to achieve that goal.
+## Working with Tasks
 
-**1. How to Define a Task (Uploading a Task File):**
-   - In the "Coder" tab, locate the "Custom Task File" section.
-   - Click the "Choose File" button and select a `.md` or `.txt` file.
-   - When a `.md` or `.txt` file is uploaded, its content will be used to create a generic task in your current session (e.g., a task to create the file in the workspace and an open-ended step to decide what to do with it). This new task will appear in the "Session Tasks" list.
+Roadrunner focuses on executing single, well-defined tasks described by the user.
 
-**2. How to Save the Current Session:**
-   - In the "Coder" tab, you can optionally provide a name for your current session in the "Session Name" input field.
-   - Click the "Save Session" button. This will save all tasks currently in your "Session Tasks" list to a session file (usually in `roadrunner/output/sessions/`). If no name is provided, a timestamped name will be used.
+**1. How to Define a Task:**
+   *   **Direct Input:** On the "Coder" tab, type your task goal directly into the "Task Description" textarea. Be as clear and specific as possible.
+   *   **File Upload:** Click the "Custom Task File (.md, .txt)" button. Select a Markdown or text file. The content of this file will be loaded into the "Task Description" textarea, prefixed with a message indicating the file was processed.
 
-**3. How to List and Load Saved Sessions:**
-   - In the "Coder" tab, find the "Load Session" dropdown menu.
-   - This menu lists all previously saved sessions.
-   - Select a session from the list. Its tasks will be loaded into the "Session Tasks" list, replacing the current ones.
+**2. How to Use Safety Mode:**
+   *   Before running a task, you can toggle the "Enable Safety Mode" checkbox on the "Coder" tab.
+   *   If Safety Mode is enabled, the agent will pause and request your approval via a modal dialog before executing potentially harmful actions (e.g., writing or deleting files, running git commands).
 
-**4. How to Select an Active Task:**
-   - The "Session Tasks" list on the "Coder" tab displays all tasks in your current session.
-   - Click on any task in this list to select it. It will usually be highlighted to indicate it's the "active task."
-
-**5. How to Run the Active Task:**
-   - Once you have an active task selected, click the **"Run Active Task"** button (usually prominently displayed on the "Coder" tab).
-   - The task execution will begin.
+**3. How to Run the Task:**
+   *   Once your task description is ready and you've set your preferred model and safety mode, click the **"Run Task"** button on the "Coder" tab.
+   *   The agent will begin processing the task.
 
 ## Monitoring Task Execution
 
-When a task is running, its progress, logs, LLM interactions, and any errors are displayed in real-time in the **executor output panel**. This panel is typically the largest part of the "Coder" tab. Pay close attention to this panel to understand what Roadrunner is doing at each step.
+When a task is running, its progress, logs, LLM interactions, tool outputs, and any errors are displayed in real-time in the **Agent Output** panel on the "Coder" tab. Pay close attention to this panel to understand what Roadrunner is doing at each step and to respond to any confirmation requests.
 
 ## Understanding Safety Mode and Confirmations
 
-Roadrunner includes a "Safety Mode." When enabled (usually by default), it may require your confirmation before performing potentially destructive operations (e.g., deleting files, overwriting files).
-- The backend supports robust confirmation handling.
-- Confirmation prompts may appear in the executor output panel or via a UI dialog.
-- You will typically be given options to confirm, deny, or sometimes skip an operation.
-- When Safety Mode is active (it is ON by default), Roadrunner will require your explicit approval before executing potentially destructive operations, such as modifying or deleting files, or making Git commits and pushes. This is handled through confirmation dialogs that appear in the UI (currently, these are standard browser confirmation pop-ups). You will be presented with the action to be performed and given the option to approve or deny it. Task execution pauses until you respond. For some operations, there's also a batch confirmation feature that might ask for approval after a certain number of operations.
+Roadrunner includes a "Safety Mode" to prevent unintended actions.
+*   When enabled, the backend agent identifies potentially destructive operations (e.g., deleting files, overwriting files, making Git commits).
+*   Before such an operation is performed, a **Confirmation Modal** will appear in the UI.
+*   This modal displays:
+    *   **Type:** The general category of action (e.g., "Individual Action").
+    *   **Tool:** The specific tool the agent is trying to use (e.g., `delete_file`).
+    *   **Input:** The parameters for the tool (e.g., the filepath to be deleted).
+    *   **Message:** A prompt asking for your approval.
+*   You will have options to **"Deny"** or **"Approve"** the action.
+*   Task execution pauses until you respond to the confirmation request.
 
-## Using Autonomous Mode
+## Using Autonomous Mode (Task Execution)
 
-Roadrunner has an "Autonomous Mode."
-- If this mode is selected (e.g., via a checkbox or option when starting a task), instead of executing a predefined sequence of steps from a file, you provide an "Overall Task Goal."
-- Roadrunner will then use the LLM to autonomously generate a sequence of steps it believes will achieve that goal and execute them.
-- This mode is more experimental and relies heavily on the LLM's planning capabilities.
-- Autonomous Mode is typically initiated by providing an 'Overall Task Goal' in the Coder tab and using a dedicated 'Execute Autonomous Task' button or a similar UI option. Instead of following a predefined script, Roadrunner uses the selected LLM to interpret your goal, break it down into a sequence of executable steps, and then carries them out. This mode relies heavily on the LLM's planning capabilities and is best used for tasks where the path to the solution is not clearly defined beforehand. You should monitor the execution closely, as the generated steps might sometimes require adjustments or clarification. Future enhancements may include a plan validation step where the agent presents its proposed steps for your approval before execution.
+The primary way to use Roadrunner via the "Coder" tab is in an autonomous mode.
+*   You provide the task description (overall goal).
+*   When you click "Run Task," the AI agent autonomously interprets your goal, breaks it down into a sequence of steps using available tools (like file system operations, code generation, Git commands), and executes them.
+*   You monitor the process via the "Agent Output" panel and interact with Safety Mode confirmations as needed.
+*   **Future Enhancements:** A planned feature includes the agent proposing a multi-step plan for complex tasks, which you would then approve or modify before full execution begins. This will offer more fine-grained control over intricate operations.
 
 ---
 This guide provides a basic overview. For more advanced usage or troubleshooting, please refer to the [README.md](./README.md) and other documentation files.
