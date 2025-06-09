@@ -124,7 +124,7 @@
 
 <script>
 import { mapGetters, mapState } from 'vuex';
-import { fetchCategorizedModels } from '../services/api'; // Import the new service
+import { fetchCategorizedModels } from './services/api'; // Import the new service
 import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
 import ConferenceTab from './components/ConferenceTab.vue';
@@ -391,18 +391,3 @@ export default {
 };
 </script>
 
-<style scoped>
-.app-logo { height: 24px; width: auto; margin-right: 8px; vertical-align: middle; }
-.accipiter-header { display: flex; align-items: center; -webkit-app-region: drag; cursor: move; }
-.fringilla-close-button { -webkit-app-region: no-drag; cursor: default; }
-
-/* Log specific styles */
-.log-entry { margin-bottom: 4px; line-height: 1.4; }
-.log-AGENT_ACTION { color: #90caf9; } /* Light blue */
-.log-TOOL_RESULT { color: #ce93d8; } /* Light purple */
-.log-LLM_CHUNK { color: #a5d6a7; font-style: italic; } /* Light green */
-.log-CONFIRMATION_REQUEST { color: #ffcc80; font-weight: bold; } /* Orange */
-.log-ERROR_CLIENT, .log-ERROR_SERVER, .log-ERROR_CONNECTION { color: #ef9a9a; } /* Light red */
-.log-SUCCESS, .log-EXECUTION_COMPLETE { color: #81c784; } /* Green */
-.log-SYSTEM_MESSAGE, .log-LOG_ENTRY_SERVER { color: #b0bec5; } /* Blue-grey */
-</style>

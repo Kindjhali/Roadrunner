@@ -898,3 +898,13 @@ select.hirundo-text-input:focus {
   margin-bottom: 8px;
   font-weight: bold;
 }
+
+/* App component styles moved from App.vue */
+.app-logo { height: 24px; width: auto; margin-right: 8px; vertical-align: middle; }
+.log-AGENT_ACTION { color: #90caf9; }
+.log-TOOL_RESULT { color: #ce93d8; }
+.log-LLM_CHUNK { color: #a5d6a7; font-style: italic; }
+.log-CONFIRMATION_REQUEST { color: #ffcc80; font-weight: bold; }
+.log-ERROR_CLIENT, .log-ERROR_SERVER, .log-ERROR_CONNECTION { color: #ef9a9a; }
+.log-SUCCESS, .log-EXECUTION_COMPLETE { color: #81c784; }
+.log-SYSTEM_MESSAGE, .log-LOG_ENTRY_SERVER { color: #b0bec5; }
