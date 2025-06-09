@@ -84,6 +84,15 @@ export default {
       defaultModel1: '',
       defaultModel2: '',
       defaultModel3: '',
+      // For Agent Instruction Templates
+      agentInstructions: {},
+      newAgentType: '',
+      newInstructionText: '',
+      instructionStatusMessage: '',
+      instructionStatusIsSuccess: false,
+      // For Ollama Status
+      ollamaPingStatus: null,
+      isPingingOllama: false,
     };
   },
   watch: {
@@ -104,6 +113,15 @@ export default {
     },
   },
   computed: {
+    sortedAgentInstructionKeys() {
+      return Object.keys(this.agentInstructions).sort((a, b) => {
+        if (a === 'global_instructions') return -1;
+        if (b === 'global_instructions') return 1;
+        if (a.includes('_specific_')) return -1;
+        if (b.includes('_specific_')) return 1;
+        return a.localeCompare(b);
+      });
+    },
     ...mapGetters({
       currentSettings: 'getSettings', // Assuming 'getSettings' is your getter for the settings object
     }),
@@ -132,6 +150,7 @@ export default {
   mounted() {
     console.log('[ConfigurationTab] Mounted. Initial currentSettings:', JSON.stringify(this.currentSettings));
     this.loadOpenAIConfig();
+    this.fetchAgentInstructions(); // Fetch agent instructions
     // loadSettings is called, and the watcher for currentSettings will populate defaultModel1, etc.
     this.loadSettings().then(() => {
       console.log('[ConfigurationTab] After loadSettings(). currentSettings:', JSON.stringify(this.currentSettings));
@@ -142,9 +161,121 @@ export default {
   },
   methods: {
     ...mapActions(['saveSettings', 'loadSettings']),
+
+    async testOllamaConnection() {
+      this.isPingingOllama = true;
+      this.ollamaPingStatus = null;
+      this.setInstructionStatusMessage('Pinging Ollama server...', false, true); // Reusing for general feedback
+
+      try {
+        const response = await fetch('http://localhost:3030/api/ollama/ping');
+        const data = await response.json();
+        this.ollamaPingStatus = data;
+        if (this.instructionStatusMessage === 'Pinging Ollama server...') {
+             this.setInstructionStatusMessage(''); // Clear temp message
+        }
+      } catch (error) {
+        console.error('[ConfigurationTab] testOllamaConnection fetch error:', error);
+        this.ollamaPingStatus = {
+          status: 'error',
+          message: 'Failed to reach backend for Ollama ping or received an invalid response.',
+          details: error.message,
+          url: (this.currentSettings && this.currentSettings.OLLAMA_BASE_URL) ? this.currentSettings.OLLAMA_BASE_URL : 'Ollama URL not available'
+        };
+        if (this.instructionStatusMessage === 'Pinging Ollama server...') {
+            this.setInstructionStatusMessage('Error during Ollama ping attempt.', false);
+        }
+      } finally {
+        this.isPingingOllama = false;
+      }
+    },
+
+    setInstructionStatusMessage(message, isSuccess, persistent = false) {
+      this.instructionStatusMessage = message;
+      this.instructionStatusIsSuccess = isSuccess;
+      if (!persistent) {
+        setTimeout(() => {
+          if (this.instructionStatusMessage === message) {
+            this.instructionStatusMessage = '';
+          }
+        }, 4000);
+      }
+    },
+
+    async fetchAgentInstructions() {
+      this.setInstructionStatusMessage('Fetching agent instructions...', false, true);
+      try {
+        const response = await fetch('http://localhost:3030/api/instructions/all');
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to fetch agent instructions: ${response.status} ${errorText}`);
+        }
+        this.agentInstructions = await response.json();
+        this.setInstructionStatusMessage('Agent instructions loaded successfully.', true);
+      } catch (error) {
+        console.error('[ConfigurationTab] fetchAgentInstructions error:', error);
+        this.setInstructionStatusMessage(error.message || 'Error fetching agent instructions.', false);
+        this.agentInstructions = {};
+      }
+    },
+
+    async saveAgentInstruction(agentType) {
+      if (!agentType || !this.agentInstructions.hasOwnProperty(agentType)) {
+        this.setInstructionStatusMessage('Invalid agent type specified.', false);
+        return;
+      }
+      const instructionText = this.agentInstructions[agentType];
+      this.setInstructionStatusMessage(`Saving instructions for ${agentType}...`, false, true);
+      try {
+        const response = await fetch(`http://localhost:3030/api/instructions/${agentType}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instructions: instructionText }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.message || `Server error ${response.status}`);
+        }
+        this.setInstructionStatusMessage(result.message || `Instructions for ${agentType} saved.`, true);
+      } catch (error) {
+        console.error(`[ConfigurationTab] saveAgentInstruction for ${agentType} error:`, error);
+        this.setInstructionStatusMessage(`Failed to save instructions for ${agentType}: ${error.message}`, false);
+      }
+    },
+
+    async saveNewAgentInstruction() {
+      if (!this.newAgentType.trim()) {
+        this.setInstructionStatusMessage('New agent type name cannot be empty.', false);
+        return;
+      }
+      if (this.agentInstructions.hasOwnProperty(this.newAgentType.trim())) {
+        this.setInstructionStatusMessage(`Agent type "${this.newAgentType.trim()}" already exists. Use its dedicated save button to update.`, false);
+        return;
+      }
+      this.setInstructionStatusMessage(`Saving new agent type ${this.newAgentType}...`, false, true);
+      try {
+        const response = await fetch(`http://localhost:3030/api/instructions/${this.newAgentType.trim()}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instructions: this.newInstructionText }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.message || `Server error ${response.status}`);
+        }
+        this.setInstructionStatusMessage(result.message || `New agent type ${this.newAgentType} saved.`, true);
+        this.newAgentType = '';
+        this.newInstructionText = '';
+        await this.fetchAgentInstructions();
+      } catch (error) {
+        console.error('[ConfigurationTab] saveNewAgentInstruction error:', error);
+        this.setInstructionStatusMessage(`Failed to save new agent instruction: ${error.message}`, false);
+      }
+    },
+
     refreshSettings() {
       this.loadSettings(); // This will dispatch the loadSettings action from Vuex
-                          // The watcher for currentSettings will update the local model fields.
+      this.fetchAgentInstructions(); // Also refresh agent instructions
     },
     handleDefaultModelsChange() {
       const models = [this.defaultModel1, this.defaultModel2, this.defaultModel3].filter(model => model.trim() !== '');

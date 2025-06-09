@@ -130,6 +130,7 @@ import { fetchCategorizedModels } from './services/api'; // Import the new servi
 import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
 import ConferenceTab from './components/ConferenceTab.vue';
+import BrainstormingTab from './components/BrainstormingTab.vue'; // Import BrainstormingTab
 import InstructionsModal from './components/InstructionsModal.vue';
 import runIcon from './icons/run.svg';
 import refreshIcon from './icons/refresh.svg';
@@ -142,6 +143,7 @@ export default {
   components: {
     ConfigurationTab,
     ConferenceTab,
+    BrainstormingTab, // Register BrainstormingTab
     InstructionsModal,
   },
   data() {

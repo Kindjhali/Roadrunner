@@ -19,7 +19,7 @@ const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args)); // Added node-fetch
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'; // Changed to let
 
 // Langchain imports
 const { ChatOllama } = require('@langchain/community/chat_models/ollama');
@@ -166,33 +166,69 @@ async function initializeAgentExecutor() {
 }
 
 const BACKEND_CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json');
-let backendSettings = { llmProvider: null, apiKey: '', defaultOllamaModel: 'codellama' };
+let backendSettings = {
+  llmProvider: process.env.RR_LLM_PROVIDER || 'ollama',
+  apiKey: process.env.RR_API_KEY || '',
+  defaultOllamaModel: process.env.RR_DEFAULT_OLLAMA_MODEL || 'mistral',
+  defaultOpenAIModel: process.env.RR_DEFAULT_OPENAI_MODEL || 'gpt-4',
+  OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+  componentDir: process.env.RR_COMPONENT_DIR || path.resolve(__dirname, '../../tokomakAI/src/components'),
+  logDir: process.env.RR_LOG_DIR || path.resolve(__dirname, '../../logs'),
+  workspaceDir: process.env.RR_WORKSPACE_DIR || path.resolve(__dirname, '../../output')
+};
+
 function loadBackendConfig() {
+    const initialSettings = { ...backendSettings }; // Keep a copy of env/default based settings
+
     try {
         if (fs.existsSync(BACKEND_CONFIG_FILE_PATH)) {
-          const configFileContent = fs.readFileSync(BACKEND_CONFIG_FILE_PATH, 'utf-8');
-          backendSettings = JSON.parse(configFileContent);
-          console.log(`[Config] Loaded backend settings from ${BACKEND_CONFIG_FILE_PATH}`);
+            const configFileContent = fs.readFileSync(BACKEND_CONFIG_FILE_PATH, 'utf-8');
+            const configFromFile = JSON.parse(configFileContent);
+            // Override initial settings with those from the file, but only if they are present in the file
+            for (const key in configFromFile) {
+                if (configFromFile.hasOwnProperty(key) && configFromFile[key] !== undefined && configFromFile[key] !== null && configFromFile[key] !== '') {
+                    initialSettings[key] = configFromFile[key];
+                }
+            }
+            backendSettings = initialSettings;
+            console.log(`[Config] Loaded backend settings from ${BACKEND_CONFIG_FILE_PATH}`);
         } else {
-          const examplePath = path.join(__dirname, 'config', 'backend_config.example.json');
-          if (fs.existsSync(examplePath)) {
-            console.log(`[Config] Backend config not found. Copying from ${examplePath}`);
-            const exampleContent = fs.readFileSync(examplePath, 'utf-8');
-            fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, exampleContent, 'utf-8');
-            backendSettings = JSON.parse(exampleContent);
-          } else {
-            console.log(`[Config] Backend config and example not found. Creating default ${BACKEND_CONFIG_FILE_PATH}`);
-            fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(backendSettings, null, 2), 'utf-8');
-          }
+            const examplePath = path.join(__dirname, 'config', 'backend_config.example.json');
+            if (fs.existsSync(examplePath)) {
+                console.log(`[Config] Backend config not found. Copying from ${examplePath} and applying defaults/env vars.`);
+                const exampleContent = fs.readFileSync(examplePath, 'utf-8');
+                const exampleSettings = JSON.parse(exampleContent);
+                // Merge example settings with initial (env/default) settings.
+                // Initial settings (especially from env vars) take precedence over example file.
+                backendSettings = { ...exampleSettings, ...initialSettings };
+                fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(backendSettings, null, 2), 'utf-8');
+            } else {
+                console.log(`[Config] Backend config and example not found. Creating default ${BACKEND_CONFIG_FILE_PATH} using defaults/env vars.`);
+                fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(initialSettings, null, 2), 'utf-8');
+                backendSettings = initialSettings; // Already set, but for clarity
+            }
         }
-      } catch (error) {
+    } catch (error) {
         console.error(`[Config] Error loading/creating backend_config.json:`, error);
-        backendSettings = { llmProvider: null, apiKey: '', defaultOllamaModel: 'codellama' };
-      }
+        // Fallback to initial settings if file operations fail
+        backendSettings = initialSettings;
+    }
+
+    // Update the global OLLAMA_BASE_URL after loading config
+    // Priority: backendSettings.OLLAMA_BASE_URL (from file/env) > process.env.OLLAMA_BASE_URL > default
+    if (backendSettings.OLLAMA_BASE_URL) {
+        OLLAMA_BASE_URL = backendSettings.OLLAMA_BASE_URL;
+    } else if (process.env.OLLAMA_BASE_URL) {
+        OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL;
+    } else {
+        OLLAMA_BASE_URL = 'http://localhost:11434'; // Default fallback
+    }
+    console.log(`[Config] OLLAMA_BASE_URL initialized to: ${OLLAMA_BASE_URL}`);
 }
 loadBackendConfig();
 
 const CONFERENCE_INSTRUCTIONS_FILE_PATH = process.env.TEST_CONFERENCE_INSTRUCTIONS_PATH || path.join(__dirname, 'config', 'conference_agent_instructions.json');
+const AGENT_INSTRUCTIONS_FILE_PATH = path.join(__dirname, 'config', 'agent_instructions_template.json');
 
 function initializeConferenceInstructionsFile() {
   if (!fs.existsSync(CONFERENCE_INSTRUCTIONS_FILE_PATH)) {
@@ -691,14 +727,40 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.get('/api/settings', (req, res) => res.json(backendSettings));
 app.post('/api/settings', (req, res) => {
-    const { llmProvider, apiKey, defaultOllamaModel } = req.body;
-    const newSettings = { ...backendSettings, };
+    const {
+        llmProvider,
+        apiKey,
+        defaultOllamaModel,
+        defaultOpenAIModel,
+        OLLAMA_BASE_URL: newOllamaBaseUrl, // Renamed to avoid conflict with global
+        componentDir,
+        logDir,
+        workspaceDir
+    } = req.body;
+
+    const newSettings = { ...backendSettings };
+
     if (llmProvider !== undefined) newSettings.llmProvider = llmProvider;
-    if (apiKey !== undefined) newSettings.apiKey = apiKey;
+    if (apiKey !== undefined) newSettings.apiKey = apiKey; // This will also handle openaiApiKey implicitly if llmProvider is openai
     if (defaultOllamaModel !== undefined) newSettings.defaultOllamaModel = defaultOllamaModel;
+    if (defaultOpenAIModel !== undefined) newSettings.defaultOpenAIModel = defaultOpenAIModel;
+    if (newOllamaBaseUrl !== undefined) newSettings.OLLAMA_BASE_URL = newOllamaBaseUrl;
+    if (componentDir !== undefined) newSettings.componentDir = componentDir;
+    if (logDir !== undefined) newSettings.logDir = logDir;
+    if (workspaceDir !== undefined) newSettings.workspaceDir = workspaceDir;
+
     try {
       fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(newSettings, null, 2), 'utf-8');
       backendSettings = newSettings;
+
+      // If OLLAMA_BASE_URL was changed in settings, update the global variable
+      if (newOllamaBaseUrl !== undefined && OLLAMA_BASE_URL !== newOllamaBaseUrl) {
+        OLLAMA_BASE_URL = newOllamaBaseUrl;
+        console.log(`[API /api/settings] Global OLLAMA_BASE_URL updated to: ${OLLAMA_BASE_URL}`);
+        // Potentially re-initialize agent or other components that depend on OLLAMA_BASE_URL if needed immediately
+        // For now, initializeAgentExecutor is called per task, so it will pick up the new URL.
+      }
+
       res.json({ message: 'Settings updated successfully.', settings: backendSettings });
     } catch (error) {
       res.status(500).json({ error: 'Failed to save settings.', details: error.message });
@@ -1102,8 +1164,122 @@ app.post('/api/ollama/pull-model', async (req, res) => {
   }
 });
 
-app.get('/api/instructions/:agentType', (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
-app.post('/api/instructions/:agentType', (req, res) => { res.status(501).json({message: "Not fully implemented in this refactor pass"}); });
+// --- Ollama Management API ---
+app.get('/api/ollama/ping', async (req, res) => {
+  const currentOllamaBaseUrl = OLLAMA_BASE_URL; // Use the global, potentially updated OLLAMA_BASE_URL
+  try {
+    // Using /api/tags as a lightweight check. Could also be '/' if server responds on base.
+    // Set a timeout for the request, e.g., 5 seconds
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(`${currentOllamaBaseUrl}/api/tags`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      res.json({
+        status: "success",
+        message: "Ollama connection successful.",
+        url: currentOllamaBaseUrl,
+        details: `Responded with status ${response.status}`
+      });
+    } else {
+      res.status(response.status).json({ // Propagate Ollama's error status if possible
+        status: "error",
+        message: "Ollama server responded with an error.",
+        url: currentOllamaBaseUrl,
+        details: `Status: ${response.status} - ${response.statusText}`
+      });
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+        return res.status(504).json({
+            status: "error",
+            message: "Failed to connect to Ollama: Request timed out.",
+            url: currentOllamaBaseUrl,
+            details: error.message
+        });
+    }
+    // Handle network errors (e.g., ECONNREFUSED) or other fetch issues
+    res.status(500).json({
+      status: "error",
+      message: "Failed to connect to Ollama. Check URL and ensure Ollama is running.",
+      url: currentOllamaBaseUrl,
+      details: error.message
+    });
+  }
+});
+
+
+// --- Agent Instructions API ---
+// GET /api/instructions/:agentType or /api/instructions
+app.get('/api/instructions/:agentType?', (req, res) => {
+  const { agentType } = req.params;
+  try {
+    if (!fs.existsSync(AGENT_INSTRUCTIONS_FILE_PATH)) {
+      // If file doesn't exist, create it with empty JSON
+      fs.writeFileSync(AGENT_INSTRUCTIONS_FILE_PATH, JSON.stringify({}, null, 2), 'utf-8');
+      console.log(`[API GET /instructions] Created empty agent instructions file at ${AGENT_INSTRUCTIONS_FILE_PATH}`);
+      return res.json({}); // Return empty object as it's newly created
+    }
+
+    const fileContent = fs.readFileSync(AGENT_INSTRUCTIONS_FILE_PATH, 'utf-8');
+    const instructions = JSON.parse(fileContent);
+
+    if (agentType && agentType.toLowerCase() !== 'all') {
+      if (instructions.hasOwnProperty(agentType)) {
+        res.json({ [agentType]: instructions[agentType] });
+      } else {
+        res.status(404).json({ message: `Instructions for agent type '${agentType}' not found.` });
+      }
+    } else {
+      // Return all instructions if agentType is 'all' or not provided
+      res.json(instructions);
+    }
+  } catch (error) {
+    console.error(`[API GET /instructions] Error:`, error);
+    res.status(500).json({ message: 'Error loading agent instructions.', details: error.message });
+  }
+});
+
+// POST /api/instructions/:agentType
+app.post('/api/instructions/:agentType', (req, res) => {
+  const { agentType } = req.params;
+  const { instructions: newInstructionText } = req.body;
+
+  if (typeof newInstructionText !== 'string') {
+    return res.status(400).json({ message: 'Invalid or missing instructions in request body. Expected a string in "instructions" field.' });
+  }
+  if (!agentType || agentType.toLowerCase() === 'all') {
+    return res.status(400).json({ message: 'Agent type must be specified and cannot be "all" for updates.' });
+  }
+
+  try {
+    let allInstructions = {};
+    if (fs.existsSync(AGENT_INSTRUCTIONS_FILE_PATH)) {
+      const fileContent = fs.readFileSync(AGENT_INSTRUCTIONS_FILE_PATH, 'utf-8');
+      allInstructions = JSON.parse(fileContent);
+    } else {
+      // If file doesn't exist, we'll create it with this new instruction
+      console.log(`[API POST /instructions] Agent instructions file not found at ${AGENT_INSTRUCTIONS_FILE_PATH}. It will be created.`);
+    }
+
+    allInstructions[agentType] = newInstructionText; // Add or update the instruction for the agentType
+
+    fs.writeFileSync(AGENT_INSTRUCTIONS_FILE_PATH, JSON.stringify(allInstructions, null, 2), 'utf-8');
+
+    res.json({
+      message: `Instructions for agent type '${agentType}' updated successfully.`,
+      agentType,
+      instructions: newInstructionText,
+    });
+  } catch (error) {
+    console.error(`[API POST /instructions] Error saving for agent type '${agentType}':`, error);
+    res.status(500).json({ message: `Error saving instructions for agent type '${agentType}'.`, details: error.message });
+  }
+});
+// --- End Agent Instructions API ---
+
 
 // GET instructions for a specific conference agent role
 app.get('/api/instructions/conference_agent/:agentRole', (req, res) => {

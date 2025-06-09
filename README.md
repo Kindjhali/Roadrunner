@@ -41,12 +41,16 @@ The system is composed of a Vue.js frontend and a Node.js backend.
     *   Navigate to the `backend/` directory: `cd backend`
     *   Install dependencies: `npm install`
     *   Configure the backend:
-        *   Copy `config/backend_config.example.json` to `config/backend_config.json`.
-        *   Edit `config/backend_config.json` to set your desired `llmProvider` ('ollama' or 'openai').
-        *   If using 'openai', provide your `apiKey`.
-        *   Set your preferred `defaultOllamaModel` (if using Ollama) and `defaultOpenAIModel` (if using OpenAI).
-        *   Ensure `OLLAMA_BASE_URL` is correct (defaults to `http://localhost:11434`).
-        *   If using Ollama, ensure your Ollama instance is running and the specified models are pulled (e.g., `ollama pull llama3`).
+        *   Copy `config/backend_config.example.json` to `config/backend_config.json` in the `backend/config/` directory.
+        *   Edit `backend_config.json` to set your desired LLM provider and related settings. Key fields include:
+            *   `llmProvider`: Set to "ollama" (default) or "openai".
+            *   `apiKey`: If using "openai", provide your OpenAI API key here.
+            *   `defaultOllamaModel`: Specify the default model for Ollama (e.g., "mistral", "llama3").
+            *   `defaultOpenAIModel`: Specify the default model for OpenAI (e.g., "gpt-4", "gpt-3.5-turbo").
+            *   `OLLAMA_BASE_URL`: The base URL for your Ollama instance (defaults to `http://localhost:11434`).
+            *   Other paths like `componentDir`, `logDir`, and `workspaceDir` can also be configured.
+        *   If using Ollama, ensure your Ollama instance is running and the specified models (e.g., `ollama pull llama3`) are available.
+        *   **Configuration Precedence**: Settings are applied in the following order of priority: 1. Environment Variables (e.g., `RR_LLM_PROVIDER`), 2. Values in `backend_config.json`, 3. Default values coded into `server.js`.
 3.  **Frontend Setup:**
     *   Navigate to the `frontend/` directory: `cd frontend`
     *   Install dependencies: `npm install`
