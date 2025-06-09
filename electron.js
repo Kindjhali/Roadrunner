@@ -185,35 +185,13 @@ app.whenReady().then(() => {
   });
 });
 
-// Removed obsolete ipcMain.handle('get-ollama-models', ...)
-// ipcMain.handle('get-ollama-models', async () => {
-// try {
-// const response = await fetch('http://localhost:11434/api/tags');
-// if (!response.ok) {
-// console.error(`Ollama API request failed with status: ${response.status}`);
-// return { success: false, error: `Failed to fetch models from Ollama. Status: ${response.status}`, models: [] };
-// }
-// const data = await response.json();
-// const formattedModels = data.models.map(model => ({
-// value: `ollama:${model.name}`,
-// label: `Ollama: ${model.name}`
-// }));
-// return { success: true, models: formattedModels };
-// } catch (error) {
-// console.error('Error fetching Ollama models:', error);
-// if (error.cause && error.cause.code === 'ECONNREFUSED') {
-// return { success: false, error: 'Failed to connect to Ollama. Ensure Ollama is running.', models: [] };
-// }
-// return { success: false, error: 'Failed to fetch models from Ollama. Check console for details.', models: [] };
-// }
-// });
 
 ipcMain.handle('get-backend-port', async () => {
   return currentBackendPort;
 });
 
 app.on('before-quit', () => {
-  isAppQuitting = true;
+  // isAppQuitting = true; // Removed unused flag
   // Removed coderTaskEventSource handling as the related IPC is removed
   // if (coderTaskEventSource) {
   //   coderTaskEventSource.close();
@@ -224,6 +202,7 @@ app.on('before-quit', () => {
     conferenceEventSource.close();
     conferenceEventSource = null;
   }
+  // Removed extraneous parenthesis and semicolon from the line above
 });
 
 app.on('quit', () => {
@@ -263,7 +242,7 @@ ipcMain.handle('select-directory', async () => {
 
 let conferenceEventSource = null; // Variable to hold the EventSource for conference streams
 // let coderTaskEventSource = null;  // Removed as the related IPC handler 'execute-task-with-events' is removed
-let isAppQuitting = false;        // Track app shutdown to suppress benign errors
+// let isAppQuitting = false;        // Removed unused flag
 
 ipcMain.on('send-brainstorming-chat', async (event, { modelId, prompt, history }) => {
   // At the beginning of the handler

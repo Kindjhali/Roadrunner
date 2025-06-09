@@ -4,6 +4,7 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import store from './store'; // Import the store
 import './styles/roadrunner.css';
+import './styles/instructions-modal.css';
 import './styles/conference.css';
 
 const app = createApp(App);
