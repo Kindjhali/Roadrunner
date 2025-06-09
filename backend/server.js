@@ -30,7 +30,7 @@ const { createOpenAIFunctionsAgent, createReactAgent, AgentExecutor } = require(
 const { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
 // Removed RunnableSequence and StringOutputParser as they are not directly used.
 const { renderTextDescription } = require("@langchain/core/tools"); // renderTextDescription is implicitly used by agent creation
-const { ConversationBufferWindowMemory } = require("langchain/memory"); // Memory import
+const { ConversationBufferWindowMemory } = require("langchain"); // Memory import CHANGED
 
 // Import tools and custom error
 const { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } = require('./langchain_tools/fs_tools');
