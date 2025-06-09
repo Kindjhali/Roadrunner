@@ -87,7 +87,8 @@
         </div>
 
         <div v-if="activeTab === 'brainstorming'" class="tab-content brainstorming-tab-content p-4 flex flex-col space-y-4">
-          </div>
+          <p class="text-gray-400 text-center">Brainstorming chat feature coming soon!</p>
+        </div>
 
         <div v-if="activeTab === 'conference'" class="tab-content conference-tab-content p-4">
           <conference-tab @edit-instructions="openConferenceAgentInstructions" />
@@ -124,14 +125,15 @@
 
 <script>
 import { mapGetters, mapState } from 'vuex';
-import { fetchCategorizedModels } from './services/api'; // Import the new service
+
+import { fetchCategorizedModels } from '../services/api'; // Import the new service
 import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
 import ConferenceTab from './components/ConferenceTab.vue';
 import InstructionsModal from './components/InstructionsModal.vue';
 import runIcon from './icons/run.svg';
 import refreshIcon from './icons/refresh.svg';
-import saveIcon from './icons/save.svg';
+// import saveIcon from './icons/save.svg'; // Removed unused import
 import uploadIcon from './icons/upload.svg';
 import closeIcon from './icons/close.svg';
 
@@ -145,7 +147,7 @@ export default {
   data() {
     return {
       executor: null, // Executor instance
-      icons: { run: runIcon, refresh: refreshIcon, save: saveIcon, upload: uploadIcon, close: closeIcon },
+      icons: { run: runIcon, refresh: refreshIcon, /* save: saveIcon, */ upload: uploadIcon, close: closeIcon }, // Removed saveIcon
       activeTab: 'coder',
       selectedModelId: '',
       safetyModeActive: true,
@@ -163,11 +165,6 @@ export default {
       modalAgentType: null,
       modalAgentRole: null,
       _uid: 0, // Added for generating unique log IDs
-      // Obsolete Coder task specific state, replaced by Vuex store for logs and confirmation
-      // coderTaskPendingConfirmationId: null,
-      // coderTaskProposedPlanId: null,
-      // coderTaskProposedSteps: [],
-      // isCoderTaskAwaitingPlanApproval: false,
     };
   },
   computed: {
@@ -358,9 +355,19 @@ export default {
         this.$store.dispatch('updateOllamaStatus', { isConnected: false, message: `Ollama Connection Failed: ${errorMessage}` });
       }
     },
-    openCoderInstructions() { /* ... */ },
-    openBrainstormingInstructions() { /* ... */ },
-    openConferenceAgentInstructions(role) { /* ... */ },
+    openCoderInstructions() {
+      this.modalAgentType = 'coder_agent';
+      this.modalAgentRole = null; // No specific role for the general coder agent
+      this.showInstructionsModal = true;
+      console.log('[App.vue] Opening Coder Instructions. Type:', this.modalAgentType, 'Role:', this.modalAgentRole, 'Show:', this.showInstructionsModal);
+    },
+    openBrainstormingInstructions() { /* ... */ }, // Keep as stub for now, or implement if needed
+    openConferenceAgentInstructions(role) {
+      this.modalAgentType = 'conference_agent';
+      this.modalAgentRole = role; // e.g., 'model_a', 'model_b', 'arbiter'
+      this.showInstructionsModal = true;
+      console.log('[App.vue] Opening Conference Agent Instructions. Type:', this.modalAgentType, 'Role:', this.modalAgentRole, 'Show:', this.showInstructionsModal);
+    },
   },
   mounted() {
     this.executor = new Executor(this.$store); // Pass store to executor

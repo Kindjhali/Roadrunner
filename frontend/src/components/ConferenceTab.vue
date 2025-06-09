@@ -406,37 +406,30 @@ export default {
     this.setDefaultModels(); // Attempt to set defaults on mount
     if (window.electronAPI) {
       // Remove old listeners first (optional, but good practice if re-mounting without full page reload)
+      const conferenceChannels = [
+        'conference-stream-llm-chunk',
+        'conference-stream-log-entry',
+        'conference-stream-error',
+        'conference-stream-complete'
+      ];
       if (window.electronAPI.removeAllConferenceListeners) {
-         window.electronAPI.removeAllConferenceListeners(); // Clean up before attaching new ones
+         window.electronAPI.removeAllConferenceListeners(conferenceChannels); // Clean up before attaching new ones
       }
 
-      // Setup new listeners
-      if (window.electronAPI.onConferenceStreamLLMChunk) {
-        window.electronAPI.onConferenceStreamLLMChunk((_event, data) => this.handleLLMChunk(data));
+      // Setup new listeners using the generic 'on' method
+      if (window.electronAPI.on) {
+        window.electronAPI.on('conference-stream-llm-chunk', (_event, data) => this.handleLLMChunk(data));
+        window.electronAPI.on('conference-stream-log-entry', (_event, data) => this.handleLogEntry(data));
+        window.electronAPI.on('conference-stream-error', (_event, errorDetails) => this.handleError(errorDetails));
+        window.electronAPI.on('conference-stream-complete', (_event, summaryData) => this.handleComplete(summaryData));
       } else {
-        console.warn('[ConferenceTab] onConferenceStreamLLMChunk API is not available.');
+        console.warn('[ConferenceTab] window.electronAPI.on method is not available for conference events. Specific listeners might be missing.');
+        // Fallback or specific error message if generic 'on' is not the way preload is structured
+        // For now, we assume 'on' is the target pattern.
       }
 
-      if (window.electronAPI.onConferenceStreamLogEntry) {
-        window.electronAPI.onConferenceStreamLogEntry((_event, data) => this.handleLogEntry(data));
-      } else {
-        console.warn('[ConferenceTab] onConferenceStreamLogEntry API is not available.');
-      }
-
-      if (window.electronAPI.onConferenceStreamError) {
-        window.electronAPI.onConferenceStreamError((_event, errorDetails) => this.handleError(errorDetails));
-      } else {
-        console.warn('[ConferenceTab] onConferenceStreamError API is not available.');
-      }
-
-      if (window.electronAPI.onConferenceStreamComplete) {
-        window.electronAPI.onConferenceStreamComplete((_event, summaryData) => this.handleComplete(summaryData));
-      } else {
-        console.warn('[ConferenceTab] onConferenceStreamComplete API is not available.');
-      }
-
-      // Listener for general backend logs (remains unchanged)
-      if (window.electronAPI && window.electronAPI.onBackendLogEvent) {
+      // Listener for general backend logs (remains unchanged, assuming it's exposed as a direct method)
+      if (window.electronAPI.onBackendLogEvent) {
         window.electronAPI.onBackendLogEvent((_event, logEntry) => { // Changed event to _event
           const formattedLog = `[${new Date(logEntry.timestamp).toLocaleTimeString()}] [${logEntry.stream}] ${logEntry.line}`;
           this.generalBackendLogs.push(formattedLog);

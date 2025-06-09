@@ -1,17 +1,21 @@
 # Roadrunner UI Icon List
 
-This document outlines the suggested icons and buttons for the Roadrunner user interface. Each icon is stored as an SVG under `frontend/src/icons/` and uses `fill="var(--theme-orange)"` with a satin gold stroke (`#d4af37`).
+This document outlines icons currently used in the Roadrunner UI (`App.vue`) as well as suggestions or plans for icons for additional features. Each icon is stored as an SVG under `frontend/src/icons/`. The styling (fill/stroke) is generally handled via CSS or by the SVG content itself, rather than fixed attributes in this document.
 
-- **Run / Execute** – `.cardinalis-button-primary` with `run.svg`.
-- **Stop Task** – `.pelecanus-button-action` with `stop.svg`.
-- **Pause / Resume** – toggle showing `pause.svg` or `resume.svg`.
-- **Refresh** – circular arrow `refresh.svg`.
-- **New Task** – `.tachornis-floating-button` using `new-task.svg`.
-- **Save / Download** – `save.svg` for session saves or downloads.
-- **File Upload** – `upload.svg` near file inputs.
-- **Settings** – gear `settings.svg`.
-- **Help / Info** – `help.svg` for assistance.
-- **Close / Cancel** – `.fringilla-close-button` with `close.svg`.
+**Currently Used Icons in `App.vue`:**
+*   **Run / Execute (`run.svg`)**: Used in the "Run Task" button (`.cardinalis-button-primary`) on the Coder tab.
+*   **Refresh (`refresh.svg`)**: Used in the "Refresh Models" button (`.pelecanus-button-action`) on the Coder tab.
+*   **File Upload (`upload.svg`)**: Used in the "Custom Task File" label (`.chat-file-input-label`) on the Coder tab.
+*   **Close / Cancel (`close.svg`)**: Used in the main window close button (`.fringilla-close-button`) in the header.
+
+**Suggested/Planned Icons (may not be in active use in `App.vue`):**
+*   **Stop Task (`stop.svg`)**: Suggested for a button to halt ongoing tasks.
+*   **Pause / Resume (`pause.svg`, `resume.svg`)**: Suggested for task control toggles.
+*   **New Task (`new-task.svg`)**: Suggested for initiating a new task or clearing the current one.
+*   **Save / Download (`save.svg`)**: Suggested for saving task configurations, results, or sessions. (Note: `save.svg` is loaded in `App.vue`'s data but not visibly used in its direct template).
+*   **Settings (`settings.svg`)**: Suggested for accessing configuration, though `App.vue` uses a dedicated "Configuration" tab.
+*   **Help / Info (`help.svg`)**: Suggested for providing contextual help.
+
 
 ## Implementation Plan for UI Icons
 
@@ -46,29 +50,26 @@ This document outlines the suggested icons and buttons for the Roadrunner user i
 - Ensure button classes (`.cardinalis-button-primary`, `.pelecanus-button-action`, `.tachornis-floating-button`, `.fringilla-close-button`) include space for the icon `<img>`.
 
 ### Placement summary
-- **Run / Execute** – `.cardinalis-button-primary` in the Coder tab.
-- **Stop Task** – adjacent `.pelecanus-button-action` near the Run button.
-- **Pause / Resume** – toggle within the task controls area.
-- **Refresh** – existing refresh buttons for models or modules.
-- **New Task** – `.tachornis-floating-button` at the top right of the main card.
-- **Save / Download** – session "Save Session" button.
-- **File Upload** – label for file inputs in Coder and Brainstorming tabs.
-- **Settings** – header button linking to the Configuration tab.
-- **Help / Info** – small `.pelecanus-button-action` next to the tab bar or inside modals.
-- **Close / Cancel** – current `.fringilla-close-button` in the header.
+
+**Icons Actively Used in `App.vue`:**
+- **Run / Execute (`run.svg`)** – On the "Run Task" button (`.cardinalis-button-primary`) in the Coder tab.
+- **Refresh (`refresh.svg`)** – On the "Refresh Models" button (`.pelecanus-button-action`) in the Coder tab.
+- **File Upload (`upload.svg`)** – On the "Custom Task File" label (`.chat-file-input-label`) in the Coder tab.
+- **Close / Cancel (`close.svg`)** – On the main window close button (`.fringilla-close-button`) in the header.
+
+**Placement for Suggested/Planned Icons:**
+- **Stop Task (`stop.svg`)** – Could be placed near the "Run Task" button, possibly as a `.pelecanus-button-action`. (Planned)
+- **Pause / Resume (`pause.svg`, `resume.svg`)** – Would appear in task control areas if this feature is added. (Planned)
+- **New Task (`new-task.svg`)** – Could be a general action button, perhaps a `.tachornis-floating-button` if that style is used. (Suggested)
+- **Save / Download (`save.svg`)** – Could be used for saving configurations, task outputs, or future session features. (Suggested; `save.svg` loaded but not directly used in `App.vue` template).
+- **Settings (`settings.svg`)** – While `App.vue` has a "Configuration" tab, a settings icon could be used elsewhere if needed. (Suggested)
+- **Help / Info (`help.svg`)** – Could be used for tooltips or info buttons within specific sections or modals. (Suggested)
 
 ### Steps to implement
-1. Create or source the SVGs with correct fills and stroke.
+1. Create or source the SVGs. Ensure they are optimized and styled appropriately (fill/stroke can often be controlled via CSS).
 2. Place them in `frontend/src/icons/`.
-3. Import and reference each icon in the relevant Vue files.
-4. Apply the `.icon` class for consistent sizing and colour.
-5. Run existing build and test commands (`npm install`, `npm run build`) to verify assets load.
-
-```
-✅ Verified Implementation:
-- [x] All functions and classes are present
-- [x] All references are locally resolved
-- [x] Logic matches description
-- [x] Follows structure and module conventions
-```
+3. Import and reference each icon in the relevant Vue files (e.g., `import myIcon from './icons/my-icon.svg';`).
+4. In the template, use `<img :src="myIcon" class="icon" alt="Descriptive Alt Text">`.
+5. Apply the `.icon` class (defined in global styles like `roadrunner.css`) for consistent sizing and potentially basic styling. Specific color/fill can be managed by the SVG content or overridden by more specific CSS if needed.
+6. Run existing build and test commands (`npm install`, `npm run build`) to verify assets load correctly.
 
