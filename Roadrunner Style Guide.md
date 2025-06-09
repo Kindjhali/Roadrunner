@@ -20,12 +20,16 @@ Component classes follow the format:
 
 Examples:
 
-* `.accipiter-header` – main header
-* `.geococcyx-executor-page` – root RoadrunnerExecutor layout
-* `.cardinalis-button-primary` – primary CTA button
-* `.columbidae-task-list` – task display
-* `.sylvia-task-description` – rendered rich text with highlight
-* `.strigiformes-log-display` – console/log outputs
+* `.tyrannidae-main-card` – The main application card/window.
+* `.furnariidae-inner-panel` – Inner content panels within cards.
+* `.accipiter-header` – Main header sections.
+* `.passeriformes-form-area` – Sections containing forms or groups of inputs.
+* `.piciformes-input-row` – A row containing input elements.
+* `.cardinalis-button-primary` – Primary call-to-action buttons (e.g., "Run Task", "Approve").
+* `.pelecanus-button-action` – Secondary action buttons (e.g., "Refresh Models", "Edit Instructions").
+* `.hirundo-text-input` – Text input fields and textareas.
+* `.turdus-select` – Select dropdown elements.
+* `.fringilla-close-button` – Specific buttons like the main window close button.
 
 This reinforces clarity, avoids naming collision, and adds flair.
 
@@ -77,35 +81,24 @@ This reinforces clarity, avoids naming collision, and adds flair.
 
 ---
 
-#### 📋 Task Lists & Editors
+#### 📋 Task Definition & Interaction (Coder Tab)
 
-| Class                       | Description                         |
-| --------------------------- | ----------------------------------- |
-| `.passer-task-item`         | A single task block                 |
-| `.parus-task-checkbox`      | Checkbox for task                   |
-| `.sylvia-task-editor-input` | Input field for inline task editing |
-| `.sylvia-task-description`  | Highlighted markdown output         |
-| `.regulus-metadata-badge`   | Label/tag for task metadata         |
-| `.motacilla-parse-warning`  | Parser warning in yellow            |
-
----
-
-#### 💬 Chat/Agent Log Area
-
-* `.chat-history-panel`, `.chat-message`, `.user-message`, `.model-message`
-* `.chat-input-area`, `.chat-send-button`, `.chat-file-upload-button`
-* Styled like a monospaced terminal-meets-chat interface
-* Messages are color-coded by sender and include `sender-label`
+The Coder tab has evolved from detailed task lists to a single task input area.
+Relevant classes include:
+*   `.passeriformes-form-area`: Contains the main input controls.
+*   `.piciformes-input-row`: Organizes elements like model selection, file upload, and safety mode toggle.
+*   `.emberiza-label`: Used for labels next to input fields.
+*   `.hirundo-text-input`: For the main "Task Description" textarea.
+*   `.chat-file-input-container`, `.chat-file-input-label`, `.chat-file-input`: For the "Custom Task File" upload.
 
 ---
 
-#### 🔤 Console Output
+#### 💬 Agent Output / Log Area (Coder Tab)
 
-| Class                          | Use                                              |
-| ------------------------------ | ------------------------------------------------ |
-| `.corvus-console-output-panel` | Logs in task view                                |
-| `.otus-log-area`               | Logs in executor view                            |
-| `.pica-log-message-*`          | Log line types: success, error, warn, info, etc. |
+*   The main log display area is within a div classed `executor-output-panel`.
+*   Individual log entries are dynamically styled using Tailwind CSS classes based on the log type (e.g., `text-red-400` for errors, `text-green-400` for success) via the `getLogClass()` method in `App.vue`.
+*   There are no longer specific BIRD taxonomy classes like `.pica-log-message-*` applied directly in the template for individual log lines. The styling is more utility-class driven.
+*   Preformatted data within logs (`<pre>` tags) uses classes like `text-xs bg-gray-800 p-1 mt-1 rounded overflow-x-auto`.
 
 All log boxes use dark backgrounds and small monospace fonts.
 
@@ -138,7 +131,7 @@ All log boxes use dark backgrounds and small monospace fonts.
 * Theming assumes **dark mode only**
 * System is **component-modular and scalable**
 * File Upload and Chat are **fully styled** but minimally scripted—expect them to be used in agent output interaction
-* Place all CSS in `frontend/src/styles/`; `.vue` files must not include `<style>` sections or inline styles
+* Prefer global styles and theming in `frontend/src/styles/` (e.g., `roadrunner.css`, `conference.css`). For component-specific styles, using `<style scoped>` within individual `.vue` files is acceptable and encouraged for encapsulation. Avoid using inline styles (`style="..."`) directly in templates to maintain better structure, reusability, and adherence to Content Security Policy.
 
 ---
 
@@ -179,5 +172,5 @@ Define the font class in your CSS:
 #### 🧪 Developer Tips
 
 - Press `Ctrl+Shift+I` in the Electron window to open DevTools if needed.
-- Modify `src/RoadrunnerExecutor.vue` to expand or customize functionality.
+- Modify `src/App.vue` and its child components (e.g., in `frontend/src/components/`) to expand or customize functionality, as `App.vue` is the main UI entry point.
 - All visual styles are from Tailwind — no SCSS or custom preprocessors required.

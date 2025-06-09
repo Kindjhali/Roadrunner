@@ -13,7 +13,6 @@ This project implements an advanced AI agent powered by Langchain.js, capable of
 *   **Flexible LLM Backend:** Supports both OpenAI API (e.g., GPT-3.5, GPT-4) and local Ollama models (e.g., Llama 3, Mistral, Phi-3). Configuration is managed via `backend/config/backend_config.json`.
 *   **Interactive Safety Mode:** An optional `safetyMode` enhances control and prevents unintended changes by:
     *   Requiring user confirmation for individual modifying operations (e.g., writing a file, committing to Git).
-    *   Triggering batch confirmations after a configurable number of modifying operations (`CONFIRM_AFTER_N_OPERATIONS`).
 *   **Conversational Memory:** Features request-scoped conversational memory (`ConversationBufferWindowMemory`), allowing the agent to recall context from earlier parts of the current task execution, even across asynchronous user confirmation steps.
 *   **Real-time SSE Streaming:** The frontend receives detailed, real-time updates on the agent's thoughts, chosen tools, tool inputs/outputs, confirmation requests, and LLM token streams via Server-Sent Events (SSE).
 *   **Configurable Backend:** Key settings including LLM provider choices, API keys, default models, workspace paths, agent persona instructions (for tools), and model categorizations are externally configurable through JSON files located in `backend/config/`.
@@ -26,7 +25,7 @@ The system is composed of a Vue.js frontend and a Node.js backend.
 *   **Frontend (`frontend/`):**
     *   Provides the user interface for submitting tasks in natural language.
     *   Displays real-time, structured logs of the agent's progress and actions via SSE.
-    *   Manages user interaction for safety confirmations (individual and batch).
+    *   Manages user interaction for safety confirmations for individual actions.
 
 *   **Backend (`backend/`):**
     *   Built with Node.js and Express.js.

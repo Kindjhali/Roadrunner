@@ -28,10 +28,12 @@ This system is ideal for tasks that benefit from multiple perspectives — such 
 
 ## 🧩 Integration with Roadrunner
 ### 🔄 Backend
-- Uses existing Ollama interface (e.g., direct HTTP calls to Ollama, or `exec('ollama run ...')`) already employed by Roadrunner.
-- **The backend API endpoint `POST /execute-conference-task` is now live on the Roadrunner server (localhost:3030).** It accepts a JSON body with a `prompt` field and returns the arbiter's response.
-- The functionality is currently exposed as a direct API endpoint rather than a specific "step type" within the existing Roadrunner task execution flow.
-- Output is compatible with existing `taskContext` or log storage structures.
+- The multi-model conference functionality is primarily handled by the `ConferenceTool` (internally named `multi_model_debate`) within the main autonomous agent.
+- This agent is typically invoked via the `POST /execute-autonomous-task` endpoint. Users describe a task that requires a conference, and the agent utilizes the `ConferenceTool` with the specified parameters.
+- The dedicated endpoint `POST /execute-conference-task` is **deprecated**. Calls to it will result in an error message advising to use the agent with the `ConferenceTool`.
+- Parameters for the conference (e.g., main prompt/topic, model roles like 'Proponent', 'Skeptic', 'Synthesizer', number of rounds, and the LLM model name to be used by participants) are provided as input to the `ConferenceTool` when the main agent calls it.
+- The `ConferenceTool` itself manages the turn-by-turn interaction, including building the context for each participant based on previous turns.
+- Output, including individual model responses and the final arbiter response, is streamed back via the main agent's SSE connection and logged by the tool.
 
 ### 💻 Frontend
 - Can be triggered via a new UI element or button (e.g. “Run Model Conference”)
@@ -60,6 +62,6 @@ This system is ideal for tasks that benefit from multiple perspectives — such 
 ## 🧭 Summary
 The Multi-Model Conferencing Protocol enhances Roadrunner by injecting comparative intelligence — using multiple model perspectives and final synthesis for better results. It integrates cleanly into the existing LLM pipeline, and sets the foundation for future agent-based debates and arbitration layers.
 
-Status: **Partially Implemented**
-Implemented: **Backend endpoint `/execute-conference-task`** now supports a `history` array for multi-turn follow-ups. A basic frontend tab triggers this endpoint.
-Required: **Full step-type integration and advanced debate visualisation remain pending.**
+Status: **Implemented via Agent Tool**
+Implemented: Multi-model conferences are functional through the `ConferenceTool` invoked by the main autonomous agent. This allows specifying the prompt, model roles, and number of rounds. The tool manages the debate flow and logs the outcome.
+Required: UI enhancements for easier conference setup and advanced debate visualization are future considerations. Direct `history` injection into the tool at the start of a conference is not explicitly supported by the current tool's input; the tool builds history iteratively.
