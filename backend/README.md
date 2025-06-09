@@ -23,7 +23,7 @@ The heart of the backend is an AI agent orchestrated by `server.js` using the `A
 The agent's capabilities are defined by a suite of custom tools. These tools are JavaScript classes extending Langchain's `Tool` base class and are located in the `backend/langchain_tools/` directory. They wrap the functionality of underlying modules (`fsAgent.js`, `gitAgent.js`, `codeGenerator.js`).
 
 *   **`common.js`:**
-    *   `ConfirmationRequiredError`: A custom error class. Modifying tools throw this error when `safetyMode` is active and an action requires user approval. It carries `toolName`, `toolInput`, `confirmationId`, and `confirmationType` ('individual' or 'batch').
+    *   `ConfirmationRequiredError`: A custom error class. Modifying tools throw this error when `safetyMode` is active and an action requires user approval. It carries `toolName`, `toolInput`, `confirmationId`, and `confirmationType` (currently 'individual').
 *   **`fs_tools.js` (File System Operations):**
     *   Wraps `fsAgent.js`. Tools generally expect a single string argument (e.g., a path) or a JSON string for multiple arguments. Descriptions include input format examples.
     *   `ListDirectoryTool`: Lists files/directories. Input: relative path string.
@@ -55,17 +55,14 @@ The agent's capabilities are defined by a suite of custom tools. These tools are
 
 The backend features an interactive `safetyMode` to prevent unintended operations.
 
-*   **Operation Counting:** A counter (`operationCountSinceLastConfirmation`) tracks successful modifying actions. A list of `MODIFYING_TOOLS` determines which tool usages increment this counter.
 *   **Triggering Confirmation:**
-    *   **Individual Actions:** Modifying tools, when `safetyMode` is active and the specific tool call isn't pre-confirmed (via `runManager.config.isConfirmedActionForTool`), throw `ConfirmationRequiredError` (type 'individual').
-    *   **Batch Operations:** If `safetyMode` is active and `operationCountSinceLastConfirmation` reaches `CONFIRM_AFTER_N_OPERATIONS` (e.g., 3) after a modifying action, a batch confirmation is triggered (type 'batch') before the agent proceeds.
+    *   **Individual Actions:** Modifying tools (identified in `MODIFYING_TOOLS` list in `server.js`), when `safetyMode` is active and the specific tool call isn't pre-confirmed (via `runManager.config.isConfirmedActionForTool`), throw `ConfirmationRequiredError` (type 'individual').
 *   **Handling User Confirmation (`/api/confirm-action/:confirmationId`):**
-    *   When `ConfirmationRequiredError` is caught in `handleExecuteAutonomousTask`, agent execution pauses. Relevant state (original task input, current operation count, chat history, SSE handlers, confirmation type) is stored in `pendingToolConfirmations`. An SSE `confirmation_required` message (with `confirmationId`, type, and details) is sent to the client.
+    *   When `ConfirmationRequiredError` is caught in `handleExecuteAutonomousTask`, agent execution pauses. Relevant state (original task input, chat history, SSE handlers, confirmation type) is stored in `pendingToolConfirmations`. An SSE `confirmation_required` message (with `confirmationId`, type, and details) is sent to the client.
     *   The frontend sends the user's decision to `/api/confirm-action/:confirmationId`.
     *   This endpoint retrieves the stored state.
         *   If approved:
             *   For 'individual' confirmations, the `isConfirmedActionForTool` flag is set for the specific tool/input.
-            *   For 'batch' confirmations, `operationCountSinceLastConfirmation` is reset to 0.
             *   The agent is informed via a constructed "Observation" message.
             *   `agentExecutor.stream()` is re-invoked with the original task, updated configuration, and reloaded chat history.
         *   If denied:
@@ -78,7 +75,7 @@ The backend uses SSE (`Content-Type: text/event-stream`) to provide rich, real-t
 
 *   `agent_event`: Carries data from `AgentExecutor` callbacks (e.g., `on_agent_action`, `on_tool_start`, `on_tool_end`, `on_chain_end`/`on_agent_finish`), providing insight into the agent's reasoning and tool usage.
 *   `llm_chunk`: Streams tokens from LLM responses, particularly when tools like `ConferenceTool` use `generateFromLocal`. Includes `speaker` context.
-*   `confirmation_required`: Notifies the client that user input is needed. Payload includes `confirmationId`, `message`, and `details` (tool name, input, confirmation type: 'individual' or 'batch').
+*   `confirmation_required`: Notifies the client that user input is needed. Payload includes `confirmationId`, `message`, and `details` (tool name, input, confirmation type (currently 'individual')).
 *   `log_entry`: For general server-side log messages passed to the client.
 *   `error`: For broadcasting backend errors.
 *   `execution_complete`: Signals the successful or failed end of a task.
