@@ -54,15 +54,6 @@
       </p>
     </section>
 
-    <!-- Existing API Keys Section (if any, or could be merged) -->
-    <section class="space-y-2 p-3 bg-gray-700 rounded-md mt-4">
-      <h3 class="text-lg font-medium text-gray-200">Other API Keys</h3>
-      <div>
-        <label for="legacyOpenaiApiKey" class="emberiza-label">Legacy OpenAI API Key (Example):</label>
-        <input type="password" id="legacyOpenaiApiKey" v-model="localApiKeys.openai" class="hirundo-text-input w-full" placeholder="Example: Old key system">
-      </div>
-    </section>
-
     <section class="space-y-2 p-3 bg-gray-700 rounded-md mt-4">
       <h3 class="text-lg font-medium text-gray-200">General Settings</h3>
       <div>
@@ -73,7 +64,6 @@
         </div>
         <p v-if="selectionError" class="text-red-500 text-sm mt-1">{{ selectionError }}</p>
       </div>
-      <button @click="saveGeneralConfiguration" class="cardinalis-button-action mt-2">Save General Configuration</button>
     </section>
   </div>
 </template>
@@ -85,7 +75,6 @@ export default {
   name: 'ConfigurationTab',
   data() {
     return {
-      localApiKeys: { openai: '' }, // For any legacy/other key display
       localOutputDirectory: '',
       selectionError: '',
       openaiApiKey: '', // For the new OpenAI API Key input
@@ -188,11 +177,6 @@ export default {
         this.selectionError = 'IPC renderer for directory selection is not available.';
         console.error('window.electron.ipcRenderer is not available.');
       }
-    },
-    saveGeneralConfiguration() {
-      // Placeholder for saving general settings like output directory
-      console.log('General configuration saved (locally):', this.localOutputDirectory);
-      this.setConfigStatusMessage('General configuration settings saved (placeholder).', true);
     },
 
     async saveOpenAIKey() {
