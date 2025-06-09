@@ -126,7 +126,7 @@
 <script>
 import { mapGetters, mapState } from 'vuex';
 
-import { fetchCategorizedModels } from '../services/api'; // Import the new service
+import { fetchCategorizedModels } from './services/api'; // Import the new service
 import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
 import ConferenceTab from './components/ConferenceTab.vue';
