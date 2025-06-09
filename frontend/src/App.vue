@@ -354,9 +354,19 @@ export default {
         this.$store.dispatch('updateOllamaStatus', { isConnected: false, message: `Ollama Connection Failed: ${errorMessage}` });
       }
     },
-    openCoderInstructions() { /* ... */ },
-    openBrainstormingInstructions() { /* ... */ },
-    openConferenceAgentInstructions(role) { /* ... */ },
+    openCoderInstructions() {
+      this.modalAgentType = 'coder_agent';
+      this.modalAgentRole = null; // No specific role for the general coder agent
+      this.showInstructionsModal = true;
+      console.log('[App.vue] Opening Coder Instructions. Type:', this.modalAgentType, 'Role:', this.modalAgentRole, 'Show:', this.showInstructionsModal);
+    },
+    openBrainstormingInstructions() { /* ... */ }, // Keep as stub for now, or implement if needed
+    openConferenceAgentInstructions(role) {
+      this.modalAgentType = 'conference_agent';
+      this.modalAgentRole = role; // e.g., 'model_a', 'model_b', 'arbiter'
+      this.showInstructionsModal = true;
+      console.log('[App.vue] Opening Conference Agent Instructions. Type:', this.modalAgentType, 'Role:', this.modalAgentRole, 'Show:', this.showInstructionsModal);
+    },
   },
   mounted() {
     this.executor = new Executor(this.$store); // Pass store to executor

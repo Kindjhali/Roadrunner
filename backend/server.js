@@ -382,6 +382,7 @@ app.use(cors());
 app.use(express.json());
 
 // Assign the named function to the route
+app.get('/execute-autonomous-task', handleExecuteAutonomousTask); // Added for EventSource GET requests
 app.post('/execute-autonomous-task', handleExecuteAutonomousTask);
 
 app.post('/api/confirm-action/:confirmationId', async (req, res) => {
