@@ -35,6 +35,7 @@ import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } f
 // renderTextDescription is not directly used, but as part of agent creation - assuming it's pulled in by agents if needed.
 // import { renderTextDescription } from "@langchain/core/tools";
 
+
 import { BufferWindowMemory } from "langchain/memory";
 
 
@@ -68,6 +69,7 @@ if (typeof ConversationBufferWindowMemory === 'function') {
         console.log('[DEBUG] No obvious alternative found in exports for ConversationBufferWindowMemory.');
     }
 }
+
 
 import { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } from './langchain_tools/fs_tools.js';
 import { GitAddTool, GitCommitTool, GitPushTool, GitPullTool, GitRevertTool } from './langchain_tools/git_tools.js';
@@ -105,7 +107,9 @@ Assistant is designed to be able to assist with a wide range of tasks, from answ
 
 TOOLS:
 ------
-Assistant has access to the following tools and MUST use them when needed. Each tool description provides information on how to use it, including the expected input format (e.g., direct string or JSON string) and an example.
+Assistant has access to the following tools: {tool_names}
+
+Use these tools when necessary. Each tool description provides information on how to use it, including the expected input format (e.g., direct string or JSON string) and an example:
 
 {tools}
 
