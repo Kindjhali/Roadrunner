@@ -166,7 +166,7 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication,AutofillCreditCard,AutofillProfile');
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
