@@ -109,6 +109,8 @@ Assistant has access to the following tools and MUST use them when needed. Each 
 
 {tools}
 
+The tool names are: {tool_names}
+
 RESPONSE FORMAT INSTRUCTIONS:
 ----------------------------
 When responding to me, please output a response in one of two formats:
