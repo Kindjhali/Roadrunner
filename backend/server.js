@@ -34,10 +34,7 @@ import { AgentExecutor, createOpenAIFunctionsAgent, createReactAgent } from "lan
 import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 // renderTextDescription is not directly used, but as part of agent creation - assuming it's pulled in by agents if needed.
 // import { renderTextDescription } from "@langchain/core/tools";
-import * as langchainMemory from "langchain/memory";
-const ConversationBufferWindowMemory = langchainMemory.ConversationBufferWindowMemory; // Explicit property access
-console.log('[DEBUG] langchainMemory module loaded. Keys:', Object.keys(langchainMemory));
-console.log('[DEBUG] ConversationBufferWindowMemory (after property access):', typeof ConversationBufferWindowMemory);
+import { BufferWindowMemory } from "langchain/memory";
 
 // Import tools and custom error - adding .js extension
 import { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } from './langchain_tools/fs_tools.js';
@@ -122,20 +119,14 @@ async function initializeAgentExecutor() {
   const llmProvider = backendSettings.llmProvider;
   let llm;
 
-  if (typeof ConversationBufferWindowMemory === 'undefined') {
-    console.error("[Agent Init] CRITICAL: ConversationBufferWindowMemory is undefined before instantiation. Check Langchain imports and property access.");
-  } else {
-    console.log(`[Agent Init] ConversationBufferWindowMemory type before instantiation: ${typeof ConversationBufferWindowMemory}`);
-  }
-
-  const memory = new ConversationBufferWindowMemory({
+  const memory = new BufferWindowMemory({
     k: 5,
     memoryKey: "chat_history",
     inputKey: "input",
     returnMessages: true
   });
-  console.log('[BACKEND DEBUG] ConversationBufferWindowMemory instance created. Type:', typeof memory, 'Keys:', memory ? Object.keys(memory).join(', ') : 'N/A');
-  console.log("[Agent Init] ConversationBufferWindowMemory initialized.");
+  console.log('[BACKEND DEBUG] BufferWindowMemory instance created. Type:', typeof memory, 'Keys:', memory ? Object.keys(memory).join(', ') : 'N/A');
+  console.log("[Agent Init] BufferWindowMemory initialized.");
 
   if (llmProvider === 'openai') {
     const effectiveOpenAIApiKey = backendSettings.apiKey || backendSettings.openaiApiKey;
