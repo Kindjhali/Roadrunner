@@ -34,7 +34,7 @@ import { AgentExecutor, createOpenAIFunctionsAgent, createReactAgent } from "lan
 import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 // renderTextDescription is not directly used, but as part of agent creation - assuming it's pulled in by agents if needed.
 // import { renderTextDescription } from "@langchain/core/tools";
-import { ConversationBufferWindowMemory } from "langchain/memory"; // Direct named import
+import { ConversationBufferWindowMemory } from "langchain/memory/buffer_window.js";
 
 // Import tools and custom error - adding .js extension
 import { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } from './langchain_tools/fs_tools.js';
