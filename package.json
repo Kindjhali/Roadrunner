@@ -1,6 +1,7 @@
 {
   "name": "roadrunner-executor-app",
   "version": "1.0.0",
+  "type": "module",
   "main": "electron.js",
   "scripts": {
     "dev": "npx vite",

@@ -34,10 +34,7 @@ import { AgentExecutor, createOpenAIFunctionsAgent, createReactAgent } from "lan
 import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 // renderTextDescription is not directly used, but as part of agent creation - assuming it's pulled in by agents if needed.
 // import { renderTextDescription } from "@langchain/core/tools";
-import * as langchainMemory from "langchain/memory";
-const ConversationBufferWindowMemory = langchainMemory.ConversationBufferWindowMemory; // Explicit property access
-console.log('[DEBUG] langchainMemory module loaded. Keys:', Object.keys(langchainMemory));
-console.log('[DEBUG] ConversationBufferWindowMemory (after property access):', typeof ConversationBufferWindowMemory);
+import { BufferWindowMemory } from "langchain/memory";
 
 // Import tools and custom error - adding .js extension
 import { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } from './langchain_tools/fs_tools.js';
@@ -70,13 +67,105 @@ const AGENT_PROMPT_TEMPLATE_OPENAI = ChatPromptTemplate.fromMessages([
 ]);
 
 // Standard ReAct prompt template text - now includes {chat_history}
+/*
 const REACT_AGENT_PROMPT_TEMPLATE_TEXT = `Assistant is a large language model.
 
 Assistant is designed to be able to assist with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model, Assistant is able to generate human-like text based on the input it receives, allowing it to engage in natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
 
 TOOLS:
 ------
-Assistant has access to the following tools and MUST use them when needed. Each tool description provides information on how to use it, including the expected input format (e.g., direct string or JSON string) and an example.
+Assistant has access to the following tools: {tool_names}
+
+Use these tools when necessary. Each tool description provides information on how to use it, including the expected input format (e.g., direct string or JSON string) and an example:
+
+{tools}
+
+RESPONSE FORMAT INSTRUCTIONS:
+----------------------------
+When responding to me, please output a response in one of two formats:
+
+**Option 1:**
+Use this if you want to use a tool.
+Markdown code snippet formatted in the following schema:
+
+Thought: Do I need to use a tool? Yes. Which tool is best for this? [tool_name]. What is the input to this tool?
+Action: [tool_name]
+Action Input: [the input to the tool, often a JSON string. For tools expecting JSON, ensure the JSON is valid and all string values within it are properly escaped. For tools expecting a simple string, just provide the string directly without JSON wrapping.]
+Observation: [the result of the tool call]
+
+**Option 2:**
+Use this if you want to respond directly to me.
+Markdown code snippet formatted in the following schema:
+
+Thought: Do I need to use a tool? No. I have the answer.
+Final Answer: [your response here]
+
+Always begin your response with "Thought:".
+If you are using a tool, the "Action" line MUST be followed by an "Action Input" line, then an "Observation" line.
+
+**HANDLING TOOL ERRORS:** If the 'Observation' you receive from a tool clearly indicates an error, acknowledge it in your 'Thought', analyze it, and avoid immediate retries if futile. Consider alternatives or explain if the task is blocked.
+**HANDLING USER DENIALS:** If an 'Observation' indicates a user denied an action, DO NOT retry the exact action. Acknowledge, re-evaluate, and find alternatives or explain why the task cannot proceed.
+
+NOW BEGIN!
+
+PREVIOUS CONVERSATION HISTORY (if any):
+{chat_history}
+
+NEW USER INPUT:
+Question: {input}
+
+Thought:{agent_scratchpad}`;
+*/
+
+async function initializeAgentExecutor() {
+  console.log("[Agent Init] Initializing AgentExecutor...");
+  const llmProvider = backendSettings.llmProvider;
+  let llm;
+
+  const memory = new BufferWindowMemory({
+    k: 5,
+    memoryKey: "chat_history",
+    inputKey: "input",
+    returnMessages: true
+  });
+  console.log('[BACKEND DEBUG] BufferWindowMemory instance created. Type:', typeof memory, 'Keys:', memory ? Object.keys(memory).join(', ') : 'N/A');
+  console.log("[Agent Init] BufferWindowMemory initialized.");
+
+  if (llmProvider === 'openai') {
+    const effectiveOpenAIApiKey = backendSettings.apiKey || backendSettings.openaiApiKey;
+    const openAIModelName = backendSettings.defaultOpenAIModel || 'gpt-4-turbo';
+    if (!effectiveOpenAIApiKey) {
+      console.error("[Agent Init] OpenAI API key is missing. OpenAI agent will not be functional.");
+      llm = new ChatOpenAI({ apiKey: effectiveOpenAIApiKey, modelName: openAIModelName, streaming: true, temperature: 0 });
+    } else {
+       llm = new ChatOpenAI({ apiKey: effectiveOpenAIApiKey, modelName: openAIModelName, streaming: true, temperature: 0 });
+       console.log(`[Agent Init] OpenAI LLM created with model ${openAIModelName}.`);
+    }
+    // Use the existing AGENT_PROMPT_TEMPLATE_OPENAI which now includes MessagesPlaceholder("chat_history")
+    agent = await createOpenAIFunctionsAgent({ llm, tools, prompt: AGENT_PROMPT_TEMPLATE_OPENAI });
+    console.log("[Agent Init] OpenAI Functions Agent created successfully.");
+  } else {
+    const ollamaModelName = backendSettings.defaultOllamaModel || 'llama3';
+    console.log(`[Agent Init] Ollama provider selected. Model: ${ollamaModelName}`);
+    llm = new ChatOllama({ baseUrl: OLLAMA_BASE_URL, model: ollamaModelName, temperature: 0 });
+    console.log(`[Agent Init] ChatOllama LLM created with model ${ollamaModelName}.`);
+
+    // Comment out the old reactPrompt definition
+    // const reactPrompt = ChatPromptTemplate.fromMessages([
+    //     new SystemMessage(REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(0, REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NOW BEGIN!"))), // System message part
+    //     new MessagesPlaceholder("chat_history"),
+    //     HumanMessagePromptTemplate.fromTemplate(REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NEW USER INPUT:"))),
+    // ]);
+
+    const systemPreamble = `Assistant is a large language model.
+
+Assistant is designed to be able to assist with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model, Assistant is able to generate human-like text based on the input it receives, allowing it to engage in natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.`;
+
+    const reactAgentHumanMessageTemplate = `TOOLS:
+------
+Assistant has access to the following tools: {tool_names}
+
+Use these tools when necessary. Each tool description provides information on how to use it, including the expected input format (e.g., direct string or JSON string) and an example:
 
 {tools}
 
@@ -116,51 +205,9 @@ Question: {input}
 
 Thought:{agent_scratchpad}`;
 
-
-async function initializeAgentExecutor() {
-  console.log("[Agent Init] Initializing AgentExecutor...");
-  const llmProvider = backendSettings.llmProvider;
-  let llm;
-
-  if (typeof ConversationBufferWindowMemory === 'undefined') {
-    console.error("[Agent Init] CRITICAL: ConversationBufferWindowMemory is undefined before instantiation. Check Langchain imports and property access.");
-  } else {
-    console.log(`[Agent Init] ConversationBufferWindowMemory type before instantiation: ${typeof ConversationBufferWindowMemory}`);
-  }
-
-  const memory = new ConversationBufferWindowMemory({
-    k: 5,
-    memoryKey: "chat_history",
-    inputKey: "input",
-    returnMessages: true
-  });
-  console.log('[BACKEND DEBUG] ConversationBufferWindowMemory instance created. Type:', typeof memory, 'Keys:', memory ? Object.keys(memory).join(', ') : 'N/A');
-  console.log("[Agent Init] ConversationBufferWindowMemory initialized.");
-
-  if (llmProvider === 'openai') {
-    const effectiveOpenAIApiKey = backendSettings.apiKey || backendSettings.openaiApiKey;
-    const openAIModelName = backendSettings.defaultOpenAIModel || 'gpt-4-turbo';
-    if (!effectiveOpenAIApiKey) {
-      console.error("[Agent Init] OpenAI API key is missing. OpenAI agent will not be functional.");
-      llm = new ChatOpenAI({ apiKey: effectiveOpenAIApiKey, modelName: openAIModelName, streaming: true, temperature: 0 });
-    } else {
-       llm = new ChatOpenAI({ apiKey: effectiveOpenAIApiKey, modelName: openAIModelName, streaming: true, temperature: 0 });
-       console.log(`[Agent Init] OpenAI LLM created with model ${openAIModelName}.`);
-    }
-    // Use the existing AGENT_PROMPT_TEMPLATE_OPENAI which now includes MessagesPlaceholder("chat_history")
-    agent = await createOpenAIFunctionsAgent({ llm, tools, prompt: AGENT_PROMPT_TEMPLATE_OPENAI });
-    console.log("[Agent Init] OpenAI Functions Agent created successfully.");
-  } else {
-    const ollamaModelName = backendSettings.defaultOllamaModel || 'llama3';
-    console.log(`[Agent Init] Ollama provider selected. Model: ${ollamaModelName}`);
-    llm = new ChatOllama({ baseUrl: OLLAMA_BASE_URL, model: ollamaModelName, temperature: 0 });
-    console.log(`[Agent Init] ChatOllama LLM created with model ${ollamaModelName}.`);
-
-    // Construct the prompt template for ReAct agent, incorporating chat_history
     const reactPrompt = ChatPromptTemplate.fromMessages([
-        new SystemMessage(REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(0, REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NOW BEGIN!"))), // System message part
-        new MessagesPlaceholder("chat_history"),
-        HumanMessagePromptTemplate.fromTemplate(REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NEW USER INPUT:"))),
+        new SystemMessage(systemPreamble),
+        HumanMessagePromptTemplate.fromTemplate(reactAgentHumanMessageTemplate)
     ]);
 
     agent = await createReactAgent({ llm, tools, prompt: reactPrompt });
