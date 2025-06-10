@@ -66,7 +66,7 @@
  * This is used for documentation and potentially for validation structure.
  * @type {CodeGenPlan}
  */
-const TARGET_CODE_GEN_SCHEMA_FOR_REFERENCE = {
+export const TARGET_CODE_GEN_SCHEMA_FOR_REFERENCE = {
   targetBaseDir: "src/",
   moduleName: "ExampleModule",
   overallGoal: "Create a module that does X, Y, and Z.",
@@ -166,7 +166,7 @@ const TARGET_CODE_GEN_SCHEMA_FOR_REFERENCE = {
  * @param {object} plan - The parsed JSON plan from the LLM.
  * @returns {{isValid: boolean, errors: string[]}}
  */
-function validateCodeGenPlan(plan) {
+export function validateCodeGenPlan(plan) {
   const errors = [];
   if (!plan) {
     errors.push("Plan is null or undefined.");
@@ -302,7 +302,7 @@ function validateCodeGenPlan(plan) {
  *                                  Signature: async (prompt, modelName, expressRes) => string
  * @returns {Promise<CodeGenPlan>} - Resolves with the validated codeGenPlan or rejects with an error.
  */
-async function generateCodeGenPlan(parsedSniperRaw, sniperFileContent, llmGenerator) {
+export async function generateCodeGenPlan(parsedSniperRaw, sniperFileContent, llmGenerator) {
   // Constructing the detailed prompt for the LLM
   const schemaDescription = `
     The target JSON schema for the code generation plan (CodeGenPlan) is as follows:
@@ -495,8 +495,8 @@ async function generateCodeGenPlan(parsedSniperRaw, sniperFileContent, llmGenera
   return parsedPlan;
 }
 
-module.exports = {
-  generateCodeGenPlan,
-  TARGET_CODE_GEN_SCHEMA_FOR_REFERENCE, // Exporting for reference/testing if needed
-  validateCodeGenPlan // Exporting for testing
-};
+// module.exports = {
+//   generateCodeGenPlan,
+//   TARGET_CODE_GEN_SCHEMA_FOR_REFERENCE, // Exporting for reference/testing if needed
+//   validateCodeGenPlan // Exporting for testing
+// };

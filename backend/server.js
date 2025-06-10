@@ -1,3 +1,9 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // --- Global Error Handlers for Backend Stability ---
 process.on('uncaughtException', (error, origin) => {
   console.error(`[Backend CRITICAL] Uncaught Exception at: ${origin}`);
@@ -11,34 +17,35 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 // --- End Global Error Handlers ---
 
-const express = require('express');
-const fs = require('fs');
-const path = require('path');
-// const os = require('os'); // Removed unused import
-const cors = require('cors');
-const { v4: uuidv4 } = require('uuid');
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args)); // Added node-fetch
+import express from 'express';
+import fs from 'fs';
+// path is already imported at the top for __dirname/__filename
+import cors from 'cors';
+import { v4 as uuidv4 } from 'uuid';
+import fetch from 'node-fetch'; // Standard ESM import
 
 let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'; // Changed to let
 
 // Langchain imports
-const { ChatOllama } = require('@langchain/community/chat_models/ollama');
-const { ChatOpenAI } = require('@langchain/openai');
-const { HumanMessage, AIMessage, SystemMessage } = require('@langchain/core/messages'); // Added SystemMessage
-const { createOpenAIFunctionsAgent, createReactAgent, AgentExecutor } = require('langchain/agents');
-// Removed SystemMessagePromptTemplate, PromptTemplate as they are not directly used. HumanMessagePromptTemplate is used.
-const { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
-// Removed RunnableSequence and StringOutputParser as they are not directly used.
-const { renderTextDescription } = require("@langchain/core/tools"); // renderTextDescription is implicitly used by agent creation
-const { ConversationBufferWindowMemory } = require("langchain"); // Memory import CHANGED
+import { ChatOllama } from '@langchain/community/chat_models/ollama';
+import { ChatOpenAI } from '@langchain/openai';
+import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
+import { AgentExecutor, createOpenAIFunctionsAgent, createReactAgent } from "langchain/agents"; // Reverting to specific path
+import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
+// renderTextDescription is not directly used, but as part of agent creation - assuming it's pulled in by agents if needed.
+// import { renderTextDescription } from "@langchain/core/tools";
+import * as langchainMemory from "langchain/memory";
+const ConversationBufferWindowMemory = langchainMemory.ConversationBufferWindowMemory; // Explicit property access
+console.log('[DEBUG] langchainMemory module loaded. Keys:', Object.keys(langchainMemory));
+console.log('[DEBUG] ConversationBufferWindowMemory (after property access):', typeof ConversationBufferWindowMemory);
 
-// Import tools and custom error
-const { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } = require('./langchain_tools/fs_tools');
-const { GitAddTool, GitCommitTool, GitPushTool, GitPullTool, GitRevertTool } = require('./langchain_tools/git_tools');
-const { CodeGeneratorTool } = require('./langchain_tools/code_generator_tool');
-const { ConferenceTool } = require('./langchain_tools/conference_tool');
-const { ProposePlanTool, RequestUserActionOnFailureTool } = require('./langchain_tools/planning_tools.js'); // Added RequestUserActionOnFailureTool
-const { ConfirmationRequiredError } = require('./langchain_tools/common');
+// Import tools and custom error - adding .js extension
+import { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } from './langchain_tools/fs_tools.js';
+import { GitAddTool, GitCommitTool, GitPushTool, GitPullTool, GitRevertTool } from './langchain_tools/git_tools.js';
+import { CodeGeneratorTool } from './langchain_tools/code_generator_tool.js';
+import { ConferenceTool } from './langchain_tools/conference_tool.js';
+import { ProposePlanTool, RequestUserActionOnFailureTool } from './langchain_tools/planning_tools.js';
+import { ConfirmationRequiredError } from './langchain_tools/common.js';
 
 // Initialize Tools
 const tools = [
@@ -115,12 +122,19 @@ async function initializeAgentExecutor() {
   const llmProvider = backendSettings.llmProvider;
   let llm;
 
+  if (typeof ConversationBufferWindowMemory === 'undefined') {
+    console.error("[Agent Init] CRITICAL: ConversationBufferWindowMemory is undefined before instantiation. Check Langchain imports and property access.");
+  } else {
+    console.log(`[Agent Init] ConversationBufferWindowMemory type before instantiation: ${typeof ConversationBufferWindowMemory}`);
+  }
+
   const memory = new ConversationBufferWindowMemory({
     k: 5,
     memoryKey: "chat_history",
     inputKey: "input",
     returnMessages: true
   });
+  console.log('[BACKEND DEBUG] ConversationBufferWindowMemory instance created. Type:', typeof memory, 'Keys:', memory ? Object.keys(memory).join(', ') : 'N/A');
   console.log("[Agent Init] ConversationBufferWindowMemory initialized.");
 
   if (llmProvider === 'openai') {
@@ -1353,14 +1367,15 @@ async function checkOllamaStatus() {
 // startOllama function is removed as per cleanup plan.
 
 function attemptToListen(port) {
+    console.log(`[BACKEND SERVER ATTEMPT] Attempting to listen on port: ${port}`);
     app.listen(port, () => {
-        console.log(`[Server Startup] Roadrunner backend server listening on port ${port}`);
+        console.log(`[BACKEND SERVER SUCCESS] Successfully listening on port: ${port}. PID: ${process.pid}`);
         // Send the port to the parent process (Electron main) if running as a child process
         if (process.send) {
             process.send({ type: 'backend-port', port: port });
         }
     }).on('error', (err) => {
-        console.error('[Server Startup] Error during server listen:', err);
+        console.error(`[BACKEND SERVER ERROR] Failed to listen on port: ${port}. Error: ${err}. PID: ${process.pid}`);
         // If Electron is the parent, it will handle the exit. Otherwise, exit directly.
         if (!process.send) {
              process.exit(1);
@@ -1391,19 +1406,23 @@ async function main() {
     // await initializeAgentExecutor();
     // console.log('[Server Startup] AgentExecutor initialized.');
 
-    if (require.main === module) {
-      const initialPort = parseInt(process.env.PORT || '3030', 10);
-      attemptToListen(initialPort);
-    }
+    // In ESM, require.main === module check is different.
+    // A common way is to check if the script is run directly.
+    // For simplicity, we'll assume server.js is always meant to run directly if executed with node.
+    // If this script is imported elsewhere, main() would need to be explicitly called by the importer.
+    const initialPort = parseInt(process.env.PORT || '3030', 10);
+    attemptToListen(initialPort);
+
   } catch (err) {
     console.error('[Server Startup IIFE] Error during server startup:', err);
-    if (require.main === module) process.exit(1); else throw err;
+    process.exit(1); // Exit if main startup fails
   }
 }
 
 main();
 
-module.exports = {
+// Exporting necessary components for potential testing or external use
+export {
   app,
   backendSettings,
   loadBackendConfig,
@@ -1411,6 +1430,8 @@ module.exports = {
   generateFromLocal,
   requestPlanApproval,
   requestUserActionOnStepFailure,
-  pendingPlans,       // Add this for testing
-  pendingFailures     // Add this for testing
+  pendingPlans,
+  pendingFailures
 };
+
+export default app; // Default export for convenience if primary export is the app

@@ -1,10 +1,14 @@
-const simpleGit = require('simple-git');
-const path = require('path');
+import simpleGit from 'simple-git';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Default working directory for Git operations, assuming script is in roadrunner/backend/
 const DEFAULT_GIT_WORK_DIR = path.resolve(__dirname, '../../');
 
-class ModularGitAgent {
+export class ModularGitAgent {
   constructor(options = {}) {
     this.workDir = options.workDir || DEFAULT_GIT_WORK_DIR;
     this.logger = options.logger || console;
@@ -248,13 +252,19 @@ const defaultGitAgentInstance = new ModularGitAgent({
   logger: console, // Standard console logger for the default instance
 });
 
-module.exports = {
-  ModularGitAgent, // Export the class
+const gitAdd = defaultGitAgentInstance.gitAdd.bind(defaultGitAgentInstance);
+const gitCommit = defaultGitAgentInstance.gitCommit.bind(defaultGitAgentInstance);
+const gitPush = defaultGitAgentInstance.gitPush.bind(defaultGitAgentInstance);
+const gitPull = defaultGitAgentInstance.gitPull.bind(defaultGitAgentInstance);
+const gitRevertLastCommit = defaultGitAgentInstance.gitRevertLastCommit.bind(defaultGitAgentInstance);
+
+export {
+  // ModularGitAgent, // Already exported with `export class ModularGitAgent`
   // Export methods from the default instance for backward compatibility
-  gitAdd: defaultGitAgentInstance.gitAdd.bind(defaultGitAgentInstance),
-  gitCommit: defaultGitAgentInstance.gitCommit.bind(defaultGitAgentInstance),
-  gitPush: defaultGitAgentInstance.gitPush.bind(defaultGitAgentInstance),
-  gitPull: defaultGitAgentInstance.gitPull.bind(defaultGitAgentInstance),
-  gitRevertLastCommit: defaultGitAgentInstance.gitRevertLastCommit.bind(defaultGitAgentInstance),
-  // defaultInstance: defaultGitAgentInstance, // Alternative for server.js if it can be updated
+  gitAdd,
+  gitCommit,
+  gitPush,
+  gitPull,
+  gitRevertLastCommit,
+  // defaultGitAgentInstance as default // Alternative
 };

@@ -1,9 +1,9 @@
-const { Tool } = require('@langchain/core/tools');
-const gitAgent = require('../gitAgent'); // Assuming gitAgent.js is in the parent directory
-const { ConfirmationRequiredError } = require('./common'); // Import the custom error
-const { v4: uuidv4 } = require('uuid'); // For generating confirmation IDs
+import { Tool } from '@langchain/core/tools';
+import * as gitAgent from '../gitAgent.js'; // Changed to named import namespace
+import { ConfirmationRequiredError } from './common.js'; // Added .js extension
+import { v4 as uuidv4 } from 'uuid'; // For generating confirmation IDs
 
-class GitAddTool extends Tool {
+export class GitAddTool extends Tool {
   name = "git_add";
   description = "Stages changes in the workspace for a commit. Input MUST be a JSON string with a 'filePath' key, where 'filePath' is a string representing a file path or '.' for all changes. Example: {\"filePath\": \"src/myFile.js\"} or {\"filePath\": \".\"}.";
 
@@ -45,7 +45,7 @@ class GitAddTool extends Tool {
   }
 }
 
-class GitCommitTool extends Tool {
+export class GitCommitTool extends Tool {
   name = "git_commit";
   description = "Creates a new commit with staged changes. Input MUST be a JSON string with a 'message' key (string). Example: {\"message\": \"feat: Add new login component\"}.";
 
@@ -83,7 +83,7 @@ class GitCommitTool extends Tool {
   }
 }
 
-class GitPushTool extends Tool {
+export class GitPushTool extends Tool {
   name = "git_push";
   description = "Pushes committed changes to a remote repository. Input MUST be a JSON string, optionally with 'remote' (string) and 'branch' (string) keys. If keys are absent, defaults will be used. Example: {\"remote\": \"origin\", \"branch\": \"main\"} or {}.";
 
@@ -117,7 +117,7 @@ class GitPushTool extends Tool {
   }
 }
 
-class GitPullTool extends Tool {
+export class GitPullTool extends Tool {
   name = "git_pull";
   description = "Fetches changes from a remote repository and merges them. Input MUST be a JSON string, optionally with 'remote' (string) and 'branch' (string) keys. If keys are absent, defaults will be used. Example: {\"remote\": \"origin\", \"branch\": \"main\"} or {}. This may overwrite local changes if conflicts occur and are auto-resolved.";
 
@@ -151,7 +151,7 @@ class GitPullTool extends Tool {
   }
 }
 
-class GitRevertTool extends Tool {
+export class GitRevertTool extends Tool {
   name = "git_revert_last_commit";
   description = "Reverts the last commit by creating a new commit that undoes the changes. Input MUST be an empty JSON string. Example: {}.";
 
@@ -185,10 +185,11 @@ class GitRevertTool extends Tool {
   }
 }
 
-module.exports = {
-  GitAddTool,
-  GitCommitTool,
-  GitPushTool,
-  GitPullTool,
-  GitRevertTool,
-};
+// No module.exports needed for ESM when using `export class ...`
+// export {
+//   GitAddTool,
+//   GitCommitTool,
+//   GitPushTool,
+//   GitPullTool,
+//   GitRevertTool,
+// };

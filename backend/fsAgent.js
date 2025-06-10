@@ -1,7 +1,11 @@
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-class ModularFsAgent {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export class ModularFsAgent {
   constructor(options) {
     if (!options || !options.workspaceDir) {
       throw new Error('ModularFsAgent requires workspaceDir in options.');
@@ -856,18 +860,27 @@ const defaultFsAgentInstance = new ModularFsAgent({
   logger: console, // Default logger for the standalone instance
 });
 
-module.exports = {
-  ModularFsAgent, // Export the class
-  // Export methods from the default instance for backward compatibility
-  checkFileExists: defaultFsAgentInstance.checkFileExists.bind(defaultFsAgentInstance),
-  createFile: defaultFsAgentInstance.createFile.bind(defaultFsAgentInstance),
-  readFile: defaultFsAgentInstance.readFile.bind(defaultFsAgentInstance),
-  updateFile: defaultFsAgentInstance.updateFile.bind(defaultFsAgentInstance),
-  deleteFile: defaultFsAgentInstance.deleteFile.bind(defaultFsAgentInstance),
-  createDirectory: defaultFsAgentInstance.createDirectory.bind(defaultFsAgentInstance),
-  deleteDirectory: defaultFsAgentInstance.deleteDirectory.bind(defaultFsAgentInstance),
-  generateDirectoryTree: defaultFsAgentInstance.generateDirectoryTree.bind(defaultFsAgentInstance),
-  resolvePathInWorkspace: defaultFsAgentInstance.resolvePathInWorkspace.bind(defaultFsAgentInstance),
-  // It might be cleaner to export the instance itself if server.js can be updated slightly:
-  // defaultInstance: defaultFsAgentInstance,
+// Export bound methods from the default instance for backward compatibility
+const checkFileExists = defaultFsAgentInstance.checkFileExists.bind(defaultFsAgentInstance);
+const createFile = defaultFsAgentInstance.createFile.bind(defaultFsAgentInstance);
+const readFile = defaultFsAgentInstance.readFile.bind(defaultFsAgentInstance);
+const updateFile = defaultFsAgentInstance.updateFile.bind(defaultFsAgentInstance);
+const deleteFile = defaultFsAgentInstance.deleteFile.bind(defaultFsAgentInstance);
+const createDirectory = defaultFsAgentInstance.createDirectory.bind(defaultFsAgentInstance);
+const deleteDirectory = defaultFsAgentInstance.deleteDirectory.bind(defaultFsAgentInstance);
+const generateDirectoryTree = defaultFsAgentInstance.generateDirectoryTree.bind(defaultFsAgentInstance);
+const resolvePathInWorkspace = defaultFsAgentInstance.resolvePathInWorkspace.bind(defaultFsAgentInstance);
+
+export {
+  // ModularFsAgent, // Already exported with `export class ModularFsAgent`
+  checkFileExists,
+  createFile,
+  readFile,
+  updateFile,
+  deleteFile,
+  createDirectory,
+  deleteDirectory,
+  generateDirectoryTree,
+  resolvePathInWorkspace,
+  // defaultFsAgentInstance as default // Alternative: export the instance
 };

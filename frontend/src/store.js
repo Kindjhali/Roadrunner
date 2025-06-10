@@ -99,8 +99,10 @@ const store = createStore({
       let responseText = '';
       try {
         const port = state.backendPort;
+        const apiUrl = `http://127.0.0.1:${port}/api/settings`;
+        console.log(`[FRONTEND STORE] Attempting to fetch from URL: ${apiUrl} (Action: saveSettings)`); // Added log
         console.log('[store.js] saveSettings: Attempting to POST /api/settings with payload:', JSON.stringify(settingsPayload));
-        const response = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+        const response = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', },
           body: JSON.stringify(settingsPayload),
@@ -208,6 +210,8 @@ const store = createStore({
 async function fetchWithRetry(url, options, retries = 3, delay = 1000, actionName = "fetch") {
   for (let i = 0; i < retries; i++) {
     try {
+      // Added log as per subtask for fetchWithRetry context
+      console.log(`[FRONTEND STORE] Attempting to fetch from URL: ${url} (Action: ${actionName}, Attempt: ${i + 1}/${retries})`);
       console.log(`[FetchWithRetry - ${actionName}] Attempt ${i + 1}/${retries} to fetch ${url}`);
       const response = await fetch(url, options);
       if (!response.ok) {

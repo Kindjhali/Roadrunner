@@ -1,8 +1,14 @@
 // backend/codeGenerator.js
+import * as fsAgent from './fsAgent.js'; // Changed to named import namespace
+import path from 'path'; // For path.join
+import fs from 'fs'; // For readFileSync
+import { generateFromLocal } from './server.js'; // Assuming server.js is in the same directory
 
-const fsAgent = require('./fsAgent'); // fsAgent.createDirectory, fsAgent.createFile
-const path = require('path'); // For path.join
-const fs = require('fs'); // For readFileSync
+// ESM equivalent for __dirname
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 
 // Helper to convert camelCase or PascalCase to kebab-case
 function toKebabCase(str) {
@@ -25,28 +31,28 @@ function toKebabCase(str) {
  * @param {function} sendSseMessage - For logging.
  * @returns {Promise<string|null>} Generated code content or null on failure.
  */
-async function generateContentFromSpec(specType, specDetails, itemDetails, moduleName, fullCodeGenPlan, llmGenerator, sendSseMessage) {
+export async function generateContentFromSpec(specType, specDetails, itemDetails, moduleName, fullCodeGenPlan, llmGenerator, sendSseMessage) {
   const logPrefix = `[CodeGenerator.generateContentFromSpec.${specType}]`;
   const modelPreference = fullCodeGenPlan.modelPreference || 'phi3'; // Or a default model for code gen
 
   try {
     if (specType === "componentSpec") {
-      const componentName = specDetails.componentName || "MyComponent";
-      sendSseMessage('log_entry', { message: `${logPrefix} Generating Vue component: ${componentName}` });
+      // const componentName = specDetails.componentName || "MyComponent"; // This line was duplicated
+      // sendSseMessage('log_entry', { message: `${logPrefix} Generating Vue component: ${componentName}` }); // This line was duplicated
 
-      let templatePath = path.join(__dirname, 'templates', 'vue_component_basic.template');
-      if (specDetails.framework === 'react') { // Example for future extension
-        templatePath = path.join(__dirname, 'templates', 'react_component_basic.template'); // Assuming this exists
-         sendSseMessage('log_entry', { message: `${logPrefix} React framework specified, attempting to use React template.` });
-      }
+      // let templatePath = path.join(__dirname, 'templates', 'vue_component_basic.template'); // This line was duplicated
+      // if (specDetails.framework === 'react') { // Example for future extension // This line was duplicated
+      //   templatePath = path.join(__dirname, 'templates', 'react_component_basic.template'); // Assuming this exists // This line was duplicated
+      //    sendSseMessage('log_entry', { message: `${logPrefix} React framework specified, attempting to use React template.` }); // This line was duplicated
+      // } // This line was duplicated
 
-      let baseTemplate;
-      try {
-        baseTemplate = fs.readFileSync(templatePath, 'utf-8');
-      } catch (e) {
-        sendSseMessage('error', { content: `${logPrefix} Error reading template file ${templatePath}: ${e.message}` });
-        return `// Error: Could not load template ${templatePath}. ${e.message}`;
-      }
+      // let baseTemplate; // This line was duplicated
+      // try { // This line was duplicated
+      //   baseTemplate = fs.readFileSync(templatePath, 'utf-8'); // This line was duplicated
+      // } catch (e) { // This line was duplicated
+      //   sendSseMessage('error', { content: `${logPrefix} Error reading template file ${templatePath}: ${e.message}` }); // This line was duplicated
+      //   return `// Error: Could not load template ${templatePath}. ${e.message}`; // This line was duplicated
+      // } // This line was duplicated
 
       const componentName = specDetails.componentName || "MyComponent";
       const componentNameKebab = toKebabCase(componentName);
@@ -222,7 +228,7 @@ export default {
  *                            { success: true, createdDirectories: Array<string> } if all successful, or
  *                            { success: false, error: string, createdDirectories: Array<string> } if any failure.
  */
-async function scaffoldDirectories(scaffoldingItems, targetBaseDir, moduleName, sendSseMessage, overallExecutionLog) {
+export async function scaffoldDirectories(scaffoldingItems, targetBaseDir, moduleName, sendSseMessage, overallExecutionLog) {
   const createdDirectories = [];
   const logPrefix = '[CodeGenerator.scaffoldDirectories]';
 
@@ -342,7 +348,7 @@ async function scaffoldDirectories(scaffoldingItems, targetBaseDir, moduleName, 
  *                            { success: true, createdFiles: Array<object> } // {path, source}
  *                            { success: false, error: string, createdFiles: Array<object> }
  */
-async function createFilesFromPlan(
+export async function createFilesFromPlan(
     scaffoldingItems,
     targetBaseDir,
     moduleName,
@@ -385,7 +391,7 @@ async function createFilesFromPlan(
       sendSseMessage('warning', { content: pathErrorMsg });
       overallExecutionLog.push(`WARN: ${pathErrorMsg}`);
       console.warn(pathErrorMsg, item);
-      continue;
+      continue; // Skip to next item
     }
 
     resolvedFilePath = path.join(targetBaseDir, itemFilePath.replace(/\{\{moduleName\}\}/g, moduleName));
@@ -504,11 +510,11 @@ async function createFilesFromPlan(
 }
 
 
-module.exports = {
-  scaffoldDirectories,
-  generateContentFromSpec,
-  createFilesFromPlan,
-};
+// module.exports = {
+//   scaffoldDirectories,
+//   generateContentFromSpec,
+//   createFilesFromPlan,
+// };
 
 // --- Barrel File Creation (Helper - May be superseded by LLM generating content directly) ---
 /**
@@ -522,7 +528,7 @@ module.exports = {
  * @param {Array<string>} overallExecutionLog - For server-side logging.
  * @returns {Promise<object>} - { success: boolean, error?: string, filePath?: string }
  */
-async function createBarrelFile(barrelFilePath, itemsToExport, itemType, sendSseMessage, overallExecutionLog) {
+export async function createBarrelFile(barrelFilePath, itemsToExport, itemType, sendSseMessage, overallExecutionLog) {
   const logPrefix = `[CodeGenerator.createBarrelFile: ${barrelFilePath}]`;
 
   if (!barrelFilePath || !Array.isArray(itemsToExport)) {
@@ -599,7 +605,7 @@ async function createBarrelFile(barrelFilePath, itemsToExport, itemType, sendSse
  * @param {Array<string>} overallExecutionLog - For server-side logging.
  * @returns {Promise<object>} - { success: boolean, filePath?: string, error?: string }
  */
-async function generateRegistrationInstructionsFile(registrationHints, targetBaseDir, moduleName, sendSseMessage, overallExecutionLog) {
+export async function generateRegistrationInstructionsFile(registrationHints, targetBaseDir, moduleName, sendSseMessage, overallExecutionLog) {
   const logPrefix = '[CodeGenerator.generateRegistrationInstructionsFile]';
 
   if (!registrationHints || registrationHints.length === 0) {
@@ -679,10 +685,10 @@ async function generateRegistrationInstructionsFile(registrationHints, targetBas
 }
 
 
-module.exports = {
-  scaffoldDirectories,
-  generateContentFromSpec,
-  createFilesFromPlan,
-  createBarrelFile, // Exporting even if used indirectly or for future
-  generateRegistrationInstructionsFile,
-};
+// module.exports = {
+//   scaffoldDirectories,
+//   generateContentFromSpec,
+//   createFilesFromPlan,
+//   createBarrelFile, // Exporting even if used indirectly or for future
+//   generateRegistrationInstructionsFile,
+// };
