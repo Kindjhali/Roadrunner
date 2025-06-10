@@ -87,7 +87,7 @@
         </div>
 
         <div v-if="activeTab === 'brainstorming'" class="tab-content brainstorming-tab-content p-4 flex flex-col space-y-4">
-          <p class="text-gray-400 text-center">Brainstorming chat feature coming soon!</p>
+          <brainstorming-tab />
         </div>
 
         <div v-if="activeTab === 'conference'" class="tab-content conference-tab-content p-4">
@@ -126,7 +126,7 @@
 <script>
 import { mapGetters, mapState } from 'vuex';
 
-import { fetchCategorizedModels } from './services/api'; // Import the new service
+import { fetchCategorizedModels } from './services/api.js'; // Import the new service
 import Executor from './executor';
 import ConfigurationTab from './components/ConfigurationTab.vue';
 import ConferenceTab from './components/ConferenceTab.vue';
