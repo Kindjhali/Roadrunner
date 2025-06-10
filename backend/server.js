@@ -34,6 +34,7 @@ import { AgentExecutor, createOpenAIFunctionsAgent, createReactAgent } from "lan
 import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 // renderTextDescription is not directly used, but as part of agent creation - assuming it's pulled in by agents if needed.
 // import { renderTextDescription } from "@langchain/core/tools";
+
 import * as langchainMemory from "langchain/memory";
 console.log('[DEBUG] langchain/memory raw exports:', langchainMemory);
 console.log('[DEBUG] langchain/memory export keys:', Object.keys(langchainMemory));
@@ -65,7 +66,7 @@ if (typeof ConversationBufferWindowMemory === 'function') {
     }
 }
 
-// Import tools and custom error - adding .js extension
+
 import { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } from './langchain_tools/fs_tools.js';
 import { GitAddTool, GitCommitTool, GitPushTool, GitPullTool, GitRevertTool } from './langchain_tools/git_tools.js';
 import { CodeGeneratorTool } from './langchain_tools/code_generator_tool.js';
