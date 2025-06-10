@@ -1,19 +1,27 @@
-const { Tool } = require('@langchain/core/tools');
-const { generateFromLocal } = require('../server'); // Adjust path as necessary
-const fs = require('fs');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+import { Tool } from '@langchain/core/tools';
+import { generateFromLocal } from '../server.js'; // Adjust path as necessary, added .js
+import fs from 'fs';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+
+// ESM equivalent for __dirname
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Define CONFERENCES_LOG_DIR and CONFERENCES_LOG_FILE
 let CONFERENCE_LOGS_BASE_DIR;
 try {
-    if (__dirname.endsWith(path.join('backend', 'langchain_tools'))) {
-        CONFERENCE_LOGS_BASE_DIR = path.resolve(__dirname, '../../logs/roadrunner_workspace');
-    } else if (__dirname.endsWith('backend')) {
-        CONFERENCE_LOGS_BASE_DIR = path.resolve(__dirname, '../logs/roadrunner_workspace');
-    } else {
+    // Attempt to resolve path relative to this file's location
+    // Expected structure: project_root/backend/langchain_tools/conference_tool.js
+    // So, ../../logs would be project_root/logs
+    CONFERENCE_LOGS_BASE_DIR = path.resolve(__dirname, '../../logs/roadrunner_workspace');
+
+    // Check if the resolved path seems plausible, e.g. by checking if 'backend' is in the path segments
+    // This is a heuristic. A more robust way might involve environment variables or a config setting.
+    if (!__dirname.includes(path.join('backend', 'langchain_tools'))) {
+        console.warn(`[ConferenceTool] __dirname (${__dirname}) does not match expected structure. Log path might be incorrect. Forcing CWD-relative path.`);
         CONFERENCE_LOGS_BASE_DIR = path.resolve(process.cwd(), 'logs/roadrunner_workspace');
-        console.warn(`[ConferenceTool] Could not reliably determine logs path relative to __dirname (${__dirname}). Defaulting to CWD-relative: ${CONFERENCE_LOGS_BASE_DIR}. Consider passing via config.`);
     }
 } catch (e) {
     CONFERENCE_LOGS_BASE_DIR = path.resolve(process.cwd(), 'logs/roadrunner_workspace');
@@ -25,14 +33,14 @@ const CONFERENCES_LOG_FILE = path.join(CONFERENCE_LOGS_BASE_DIR, 'conferences.js
 try {
     if (!fs.existsSync(CONFERENCE_LOGS_BASE_DIR)) {
         fs.mkdirSync(CONFERENCE_LOGS_BASE_DIR, { recursive: true });
-        console.log(`[ConferenceTool] Created conference log directory: ${CONFERENCE_LOGS_BASE_DIR}`);
+        console.log(`[ConferenceTool] Created conference log directory: ${CONFERENCES_LOGS_BASE_DIR}`);
     }
 } catch (dirError) {
     console.error(`[ConferenceTool] CRITICAL: Could not create conference log directory at ${CONFERENCE_LOGS_BASE_DIR}. Error: ${dirError.message}`);
 }
 
 
-class ConferenceTool extends Tool {
+export class ConferenceTool extends Tool {
   name = "multi_model_debate";
   description = `Facilitates a structured debate between AI personas on a given prompt, followed by a synthesized summary from an arbiter.
 Input MUST be a JSON string with a required 'prompt' key (string, the topic for discussion).
@@ -137,6 +145,6 @@ Example: {"prompt": "Should AI be used in art?", "model_a_role": "For AI Art", "
   }
 }
 
-module.exports = {
-  ConferenceTool,
-};
+// module.exports = {
+//   ConferenceTool,
+// };

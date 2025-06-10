@@ -1,7 +1,7 @@
-const { Tool } = require("@langchain/core/tools");
-const { requestPlanApproval, requestUserActionOnStepFailure } = require("../server.js"); // Adjust path as necessary
+import { Tool } from "@langchain/core/tools";
+import { requestPlanApproval, requestUserActionOnStepFailure } from "../server.js"; // Added .js extension
 
-class ProposePlanTool extends Tool {
+export class ProposePlanTool extends Tool {
   static lc_name() {
     return "ProposePlanTool";
   }
@@ -78,7 +78,7 @@ class ProposePlanTool extends Tool {
   }
 }
 
-class RequestUserActionOnFailureTool extends Tool {
+export class RequestUserActionOnFailureTool extends Tool {
   static lc_name() {
     return "RequestUserActionOnFailureTool";
   }
@@ -146,4 +146,4 @@ class RequestUserActionOnFailureTool extends Tool {
   }
 }
 
-module.exports = { ProposePlanTool, RequestUserActionOnFailureTool };
+// module.exports = { ProposePlanTool, RequestUserActionOnFailureTool };

@@ -1,9 +1,9 @@
-const { Tool } = require('@langchain/core/tools');
-const fsAgent = require('../fsAgent'); // Assuming fsAgent.js is in the parent directory
-const { ConfirmationRequiredError } = require('./common'); // Import the custom error
-const { v4: uuidv4 } = require('uuid'); // For generating confirmation IDs
+import { Tool } from '@langchain/core/tools';
+import * as fsAgent from '../fsAgent.js'; // Changed to named import namespace
+import { ConfirmationRequiredError } from './common.js'; // Added .js extension
+import { v4 as uuidv4 } from 'uuid'; // For generating confirmation IDs
 
-class ListDirectoryTool extends Tool {
+export class ListDirectoryTool extends Tool {
   name = "list_directory";
   description = "Lists files and sub-directories in a specified directory relative to the workspace. Input should be a single string representing the relative path to the directory, or an empty string for the workspace root. Example: \"src/components\" or \"\".";
 
@@ -17,7 +17,7 @@ class ListDirectoryTool extends Tool {
   }
 }
 
-class CreateFileTool extends Tool {
+export class CreateFileTool extends Tool {
   name = "create_file";
   description = "Creates a new file with specified content at a given relative path. Input MUST be a JSON string with 'filePath' (string) and 'content' (string) keys. Example: {\"filePath\": \"path/to/new_file.txt\", \"content\": \"This is the file content.\\nWith newlines if needed.\"}.";
 
@@ -58,7 +58,7 @@ class CreateFileTool extends Tool {
   }
 }
 
-class ReadFileTool extends Tool {
+export class ReadFileTool extends Tool {
   name = "read_file";
   description = "Reads the content of a file at a given relative path. Input should be a single string representing the relative path to the file. Example: \"src/utils/helpers.js\".";
 
@@ -79,7 +79,7 @@ class ReadFileTool extends Tool {
   }
 }
 
-class UpdateFileTool extends Tool {
+export class UpdateFileTool extends Tool {
   name = "update_file";
   description = "Updates an existing file with new content, or creates the file if it doesn't exist (unless 'append' is true and file doesn't exist, then it also creates). Input MUST be a JSON string with 'filePath' (string), 'content' (string), and optional 'append' (boolean, defaults to false) keys. Example for overwrite: {\"filePath\": \"path/to/file.txt\", \"content\": \"New full content\"}. Example for append: {\"filePath\": \"path/to/file.txt\", \"content\": \"Additional line.\", \"append\": true}.";
 
@@ -117,7 +117,7 @@ class UpdateFileTool extends Tool {
   }
 }
 
-class DeleteFileTool extends Tool {
+export class DeleteFileTool extends Tool {
   name = "delete_file";
   description = "Deletes a file at a given relative path. Input should be a single string representing the relative path to the file. Example: \"path/to/obsolete_file.txt\".";
 
@@ -152,7 +152,7 @@ class DeleteFileTool extends Tool {
   }
 }
 
-class CreateDirectoryTool extends Tool {
+export class CreateDirectoryTool extends Tool {
   name = "create_directory";
   description = "Creates a new directory (and any necessary parent directories) at a given relative path. Input should be a single string representing the relative path. Example: \"new_folder/sub_folder\".";
 
@@ -190,7 +190,7 @@ class CreateDirectoryTool extends Tool {
   }
 }
 
-class DeleteDirectoryTool extends Tool {
+export class DeleteDirectoryTool extends Tool {
   name = "delete_directory";
   description = "Deletes a directory and all its contents recursively at a given relative path. Input should be a single string representing the relative path. Example: \"folder_to_remove\".";
 
@@ -225,12 +225,8 @@ class DeleteDirectoryTool extends Tool {
   }
 }
 
-module.exports = {
-  ListDirectoryTool,
-  CreateFileTool,
-  ReadFileTool,
-  UpdateFileTool,
-  DeleteFileTool,
-  CreateDirectoryTool,
-  DeleteDirectoryTool,
-};
+// No longer using module.exports for ESM
+// Individual classes are exported with `export class ...`
+// If you needed to group exports, you might do:
+// export { ListDirectoryTool, CreateFileTool, ... };
+// But `export class` is sufficient and common.

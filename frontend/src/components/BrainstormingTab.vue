@@ -6,14 +6,14 @@
       <label for="brainstorming-topic" class="emberiza-label block mb-2">Enter your brainstorming topic or prompt:</label>
       <textarea
         id="brainstorming-topic"
-        v-model="topic"
-        class="hirundo-text-input w-full h-32 p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+        v-model="brainstormingTopic"
+        class="hirundo-text-input w-full h-24 p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
         placeholder="e.g., How can we improve remote team collaboration?"
       ></textarea>
     </div>
 
     <button
-      @click="startBrainstorming"
+      @click="startBrainstormingSession"
       :disabled="isLoading"
       class="cardinalis-button-action px-4 py-2 rounded-md"
       :class="{ 'opacity-50 cursor-not-allowed': isLoading }"
@@ -28,153 +28,120 @@
       <span v-else>Start Brainstorming</span>
     </button>
 
-    <div v-if="statusMessage" class="mt-4 p-3 rounded-md text-sm" :class="statusIsError ? 'bg-red-800 text-red-200' : 'bg-blue-800 text-blue-200'">
+    <div v-if="statusMessage" class="mt-4 p-3 rounded-md text-sm"
+         :class="{
+           'bg-red-800 text-red-200': statusMessage.toLowerCase().includes('error'),
+           'bg-blue-800 text-blue-200': !statusMessage.toLowerCase().includes('error') && !statusMessage.toLowerCase().includes('complete'),
+           'bg-green-800 text-green-200': statusMessage.toLowerCase().includes('complete')
+         }">
       {{ statusMessage }}
     </div>
 
-    <div v-if="brainstormingLog.length > 0" class="mt-6">
-      <h3 class="text-lg font-semibold mb-2">Brainstorming Log:</h3>
-      <div class="p-3 bg-gray-800 rounded-md max-h-96 overflow-y-auto space-y-2">
-        <div v-for="(entry, index) in brainstormingLog" :key="index" class="text-sm p-2 rounded bg-gray-700">
-          <span class="font-semibold text-purple-400">{{ entry.type }}: </span>
-          <span v-if="typeof entry.data === 'string'" class="whitespace-pre-wrap">{{ entry.data }}</span>
-          <pre v-else class="whitespace-pre-wrap text-xs">{{ JSON.stringify(entry.data, null, 2) }}</pre>
-        </div>
-      </div>
+    <div v-if="sseRawLog" class="mt-6 brainstorming-log">
+      <h4 class="text-md font-semibold mb-1">Activity Log:</h4>
+      <pre>{{ sseRawLog }}</pre>
     </div>
 
-    <div v-if="finalOutput" class="mt-6">
-      <h3 class="text-lg font-semibold mb-2">Final Brainstormed Output:</h3>
-      <div class="p-3 bg-green-800 rounded-md text-green-100 whitespace-pre-wrap">
-        {{ finalOutput }}
-      </div>
+    <div v-if="finalOutput" class="mt-6 final-output">
+      <h4 class="text-md font-semibold mb-1">Final Result:</h4>
+      <pre>{{ finalOutput }}</pre>
     </div>
 
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, onUnmounted } from 'vue';
+import { useStore } from 'vuex';
 
-const topic = ref('');
-const brainstormingLog = ref([]); // To store various SSE event data for logging
-const finalOutput = ref(''); // To store the final output from the agent
+const store = useStore();
+
+const brainstormingTopic = ref('');
+const sseRawLog = ref('');
+const finalOutput = ref('');
 const isLoading = ref(false);
 const statusMessage = ref('');
-const statusIsError = ref(false);
-let eventSource = null;
+let eventSourceInstance = null;
 
-const setStatus = (message, isError = false, persistent = false) => {
-  statusMessage.value = message;
-  statusIsError.value = isError;
-  if (!persistent && message) {
-    setTimeout(() => {
-      if (statusMessage.value === message) { // Clear only if it's the same message
-        statusMessage.value = '';
-      }
-    }, 5000);
-  }
-};
-
-const startBrainstorming = async () => {
-  if (!topic.value.trim()) {
-    setStatus('Please enter a topic to brainstorm.', true);
+const startBrainstormingSession = async () => {
+  if (!brainstormingTopic.value.trim()) {
+    statusMessage.value = 'Please enter a topic to brainstorm.';
     return;
   }
 
   isLoading.value = true;
-  brainstormingLog.value = [];
+  sseRawLog.value = '';
   finalOutput.value = '';
-  setStatus('Initiating brainstorming session...', false, true);
+  statusMessage.value = 'Initiating brainstorming session...';
+  console.log("[BrainstormingTab] Starting session with topic:", brainstormingTopic.value);
 
-  // Close existing EventSource if any
-  if (eventSource) {
-    eventSource.close();
+  if (eventSourceInstance) {
+    eventSourceInstance.close();
+    console.log("[BrainstormingTab] Closed existing EventSource instance.");
   }
 
-  const userTopic = topic.value;
-  const taskDescription = `
-    Use the multi_model_debate tool to brainstorm ideas on the following topic: "${userTopic}".
-    The debate should involve the following roles:
-    - 'Idea_Generator': This role should focus on generating a wide variety of creative and unconventional ideas related to the topic.
-    - 'Critical_Evaluator': This role should critically assess the ideas generated by the Idea_Generator, considering their feasibility, potential impact, and novelty.
-    - 'Synthesizer': This role should take the generated ideas and evaluations to summarize the key insights and produce a coherent, actionable output or a comprehensive summary of the brainstorming session.
+  const userTopic = brainstormingTopic.value;
+  const taskDescription = `Use the multi_model_debate tool to brainstorm ideas on the following topic: "${userTopic}". Use roles like 'Idea_Generator', 'Critical_Evaluator', and 'Synthesizer' for the debate.`;
 
-    The final output from the tool should be the Synthesizer's summary. Ensure the debate is thorough.
-  `.trim();
+  const backendPort = store.state.backendPort || 3030;
+  console.log(`[BrainstormingTab] Using backend port: ${backendPort}`);
 
-  const payload = {
-    task_description: taskDescription,
-    safetyMode: false, // Generally, brainstorming doesn't need strict safety for file ops etc.
+  const eventSourceUrl = `http://127.0.0.1:${backendPort}/execute-autonomous-task?task_description=${encodeURIComponent(taskDescription)}&safetyMode=false`;
+  console.log(`[BrainstormingTab] EventSource URL: ${eventSourceUrl}`);
+
+  eventSourceInstance = new EventSource(eventSourceUrl);
+
+  eventSourceInstance.onopen = () => {
+    const openMsg = "Connection opened. Waiting for brainstorming data...";
+    statusMessage.value = openMsg;
+    sseRawLog.value += `[SYSTEM] ${openMsg}\n`;
+    console.log("[BrainstormingTab] SSE connection opened.");
   };
 
-  eventSource = new EventSource(`http://localhost:3030/execute-autonomous-task?task_description=${encodeURIComponent(payload.task_description)}&safetyMode=${payload.safetyMode}`);
+  eventSourceInstance.onmessage = (event) => {
+    console.log("[BrainstormingTab] SSE message received:", event.data);
+    sseRawLog.value += event.data + '\n';
 
-  eventSource.onmessage = (event) => {
     try {
       const parsedData = JSON.parse(event.data);
-      // console.log('SSE Data:', parsedData);
 
-      if (parsedData.type === 'log_entry') {
-        brainstormingLog.value.push({ type: 'Log', data: parsedData.message });
-      } else if (parsedData.type === 'agent_event') {
-        if (parsedData.event_type === 'on_tool_start' && parsedData.data.tool === 'multi_model_debate') {
-            brainstormingLog.value.push({ type: 'Tool Start', data: `Debate started for topic: ${parsedData.data.toolInput.prompt}`});
-        } else if (parsedData.event_type === 'on_tool_end' && parsedData.data.tool === 'multi_model_debate') {
-            brainstormingLog.value.push({ type: 'Tool End', data: `Debate finished. Output (summary): ${parsedData.data.output.substring(0,150)}...`});
-        } else if (parsedData.event_type === 'on_chain_end' || parsedData.event_type === 'on_agent_finish') {
-             const output = parsedData.data.output || (parsedData.data.outputs ? parsedData.data.outputs.output : null);
-             if (output) {
-                brainstormingLog.value.push({ type: 'Agent Finish', data: output });
-                finalOutput.value = output; // Assume the final output of the agent is the debate result
-             }
-        } else {
-            // Log other agent events if needed, or keep it concise
-             brainstormingLog.value.push({ type: parsedData.event_type, data: parsedData.data });
-        }
-      } else if (parsedData.type === 'llm_chunk' && parsedData.speaker) {
-        // This can be very verbose. Could be useful for detailed debate log.
-        // For now, just log that a chunk was received from a speaker.
-        // If you want to reconstruct the full debate, you'd append these.
-         brainstormingLog.value.push({ type: 'Debate Turn', data: `[${parsedData.speaker}]: ${parsedData.content.substring(0,50)}...` });
+      if (parsedData.type === 'execution_complete') {
+        finalOutput.value = parsedData.final_output || 'Brainstorming session finished, but no specific final output was provided in the event.';
+        statusMessage.value = 'Brainstorming complete.';
+        isLoading.value = false;
+        if (eventSourceInstance) eventSourceInstance.close();
       } else if (parsedData.type === 'error') {
-        setStatus(`Error during brainstorming: ${parsedData.content}`, true);
-        brainstormingLog.value.push({ type: 'Error', data: parsedData.content });
+        statusMessage.value = `Error: ${parsedData.content || parsedData.details || 'Unknown error from backend.'}`;
         isLoading.value = false;
-        if (eventSource) eventSource.close();
-      } else if (parsedData.type === 'execution_complete') {
-        setStatus('Brainstorming session completed!', false);
-        brainstormingLog.value.push({ type: 'Execution Complete', data: parsedData.message });
-        if(parsedData.final_output && !finalOutput.value) { // If not already set by on_agent_finish
-            finalOutput.value = parsedData.final_output;
-        }
-        isLoading.value = false;
-        if (eventSource) eventSource.close();
-      } else {
-        // For other specific events you might want to handle or log differently
-        // brainstormingLog.value.push({ type: parsedData.type, data: parsedData });
+        if (eventSourceInstance) eventSourceInstance.close();
+      } else if (parsedData.type === 'log_entry') {
+        statusMessage.value = `Progress: ${parsedData.message}`;
       }
+      // Further detailed handling of other event types like 'agent_event', 'llm_chunk' can be added here
+      // For now, they are just added to sseRawLog
     } catch (error) {
-      console.error('Error parsing SSE event or updating UI:', error);
-      setStatus('Error processing data from server.', true);
-      // brainstormingLog.value.push({ type: 'Client Error', data: `Error processing event: ${error.message}` });
+      console.error('[BrainstormingTab] Error parsing SSE event JSON:', error, "Raw data:", event.data);
+      // sseRawLog already contains the problematic data, so user can see it.
+      // statusMessage.value = "Received non-JSON data from backend."; // Optional: inform user
     }
   };
 
-  eventSource.onerror = (error) => {
-    console.error('EventSource failed:', error);
-    setStatus('Connection to server lost or error in stream.', true);
+  eventSourceInstance.onerror = (event) => {
+    const errorMsg = 'Error connecting to backend for brainstorming. Ensure backend is running and check console.';
+    statusMessage.value = errorMsg;
+    sseRawLog.value += `[SYSTEM ERROR] ${errorMsg}\nFull event: ${JSON.stringify(event)}\n`;
     isLoading.value = false;
-    if (eventSource) eventSource.close();
+    console.error("[BrainstormingTab] SSE error:", event);
+    if (eventSourceInstance) {
+      eventSourceInstance.close();
+    }
   };
 };
 
-// Cleanup EventSource when component is unmounted
-import { onUnmounted } from 'vue';
 onUnmounted(() => {
-  if (eventSource) {
-    eventSource.close();
-    console.log('BrainstormingTab: EventSource closed on unmount.');
+  if (eventSourceInstance) {
+    eventSourceInstance.close();
+    console.log('[BrainstormingTab] EventSource closed on unmount.');
   }
 });
 
@@ -182,20 +149,27 @@ onUnmounted(() => {
 
 <style scoped>
 .brainstorming-tab-content {
-  /* Using utility classes from Tailwind, but you can add custom styles here */
+  /* Basic layout */
 }
-
-/* Basic styling for the log area to make it look a bit like a console */
-.brainstorming-log pre {
-  background-color: #2d3748; /* gray-800 */
-  color: #e2e8f0; /* gray-300 */
-  padding: 0.5rem;
-  border-radius: 0.25rem;
-  font-family: monospace;
-  font-size: 0.875rem;
-  white-space: pre-wrap; /* Ensures long lines wrap */
-  word-break: break-all; /* Ensures long words/strings break */
-  max-height: 400px; /* Limit height and make scrollable */
+.brainstorming-log, .final-output {
+  background-color: #2d3748; /* bg-gray-800 */
+  color: #e2e8f0; /* text-gray-300 */
+  border: 1px solid #4a5568; /* border-gray-600 */
+  padding: 10px;
+  margin-top: 10px;
+  border-radius: 0.25rem; /* rounded-md */
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.brainstorming-log {
+  max-height: 300px;
   overflow-y: auto;
+  font-family: monospace;
+  font-size: 0.875rem; /* text-sm */
+}
+.final-output {
+   background-color: #1a3622; /* ~bg-green-900 for contrast */
+   color: #a7f3d0; /* ~text-green-200 */
+   border-color: #2f855a; /* ~border-green-600 */
 }
 </style>

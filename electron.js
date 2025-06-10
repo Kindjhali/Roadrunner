@@ -55,6 +55,8 @@ function startBackendServer() {
         clearTimeout(timeoutId);
         portReceived = true;
         currentBackendPort = message.port;
+        // Enhanced logging as per subtask
+        console.log(`[ELECTRON MAIN IPC RECV] Received 'backend-port' message. Port: ${message.port}. Setting currentBackendPort.`);
         console.log(`[Electron] Backend server started and listening on port: ${currentBackendPort}`);
         sendToAllWindows('backend-port-updated', { port: currentBackendPort });
         resolve(currentBackendPort);
@@ -180,10 +182,12 @@ app.whenReady().then(() => {
     console.log('[Electron] Attempting to start backend server...');
     const port = await startBackendServer();
     currentBackendPort = port; // Ensure global currentBackendPort is set
-    console.log(`[Electron] Backend server successfully started on port ${port}. Creating window.`);
+    // Enhanced logging as per subtask
+    console.log(`[ELECTRON MAIN POST-START] Backend server started. currentBackendPort is now: ${currentBackendPort}. Proceeding to create window.`);
     createWindow();
   } catch (error) {
-    console.error('[Electron] Failed to start backend server:', error);
+    // Enhanced logging as per subtask
+    console.error(`[ELECTRON MAIN POST-START] Backend server failed to start. Error: ${error}. Quitting app.`);
     dialog.showErrorBox('Fatal Error', `Failed to start backend server: ${error.message}\nThe application will now quit.`);
     app.quit();
     return; // Important to return here to stop further execution

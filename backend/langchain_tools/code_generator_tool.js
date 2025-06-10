@@ -1,10 +1,11 @@
-const { Tool } = require('@langchain/core/tools');
-const { scaffoldDirectories, createFilesFromPlan } = require('../codeGenerator');
-const { generateFromLocal } = require('../server');
-const { ConfirmationRequiredError } = require('./common');
-const { v4: uuidv4 } = require('uuid');
+import { Tool } from '@langchain/core/tools';
+import { scaffoldDirectories, createFilesFromPlan } from '../codeGenerator.js';
+import { generateFromLocal } from '../server.js';
+import { ConfirmationRequiredError } from './common.js';
+import { v4 as uuidv4 } from 'uuid';
+import path from 'path'; // Added because path.join is used directly in this file
 
-class CodeGeneratorTool extends Tool {
+export class CodeGeneratorTool extends Tool {
   name = "code_generator";
   description = `Generates code, components, or services based on a detailed specification.
 Input MUST be a JSON string representing a 'codeGenPlan'.
@@ -119,6 +120,6 @@ This tool will create directories and then generate files using an LLM based on 
   }
 }
 
-module.exports = {
-  CodeGeneratorTool,
-};
+// module.exports = {
+//   CodeGeneratorTool,
+// };
