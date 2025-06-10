@@ -36,6 +36,7 @@ import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } f
 // import { renderTextDescription } from "@langchain/core/tools";
 
 
+
 import { BufferWindowMemory } from "langchain/memory";
 
 
@@ -191,7 +192,7 @@ async function initializeAgentExecutor() {
         new MessagesPlaceholder("chat_history"),
         HumanMessagePromptTemplate.fromTemplate(REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NEW USER INPUT:"))),
     ]);
-
+    console.log('[DEBUG] reactPrompt inputVariables:', JSON.stringify(reactPrompt.inputVariables));
     agent = await createReactAgent({ llm, tools, prompt: reactPrompt });
     console.log("[Agent Init] Ollama ReAct Agent created successfully.");
   }
