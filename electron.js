@@ -122,6 +122,7 @@ function startBackendServer() {
   // No specific action needed on 'exit' after portReceived for the Promise itself,
   // but logging and status updates are good.
   // backendProcess.on('exit', (code, signal) => { ... }); already handled above
+  });
 }
 
 function sendToAllWindows(channel, payload) {
