@@ -75,7 +75,10 @@ function registerAgentResponse(inputID, agentID, proposal, confidence, flags = [
     console.warn(`Response registered for uninitiated inputID: ${inputID}`);
     initiateInput(inputID, `Input ${inputID} received response(s) without formal initiation.`);
   }
-  agentResponses[inputID].responses.push({ agent: agentID, proposal, confidence, flags });
+  // FIXED: validate confidence to avoid NaN or out-of-range values causing evaluation errors
+  const sanitizedConfidence =
+    typeof confidence === 'number' && confidence >= 0 && confidence <= 1 ? confidence : 0;
+  agentResponses[inputID].responses.push({ agent: agentID, proposal, confidence: sanitizedConfidence, flags });
 }
 
 function performEvaluation(inputID) {
