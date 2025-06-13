@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount } from '@vue/test-utils/dist/vue-test-utils.cjs.js';
 import App from './App.vue';
 
 // Mock Electron IPC and other global properties if they cause issues during mounting

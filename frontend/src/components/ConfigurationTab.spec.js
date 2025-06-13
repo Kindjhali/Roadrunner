@@ -1,5 +1,5 @@
 // frontend/src/components/ConfigurationTab.spec.js
-import { mount } from '@vue/test-utils';
+import { mount } from '@vue/test-utils/dist/vue-test-utils.cjs.js';
 import ConfigurationTab from './ConfigurationTab.vue'; // Adjust path if necessary
 import { createStore } from 'vuex';
 
