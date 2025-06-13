@@ -1,3 +1,4 @@
+<!-- BrainstormingTab.vue - displays brainstorming session UI. Styles in styles/brainstorming.css -->
 <template>
   <div class="brainstorming-tab-content p-4 space-y-4 text-white">
     <h2 class="text-xl font-semibold">Brainstorming Session</h2>
@@ -147,29 +148,4 @@ onUnmounted(() => {
 
 </script>
 
-<style scoped>
-.brainstorming-tab-content {
-  /* Basic layout */
-}
-.brainstorming-log, .final-output {
-  background-color: #2d3748; /* bg-gray-800 */
-  color: #e2e8f0; /* text-gray-300 */
-  border: 1px solid #4a5568; /* border-gray-600 */
-  padding: 10px;
-  margin-top: 10px;
-  border-radius: 0.25rem; /* rounded-md */
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.brainstorming-log {
-  max-height: 300px;
-  overflow-y: auto;
-  font-family: monospace;
-  font-size: 0.875rem; /* text-sm */
-}
-.final-output {
-   background-color: #1a3622; /* ~bg-green-900 for contrast */
-   color: #a7f3d0; /* ~text-green-200 */
-   border-color: #2f855a; /* ~border-green-600 */
-}
-</style>
+
