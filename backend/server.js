@@ -31,7 +31,7 @@ import { ChatOllama } from '@langchain/community/chat_models/ollama';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
 import { AgentExecutor, createOpenAIFunctionsAgent, createReactAgent } from "langchain/agents"; // Reverting to specific path
-import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
+import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate } from '@langchain/core/prompts';
 // renderTextDescription is not directly used, but as part of agent creation - assuming it's pulled in by agents if needed.
 // import { renderTextDescription } from "@langchain/core/tools";
 
@@ -188,9 +188,17 @@ async function initializeAgentExecutor() {
 
     // Construct the prompt template for ReAct agent, incorporating chat_history
     const reactPrompt = ChatPromptTemplate.fromMessages([
-        new SystemMessage(REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(0, REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NOW BEGIN!"))), // System message part
+        // Use SystemMessagePromptTemplate to ensure variable placeholders like
+        // {tools} and {tool_names} are preserved for createReactAgent.
+        SystemMessagePromptTemplate.fromTemplate(
+          REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(0, REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NOW BEGIN!"))
+        ),
         new MessagesPlaceholder("chat_history"),
-        HumanMessagePromptTemplate.fromTemplate(REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NEW USER INPUT:"))),
+        HumanMessagePromptTemplate.fromTemplate(
+          REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(
+            REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NEW USER INPUT:")
+          )
+        ),
     ]);
     console.log('[DEBUG] reactPrompt inputVariables:', JSON.stringify(reactPrompt.inputVariables));
     agent = await createReactAgent({ llm, tools, prompt: reactPrompt });
