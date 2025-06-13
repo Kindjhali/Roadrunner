@@ -70,7 +70,7 @@ The primary way to run this application is as an Electron desktop app:
     ```
     This command typically executes the following (as defined in `package.json`):
     *   Builds the frontend application (`npm run build` in `frontend/`).
-    *   Launches the Electron application using `electron.js`. The Electron window should load the built frontend.
+    *   Launches the Electron application using `electron.cjs`. The Electron window should load the built frontend.
 
 ### Development Mode (Alternative)
 

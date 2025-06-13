@@ -2,11 +2,11 @@
   "name": "roadrunner-executor-app",
   "version": "1.0.0",
   "type": "module",
-  "main": "electron.js",
+  "main": "electron.cjs",
   "scripts": {
     "dev": "npx vite",
     "build": "npx vite build",
-    "start": "npm run build && .\\node_modules\\.bin\\electron.cmd electron.js",
+    "start": "npm run build && .\\node_modules\\.bin\\electron.cmd electron.cjs",
     "preview": "npx vite preview",
     "test": "jest",
     "electron": "electron ."

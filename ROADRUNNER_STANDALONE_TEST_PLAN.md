@@ -1,6 +1,6 @@
 # Roadrunner Standalone Application - Manual Test Plan
 
-This document provides manual test cases to verify the functionality of the standalone Roadrunner application, which consists of the Electron app defined by `electron.js` and the primary frontend component `frontend/src/App.vue`.
+This document provides manual test cases to verify the functionality of the standalone Roadrunner application, which consists of the Electron app defined by `electron.cjs` and the primary frontend component `frontend/src/App.vue`.
 Tests here focus on the independent application.
 
 ## 1. Prerequisites
@@ -33,15 +33,15 @@ Before starting the tests, ensure the following setup is complete:
     *   The backend should be listening on `http://localhost:3030`. Verify this from its console output.
 
 3.  **Start Standalone Roadrunner Electron Application**:
-    *   The main file for this Electron app is `roadrunner/electron.js`.
-    *   The `package.json` in the `roadrunner/` directory should have a script to start it (e.g., `"start": "electron ."`, assuming `electron.js` is specified as `main`).
+    *   The main file for this Electron app is `roadrunner/electron.cjs`.
+    *   The `package.json` in the `roadrunner/` directory should have a script to start it (e.g., `"start": "electron ."`, assuming `electron.cjs` is specified as `main`).
     *   Open another terminal, navigate to the `roadrunner/` directory, and run:
         ```bash
         cd roadrunner
         npm install # If not done already (for Electron dependency)
         npm start 
         ```
-    *   Alternatively, if `npm start` is not configured in `roadrunner/package.json` to point to `electron.js`, you can run `electron .` directly from the `roadrunner/` directory if Electron is globally installed or use `npx electron .`.
+    *   Alternatively, if `npm start` is not configured in `roadrunner/package.json` to point to `electron.cjs`, you can run `electron .` directly from the `roadrunner/` directory if Electron is globally installed or use `npx electron .`.
 
 4.  **Ollama Server**:
     *   Ensure an Ollama server is running locally at `http://localhost:11434`.
@@ -57,7 +57,7 @@ Before starting the tests, ensure the following setup is complete:
     1.  The Roadrunner application window (titled "Roadrunner AI Executor" or similar, based on `App.vue`) appears.
     2.  The UI defined in `frontend/src/App.vue` loads correctly.
     3.  The default view shows four main tabs: "Coder", "Brainstorming", "Conference", and "Configuration". The "Coder" tab is active by default.
-    4.  Check the Electron main process console (the terminal where you ran `npm start` for Electron) for any errors related to `electron.js` execution.
+    4.  Check the Electron main process console (the terminal where you ran `npm start` for Electron) for any errors related to `electron.cjs` execution.
     5.  Open the renderer process DevTools (usually Ctrl+Shift+I or Cmd+Option+I within the app) and check the Console tab for any JavaScript errors from `App.vue` or related frontend code. No critical errors should be present.
 
 ### Test Case 2: Custom Task File Upload (Coder Tab)
