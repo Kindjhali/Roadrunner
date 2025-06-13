@@ -34,7 +34,7 @@ This framework ensures that development is transparent, traceable, and aligned w
 ### 1. Core UI Structure
     *   **Multi-Tab Interface:** Roadrunner now features a multi-tab layout defined in `App.vue`:
         *   **"Coder" Tab:** Dedicated to task execution based on user descriptions, interaction with coding-focused models, and viewing agent logs.
-        *   **"Brainstorming" Tab:** Currently a UI placeholder in `App.vue`. (The backend IPC `send-brainstorming-chat` in `electron.js` supports streaming Ollama responses, intended for this tab's future implementation).
+        *   **"Brainstorming" Tab:** Currently a UI placeholder in `App.vue`. (The backend IPC `send-brainstorming-chat` in `electron.cjs` supports streaming Ollama responses, intended for this tab's future implementation).
         *   **"Conference" Tab:** For managing and observing multi-model debates/conferences.
         *   **"Configuration" Tab:** Allows users to configure LLM providers, API keys, default models, and other application settings.
     *   **Header Bar:** The application retains its distinct header bar with application title, logo, and a functional close button, consistent across all tabs.
@@ -53,7 +53,7 @@ This framework ensures that development is transparent, traceable, and aligned w
 
 ### 4. "Brainstorming" Tab Functionality
     *   **UI Placeholder:** The 'Brainstorming' tab in the current `App.vue` is a UI placeholder (an empty `div`).
-    *   **Backend Support:** Backend support via Electron IPC (`send-brainstorming-chat` in `electron.js`) is implemented for direct chat with local Ollama models, including streaming responses. Full UI integration of this chat functionality, including a dedicated chat interface, history management, and model selection, is a planned enhancement for this tab.
+    *   **Backend Support:** Backend support via Electron IPC (`send-brainstorming-chat` in `electron.cjs`) is implemented for direct chat with local Ollama models, including streaming responses. Full UI integration of this chat functionality, including a dedicated chat interface, history management, and model selection, is a planned enhancement for this tab.
 
 ## II. Future Development Plan
 

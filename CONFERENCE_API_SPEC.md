@@ -16,13 +16,13 @@ This document outlines the Inter-Process Communication (IPC) API expected by `fr
 
 ## Receiving Conference Events
 
-The frontend component listens for the following events using `window.electronAPI.on(channelName, handler)` or individual `window.electronAPI.on<EventName>(handler)` methods if defined by the preload script. The `electron.js` `start-conference-stream` handler forwards backend SSE events to the renderer using specific channel names:
+The frontend component listens for the following events using `window.electronAPI.on(channelName, handler)` or individual `window.electronAPI.on<EventName>(handler)` methods if defined by the preload script. The `electron.cjs` `start-conference-stream` handler forwards backend SSE events to the renderer using specific channel names:
 
 ### 1. `conference-stream-llm-chunk`
    Listener: `window.electronAPI.on('conference-stream-llm-chunk', (event, data) => {})`
 *   **Purpose**: Streams content chunks from an LLM (a participant in the conference).
 *   **`data` (Object)**:
-    *   `type` (String): `"llm_chunk"` (This is part of the original SSE message forwarded by `electron.js`)
+    *   `type` (String): `"llm_chunk"` (This is part of the original SSE message forwarded by `electron.cjs`)
     *   `content` (String): The text content of the chunk.
     *   `speaker` (String): Identifier for the speaking model (e.g., "ModelA", "ModelB", "Arbiter", or the actual model name/ID).
 
@@ -30,7 +30,7 @@ The frontend component listens for the following events using `window.electronAP
    Listener: `window.electronAPI.on('conference-stream-log-entry', (event, data) => {})`
 *   **Purpose**: Provides log messages or system status updates related to the conference.
 *   **`data` (Object)**:
-    *   `type` (String): `"log_entry"` (This is part of the original SSE message or set by `electron.js` for its own logs)
+    *   `type` (String): `"log_entry"` (This is part of the original SSE message or set by `electron.cjs` for its own logs)
     *   `message` (String): The log message content.
     *   `speaker` (String): Typically "System" or an identifier for the source of the log.
     *   `data` (Object, Optional): If the log entry is for an unknown SSE event type, this will contain the original unknown message.
