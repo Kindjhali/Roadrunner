@@ -43,7 +43,7 @@ class Executor {
       // isAutonomousMode is true by default now on the backend for agent execution
     });
 
-    // Assuming backend is running on localhost:3030
+    // Backend defaults to 127.0.0.1:3030 (allowed by Electron CSP)
     // TODO: Make the base URL configurable
     const backendPort = this.store?.state?.backendPort || 3030; // Use store port or fallback
     const fullUrl = `http://127.0.0.1:${backendPort}/execute-autonomous-task?${params.toString()}`;

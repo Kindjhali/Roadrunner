@@ -30,7 +30,7 @@ Before starting the tests, ensure the following setup is complete:
         npm install # If not done already
         npm start
         ```
-    *   The backend should be listening on `http://localhost:3030`. Verify this from its console output.
+    *   The backend should be listening on `http://127.0.0.1:3030`. Verify this from its console output.
 
 3.  **Start Standalone Roadrunner Electron Application**:
     *   The main file for this Electron app is `roadrunner/electron.cjs`.

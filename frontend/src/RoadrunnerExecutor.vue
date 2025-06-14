@@ -257,7 +257,7 @@ export default {
     this.addLogEntry('🔎 Checking backend health...', 'info');
     this.fetchOllamaModels();
     try {
-      const response = await fetch('http://localhost:3030/health');
+      const response = await fetch('http://127.0.0.1:3030/health');
       if (response.ok) {
         const data = await response.json();
         this.addLogEntry(`✅ Backend is healthy: ${data.status || 'OK'}`, 'info');
@@ -268,7 +268,7 @@ export default {
       }
     } catch (error) {
       this.addLogEntry(`💥 Error connecting to backend: ${error.message}`, 'error', error);
-      this.addLogEntry('Ensure the backend server is running at http://localhost:3030', 'info');
+      this.addLogEntry('Ensure the backend server is running at http://127.0.0.1:3030', 'info');
       this.backendHealthy = false;
     }
   },
@@ -368,7 +368,7 @@ export default {
       this.addLogEntry(`executeAutonomousTask: useOpenAIFromStorage preference set to ${usePreference}`, 'debug');
 
 
-      this.eventSource = new EventSource(`http://localhost:3030/execute-autonomous-task?${params.toString()}`);
+      this.eventSource = new EventSource(`http://127.0.0.1:3030/execute-autonomous-task?${params.toString()}`);
       this.eventSource.onopen = () => this.addLogEntry('✅ Connection to backend opened. Waiting for task updates...', 'info');
       this.eventSource.onmessage = this.handleSseMessage; // Changed to call the refactored method
       this.eventSource.onerror = (error) => {
@@ -479,7 +479,7 @@ export default {
       if (!this.proposedPlanId) return;
       this.addLogEntry(`\n➡️ Approving plan ID: ${this.proposedPlanId}...`, 'info');
       try {
-        const response = await fetch(`http://localhost:3030/api/approve-plan/${this.proposedPlanId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const response = await fetch(`http://127.0.0.1:3030/api/approve-plan/${this.proposedPlanId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         const result = await response.json();
         if (response.ok) this.addLogEntry(`✅ Plan approved. Server: ${result.message}`, 'info');
         else this.addLogEntry(`❌ Error approving plan: ${response.status} ${result.message || ''}`, 'error', result);
@@ -490,7 +490,7 @@ export default {
       if (!this.proposedPlanId) return;
       this.addLogEntry(`\n➡️ Declining plan ID: ${this.proposedPlanId}...`, 'info');
       try {
-        const response = await fetch(`http://localhost:3030/api/decline-plan/${this.proposedPlanId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const response = await fetch(`http://127.0.0.1:3030/api/decline-plan/${this.proposedPlanId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         const result = await response.json();
         if (response.ok) this.addLogEntry(`ℹ️ Plan declined. Server: ${result.message}`, 'info');
         else this.addLogEntry(`❌ Error declining plan: ${response.status} ${result.message || ''}`, 'error', result);
@@ -521,7 +521,7 @@ export default {
       params.append('steps', JSON.stringify(steps));
       params.append('safetyMode', this.safetyModeActive);
       params.append('isAutonomousMode', false);
-      this.eventSource = new EventSource(`http://localhost:3030/execute-autonomous-task?${params.toString()}`);
+      this.eventSource = new EventSource(`http://127.0.0.1:3030/execute-autonomous-task?${params.toString()}`);
       this.eventSource.onopen = () => this.addLogEntry(`Connecting to backend for Git operation: ${command}`, 'info');
       this.eventSource.onmessage = this.handleSseMessage;
       this.eventSource.onerror = (error) => {
@@ -531,7 +531,7 @@ export default {
     },
     async sendConfirmationResponse(confirmationId, confirmed) {
       try {
-        const response = await fetch(`http://localhost:3030/api/confirm-action/${confirmationId}`, {
+        const response = await fetch(`http://127.0.0.1:3030/api/confirm-action/${confirmationId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ confirmed }),
@@ -552,7 +552,7 @@ export default {
       this.addLogEntry(`Requesting download for model: ${modelName}`, 'info');
       this.isDownloadingModel = true;
       try {
-        const response = await fetch('http://localhost:3030/api/ollama/pull-model', {
+        const response = await fetch('http://127.0.0.1:3030/api/ollama/pull-model', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ modelName }),
@@ -606,7 +606,7 @@ export default {
     async handleRetryStep() {
       if (!this.currentFailureId) return;
       try {
-        const response = await fetch(`http://localhost:3030/api/retry-step/${this.currentFailureId}`, { method: 'POST' });
+        const response = await fetch(`http://127.0.0.1:3030/api/retry-step/${this.currentFailureId}`, { method: 'POST' });
         const result = await response.json();
         if (response.ok) this.addLogEntry(`Retrying step. ${result.message}`, 'info');
         else this.addLogEntry(`Retry request failed: ${response.status} ${result.message || ''}`, 'error', result);
@@ -618,7 +618,7 @@ export default {
     async handleSkipStep() {
       if (!this.currentFailureId) return;
       try {
-        const response = await fetch(`http://localhost:3030/api/skip-step/${this.currentFailureId}`, { method: 'POST' });
+        const response = await fetch(`http://127.0.0.1:3030/api/skip-step/${this.currentFailureId}`, { method: 'POST' });
         const result = await response.json();
         if (response.ok) this.addLogEntry(`Skipped step. ${result.message}`, 'info');
         else this.addLogEntry(`Skip request failed: ${response.status} ${result.message || ''}`, 'error', result);
@@ -630,7 +630,7 @@ export default {
     async handleConvertToManual() {
       if (!this.currentFailureId) return;
       try {
-        const response = await fetch(`http://localhost:3030/api/convert-to-manual/${this.currentFailureId}`, { method: 'POST' });
+        const response = await fetch(`http://127.0.0.1:3030/api/convert-to-manual/${this.currentFailureId}`, { method: 'POST' });
         const result = await response.json();
         if (response.ok) this.addLogEntry(`Converted to manual mode. ${result.message}`, 'info');
         else this.addLogEntry(`Convert request failed: ${response.status} ${result.message || ''}`, 'error', result);
@@ -641,7 +641,7 @@ export default {
     },
     async fetchOllamaModels() {
       try {
-        const response = await fetch('http://localhost:3030/api/ollama-models/categorized');
+        const response = await fetch('http://127.0.0.1:3030/api/ollama-models/categorized');
         if (!response.ok) {
           const text = await response.text();
           this.addLogEntry(`Model fetch failed: ${response.status} ${text}`, 'error');
