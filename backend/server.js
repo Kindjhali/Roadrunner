@@ -37,39 +37,8 @@ import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder, Sy
 
 
 
+// LangChain conversational memory
 import { BufferWindowMemory } from "langchain/memory";
-
-
-import * as langchainMemory from "langchain/memory";
-console.log('[DEBUG] langchain/memory raw exports:', langchainMemory);
-console.log('[DEBUG] langchain/memory export keys:', Object.keys(langchainMemory));
-
-const ConversationBufferWindowMemory = langchainMemory.ConversationBufferWindowMemory;
-// const ConversationBufferWindowMemory = langchainMemory.default?.ConversationBufferWindowMemory || langchainMemory.ConversationBufferWindowMemory; // Alternative if default export is an object
-
-console.log('[DEBUG] ConversationBufferWindowMemory (after attempting access):', ConversationBufferWindowMemory);
-if (typeof ConversationBufferWindowMemory === 'function') {
-    console.log('[DEBUG] ConversationBufferWindowMemory is a function. Name:', ConversationBufferWindowMemory.name);
-    try {
-        const testMemory = new ConversationBufferWindowMemory({ memoryKey: "test", inputKey: "test_input", k: 1 });
-        console.log('[DEBUG] Successfully instantiated ConversationBufferWindowMemory.');
-    } catch (e) {
-        console.error('[DEBUG] Failed to instantiate ConversationBufferWindowMemory:', e);
-    }
-} else {
-    console.warn('[DEBUG] ConversationBufferWindowMemory is not a function. Type:', typeof ConversationBufferWindowMemory);
-    // Attempt to find it case-insensitively or with slight variations if common
-    const allKeys = Object.keys(langchainMemory);
-    const foundKey = allKeys.find(key => key.toLowerCase() === 'conversationbufferwindowmemory');
-    if (foundKey && langchainMemory[foundKey]) {
-        console.log(`[DEBUG] Found a similar key: '${foundKey}'. Type: ${typeof langchainMemory[foundKey]}`);
-        if (typeof langchainMemory[foundKey] === 'function') {
-             console.log(`[DEBUG] '${foundKey}' is a function. Consider using this.`);
-        }
-    } else {
-        console.log('[DEBUG] No obvious alternative found in exports for ConversationBufferWindowMemory.');
-    }
-}
 
 
 import { ListDirectoryTool, CreateFileTool, ReadFileTool, UpdateFileTool, DeleteFileTool, CreateDirectoryTool, DeleteDirectoryTool } from './langchain_tools/fs_tools.js';
