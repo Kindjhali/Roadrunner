@@ -569,8 +569,15 @@ async function generateFromLocal(originalPrompt, modelName, expressRes, options 
       }
       return accumulatedResponse;
     } catch (error) {
-      const errorMessage = `Error with ${provider} via Langchain: ${error.message}`;
-      if (expressRes && expressRes.writable) expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
+      let errorMessage = `Error with ${provider} via Langchain: ${error.message}`;
+      // If the Ollama server reports a missing model, provide a clearer message
+      if (error.message && /model.*not found/i.test(error.message)) {
+        const missingModel = modelName || backendSettings.defaultOllamaModel;
+        errorMessage = `Ollama model not found: ${missingModel}`;
+      }
+      if (expressRes && expressRes.writable) {
+        expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
+      }
       return `// LLM_ERROR: ${errorMessage} //`;
     }
 }
