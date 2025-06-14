@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils/dist/vue-test-utils.cjs.js';
+import { mount } from '@vue/test-utils';
 import RoadrunnerExecutor from './RoadrunnerExecutor.vue'; // Assuming spec file is in the same directory
 
 // Mock global EventSource
