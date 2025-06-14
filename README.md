@@ -79,7 +79,7 @@ For development, you might prefer to run the backend and frontend services separ
 *   **Backend:**
     *   Navigate to the `backend/` directory: `cd backend`
     *   Run: `npm run dev` (if a dev script with nodemon or similar is configured) or `npm start`.
-    *   The backend server will typically start on `http://localhost:3030`.
+    *   The backend server will typically start on `http://127.0.0.1:3030`.
 *   **Frontend (Vite Dev Server):**
     *   Navigate to the `frontend/` directory: `cd frontend`
     *   Run: `npm run dev`

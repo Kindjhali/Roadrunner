@@ -50,7 +50,7 @@ To set up and run the Roadrunner application locally, follow these steps:
 
     - In the terminal, navigate to the `roadrunner/backend` directory.
     - Run: `npm start`
-    - This will start the Node.js server on `http://localhost:3030` by default. Keep this terminal window open and the server running.
+    - This will start the Node.js server on `http://127.0.0.1:3030` by default. Keep this terminal window open and the server running.
 
 5.  **Start the Electron Application:**
     - In a new terminal window, navigate to the `roadrunner` root directory.
