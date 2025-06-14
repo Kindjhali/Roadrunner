@@ -341,6 +341,7 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
     };
 
     let errorOccurred = false;
+    let lastError = null;
     try {
         const eventStream = await agentExecutor.stream(currentTaskInput, agentRunConfig);
         for await (const event of eventStream) {
@@ -364,6 +365,7 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
         }
     } catch (error) {
         errorOccurred = true;
+        lastError = error;
         if (error instanceof ConfirmationRequiredError) {
             const { toolName, toolInput, confirmationId, message: confirmationMessage } = error.data;
             console.log(`[Agent Handling] Confirmation required for tool ${toolName}. ID: ${confirmationId}`);
@@ -394,7 +396,7 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
     } finally {
         const isPendingConfirmation = Object.values(pendingToolConfirmations).some(p => p.originalExpressHttpRes === expressHttpRes);
         if (expressHttpRes.writable && !isPendingConfirmation) {
-            if (errorOccurred && ! (error instanceof ConfirmationRequiredError) ) {
+            if (errorOccurred && ! (lastError instanceof ConfirmationRequiredError) ) {
                  sendSseMessage('execution_complete', { message: 'Task terminated due to agent execution error.' });
             }
             try {
@@ -681,6 +683,7 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
     }
 
     let errorOccurredInResume = false;
+    let lastResumeError = null;
     try {
         console.log(`[API /api/confirm-action] Re-invoking agent (ID: ${activeAgentExecutor.agent.constructor.name}) with input for memory: "${agentInputTextForResume.substring(0,100)}...", Config: ${JSON.stringify(resumedAgentConfig.configurable)}`);
         // Use the activeAgentExecutor for the stream call.
@@ -710,6 +713,7 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
         if (!res.headersSent) res.status(200).json({ message: `Action for ${confirmationId} processed. Agent re-invoked.` });
     } catch (error) {
         errorOccurredInResume = true;
+        lastResumeError = error;
         if (error instanceof ConfirmationRequiredError) {
             const { toolName: newToolName, toolInput: newToolInput, confirmationId: newConfirmationId, message: newConfirmationMessage } = error.data;
             // If a new confirmation is required, it's from the activeAgentExecutor
@@ -737,7 +741,7 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
     } finally {
         const isStillPending = Object.values(pendingToolConfirmations).some(p => p.originalExpressHttpRes === originalExpressHttpRes);
         if (originalExpressHttpRes.writable && !isStillPending) {
-             if (errorOccurredInResume && ! (error instanceof ConfirmationRequiredError) ) {
+             if (errorOccurredInResume && ! (lastResumeError instanceof ConfirmationRequiredError) ) {
                  sendSseMessage('execution_complete', { message: 'Task terminated due to agent execution error after confirmation.' });
             }
             originalExpressHttpRes.end();
