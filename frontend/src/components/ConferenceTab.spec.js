@@ -1,4 +1,4 @@
-const { shallowMount } = require('@vue/test-utils/dist/vue-test-utils.cjs.js');
+const { shallowMount } = require('@vue/test-utils');
 const ConferenceTab = require('./ConferenceTab.vue').default;
 
 let callbacks;
