@@ -43,9 +43,9 @@ class Executor {
       // isAutonomousMode is true by default now on the backend for agent execution
     });
 
-    // Backend defaults to 127.0.0.1:3030 (allowed by Electron CSP)
+    // Backend defaults to 127.0.0.1:3333 (allowed by Electron CSP)
     // TODO: Make the base URL configurable
-    const backendPort = this.store?.state?.backendPort || 3030; // Use store port or fallback
+    const backendPort = this.store?.state?.backendPort || 3333; // Use store port or fallback
     const fullUrl = `http://127.0.0.1:${backendPort}/execute-autonomous-task?${params.toString()}`;
 
     this._commitLogEntry({
@@ -175,7 +175,7 @@ class Executor {
     }
     try {
       // TODO: Make the base URL configurable
-      const backendPort = this.store?.state?.backendPort || 3030; // Use store port or fallback
+      const backendPort = this.store?.state?.backendPort || 3333; // Use store port or fallback
       const response = await fetch(`http://127.0.0.1:${backendPort}/api/confirm-action/${confirmationId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

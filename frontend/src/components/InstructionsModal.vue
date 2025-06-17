@@ -121,8 +121,8 @@ export default {
       }
       // Fallback if store is not available or port is not set
       // This port should match your backend server's port
-      console.warn("Backend port not found in store, using default 3030 for API calls.");
-      return 'http://127.0.0.1:3030';
+      console.warn("Backend port not found in store, using default 3333 for API calls.");
+      return 'http://127.0.0.1:3333';
     },
     async fetchInstructions() {
       if (!this.agentType) return;

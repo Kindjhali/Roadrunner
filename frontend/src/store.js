@@ -9,7 +9,7 @@ const store = createStore({
       defaultOllamaModels: ['codellama'],
       OLLAMA_BASE_URL: 'http://localhost:11434', // Added for completeness from backend_config
     },
-    backendPort: 3030,
+    backendPort: 3333,
     // Enhanced status objects
     settingsStatus: { status: 'idle', message: 'Waiting to load settings...' }, // idle, loading, retrying, success, error
     modelsStatus: { status: 'idle', message: 'Waiting to load models...' }, // idle, loading, retrying, success, error
@@ -81,14 +81,14 @@ const store = createStore({
           commit('SET_BACKEND_PORT', port);
           return port;
         } else {
-          console.warn('[Action] electronAPI.getBackendPort not available. Using default port 3030.');
-          commit('SET_BACKEND_PORT', 3030);
-          return 3030;
+          console.warn('[Action] electronAPI.getBackendPort not available. Using default port 3333.');
+          commit('SET_BACKEND_PORT', 3333);
+          return 3333;
         }
       } catch (e) {
         console.error('[Action] Error fetching backend port:', e);
-        commit('SET_BACKEND_PORT', 3030);
-        return 3030;
+        commit('SET_BACKEND_PORT', 3333);
+        return 3333;
       }
     },
     updateModels({ commit }, models) {

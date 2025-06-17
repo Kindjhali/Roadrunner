@@ -5,7 +5,7 @@ const fs = require('fs'); // fs.promises will be used via fs.promises
 const fsPromises = fs.promises;
 const EventSource = require('eventsource');
 
-let currentBackendPort = 3030; // Default port
+let currentBackendPort = 3333; // Default port
 let backendProcess = null;
 
 function startBackendServer() {
@@ -174,7 +174,7 @@ app.whenReady().then(async () => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': ["default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:3030; img-src 'self' data:;"]
+        'Content-Security-Policy': ["default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:3333; img-src 'self' data:;"]
       }
     });
   });

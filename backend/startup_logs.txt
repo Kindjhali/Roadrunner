@@ -14,7 +14,7 @@
 [Server Startup] Ollama not detected or not responsive. Attempting to start Ollama...
 [Ollama Startup] startOllama called. OLLAMA_BASE_URL is 'http://localhost:11434'. Docker Compose handles Ollama service.
 [Ollama Startup] Attempting to start Ollama server locally (original behavior)...
-[Server Startup] Roadrunner backend server listening on port 3030
+[Server Startup] Roadrunner backend server listening on port 3333
 [Config] Ollama URL target: http://localhost:11434
 [Config] LOG_DIR configured to: /app/logs
 [Config] WORKSPACE_DIR configured to: /app/output

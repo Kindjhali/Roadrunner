@@ -27,3 +27,5 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+/dist-electron
+/dist

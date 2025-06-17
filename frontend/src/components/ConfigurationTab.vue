@@ -168,7 +168,7 @@ export default {
       this.setInstructionStatusMessage('Pinging Ollama server...', false, true); // Reusing for general feedback
 
       try {
-        const response = await fetch('http://127.0.0.1:3030/api/ollama/ping');
+        const response = await fetch('http://127.0.0.1:3333/api/ollama/ping');
         const data = await response.json();
         this.ollamaPingStatus = data;
         if (this.instructionStatusMessage === 'Pinging Ollama server...') {
@@ -205,7 +205,7 @@ export default {
     async fetchAgentInstructions() {
       this.setInstructionStatusMessage('Fetching agent instructions...', false, true);
       try {
-        const response = await fetch('http://127.0.0.1:3030/api/instructions/all');
+        const response = await fetch('http://127.0.0.1:3333/api/instructions/all');
         if (!response.ok) {
           const errorText = await response.text();
           throw new Error(`Failed to fetch agent instructions: ${response.status} ${errorText}`);
@@ -227,7 +227,7 @@ export default {
       const instructionText = this.agentInstructions[agentType];
       this.setInstructionStatusMessage(`Saving instructions for ${agentType}...`, false, true);
       try {
-        const response = await fetch(`http://127.0.0.1:3030/api/instructions/${agentType}`, {
+        const response = await fetch(`http://127.0.0.1:3333/api/instructions/${agentType}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ instructions: instructionText }),
@@ -254,7 +254,7 @@ export default {
       }
       this.setInstructionStatusMessage(`Saving new agent type ${this.newAgentType}...`, false, true);
       try {
-        const response = await fetch(`http://127.0.0.1:3030/api/instructions/${this.newAgentType.trim()}`, {
+        const response = await fetch(`http://127.0.0.1:3333/api/instructions/${this.newAgentType.trim()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ instructions: this.newInstructionText }),
@@ -319,7 +319,7 @@ export default {
       let responseText = '';
 
       try {
-        const response = await fetch('http://127.0.0.1:3030/api/config/openai-key', {
+        const response = await fetch('http://127.0.0.1:3333/api/config/openai-key', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ apiKey: this.openaiApiKey }),

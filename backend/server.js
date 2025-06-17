@@ -23,6 +23,8 @@ import fs from 'fs';
 import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch'; // Standard ESM import
+import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
 
 let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'; // Changed to let
 
@@ -122,75 +124,175 @@ Question: {input}
 Thought:{agent_scratchpad}`;
 
 
-async function initializeAgentExecutor() {
+async function initializeAgentExecutor(customModel = null) {
   console.log("[Agent Init] Initializing AgentExecutor...");
   const llmProvider = backendSettings.llmProvider;
   let llm;
 
+  // Use configuration settings for memory
+  const memoryWindowSize = backendSettings.langchain?.enableMemory ? 
+    (backendSettings.langchain?.memoryWindowSize || 5) : 0;
+  
   const memory = new BufferWindowMemory({
-    k: 5,
+    k: memoryWindowSize,
     memoryKey: "chat_history",
     inputKey: "input",
     returnMessages: true
   });
-  console.log('[BACKEND DEBUG] BufferWindowMemory instance created. Type:', typeof memory, 'Keys:', memory ? Object.keys(memory).join(', ') : 'N/A');
-  console.log("[Agent Init] BufferWindowMemory initialized.");
+  console.log(`[Agent Init] BufferWindowMemory initialized with window size: ${memoryWindowSize}`);
+
+  // Get model parameters from configuration
+  const temperature = backendSettings.modelParams?.temperature !== undefined ? 
+    backendSettings.modelParams.temperature : 0.7;
+  const maxTokens = backendSettings.modelParams?.maxTokens || 2048;
+  const topP = backendSettings.modelParams?.topP !== undefined ? 
+    backendSettings.modelParams.topP : 0.9;
+
+  console.log(`[Agent Init] Using model parameters - Temperature: ${temperature}, MaxTokens: ${maxTokens}, TopP: ${topP}`);
 
   if (llmProvider === 'openai') {
     const effectiveOpenAIApiKey = backendSettings.apiKey || backendSettings.openaiApiKey;
-    const openAIModelName = backendSettings.defaultOpenAIModel || 'gpt-4-turbo';
+    const openAIModelName = customModel || backendSettings.defaultOpenAIModel || 'gpt-4-turbo';
     if (!effectiveOpenAIApiKey) {
       console.error("[Agent Init] OpenAI API key is missing. OpenAI agent will not be functional.");
-      llm = new ChatOpenAI({ apiKey: effectiveOpenAIApiKey, modelName: openAIModelName, streaming: true, temperature: 0 });
+      llm = new ChatOpenAI({ 
+        apiKey: effectiveOpenAIApiKey, 
+        modelName: openAIModelName, 
+        streaming: true, 
+        temperature: temperature,
+        maxTokens: maxTokens,
+        topP: topP
+      });
     } else {
-       llm = new ChatOpenAI({ apiKey: effectiveOpenAIApiKey, modelName: openAIModelName, streaming: true, temperature: 0 });
+       llm = new ChatOpenAI({ 
+         apiKey: effectiveOpenAIApiKey, 
+         modelName: openAIModelName, 
+         streaming: true, 
+         temperature: temperature,
+         maxTokens: maxTokens,
+         topP: topP
+       });
        console.log(`[Agent Init] OpenAI LLM created with model ${openAIModelName}.`);
     }
-    // Use the existing AGENT_PROMPT_TEMPLATE_OPENAI which now includes MessagesPlaceholder("chat_history")
-    agent = await createOpenAIFunctionsAgent({ llm, tools, prompt: AGENT_PROMPT_TEMPLATE_OPENAI });
-    console.log("[Agent Init] OpenAI Functions Agent created successfully.");
+    
+    // Use custom system prompt if configured
+    const systemPrompt = backendSettings.prompts?.systemPrompt || 
+      "You are a helpful assistant. Use the provided tools to answer the user's questions. Respond with a tool call if appropriate, otherwise respond to the user directly.";
+    
+    const customPrompt = ChatPromptTemplate.fromMessages([
+      ["system", systemPrompt],
+      new MessagesPlaceholder("chat_history"),
+      ["human", "{input}"],
+      ["placeholder", "{agent_scratchpad}"],
+    ]);
+    
+    agent = await createOpenAIFunctionsAgent({ llm, tools, prompt: customPrompt });
+    console.log("[Agent Init] OpenAI Functions Agent created successfully with custom configuration.");
   } else {
-    const ollamaModelName = backendSettings.defaultOllamaModel || 'llama3';
-    console.log(`[Agent Init] Ollama provider selected. Model: ${ollamaModelName}`);
-    llm = new ChatOllama({ baseUrl: OLLAMA_BASE_URL, model: ollamaModelName, temperature: 0 });
+    const ollamaModelName = customModel || backendSettings.defaultOllamaModel || 'llama3';
+    console.log(`[Agent Init] Ollama provider selected. Model: ${ollamaModelName}${customModel ? ' (custom)' : ' (default)'}`);
+    llm = new ChatOllama({ 
+      baseUrl: OLLAMA_BASE_URL, 
+      model: ollamaModelName, 
+      temperature: temperature,
+      // Note: Ollama doesn't support maxTokens and topP in the same way as OpenAI
+      // but we can pass them and let the model handle what it supports
+    });
     console.log(`[Agent Init] ChatOllama LLM created with model ${ollamaModelName}.`);
 
-    // Construct the prompt template for ReAct agent, incorporating chat_history
+    // Use custom system prompt if configured
+    const systemPrompt = backendSettings.prompts?.systemPrompt || 
+      "Assistant is a large language model designed to be able to assist with a wide range of tasks.";
+    
+    // Construct the prompt template for ReAct agent with custom system prompt
+    const customReactPromptText = `${systemPrompt}
+
+TOOLS:
+------
+Assistant has access to the following tools: {tool_names}
+
+Use these tools when necessary. Each tool description provides information on how to use it, including the expected input format (e.g., direct string or JSON string) and an example:
+
+{tools}
+
+The tool names are: {tool_names}
+
+RESPONSE FORMAT INSTRUCTIONS:
+----------------------------
+When responding to me, please output a response in one of two formats:
+
+**Option 1:**
+Use this if you want to use a tool.
+Markdown code snippet formatted in the following schema:
+
+Thought: Do I need to use a tool? Yes. Which tool is best for this? [tool_name]. What is the input to this tool?
+Action: [tool_name]
+Action Input: [the input to the tool, often a JSON string. For tools expecting JSON, ensure the JSON is valid and all string values within it are properly escaped. For tools expecting a simple string, just provide the string directly without JSON wrapping.]
+Observation: [the result of the tool call]
+
+**Option 2:**
+Use this if you want to respond directly to me.
+Markdown code snippet formatted in the following schema:
+
+Thought: Do I need to use a tool? No. I have the answer.
+Final Answer: [your response here]
+
+Always begin your response with "Thought:".
+If you are using a tool, the "Action" line MUST be followed by an "Action Input" line, then an "Observation" line.
+
+**HANDLING TOOL ERRORS:** If the 'Observation' you receive from a tool clearly indicates an error, acknowledge it in your 'Thought', analyze it, and avoid immediate retries if futile. Consider alternatives or explain if the task is blocked.
+**HANDLING USER DENIALS:** If an 'Observation' indicates a user denied an action, DO NOT retry the exact action. Acknowledge, re-evaluate, and find alternatives or explain why the task cannot proceed.
+
+NOW BEGIN!
+
+PREVIOUS CONVERSATION HISTORY (if any):
+{chat_history}
+
+NEW USER INPUT:
+Question: {input}
+
+Thought:{agent_scratchpad}`;
+
     const reactPrompt = ChatPromptTemplate.fromMessages([
-        // Use SystemMessagePromptTemplate to ensure variable placeholders like
-        // {tools} and {tool_names} are preserved for createReactAgent.
         SystemMessagePromptTemplate.fromTemplate(
-          REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(0, REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NOW BEGIN!"))
+          customReactPromptText.substring(0, customReactPromptText.indexOf("NOW BEGIN!"))
         ),
         new MessagesPlaceholder("chat_history"),
         HumanMessagePromptTemplate.fromTemplate(
-          REACT_AGENT_PROMPT_TEMPLATE_TEXT.substring(
-            REACT_AGENT_PROMPT_TEMPLATE_TEXT.indexOf("NEW USER INPUT:")
+          customReactPromptText.substring(
+            customReactPromptText.indexOf("NEW USER INPUT:")
           )
         ),
     ]);
     console.log('[DEBUG] reactPrompt inputVariables:', JSON.stringify(reactPrompt.inputVariables));
     agent = await createReactAgent({ llm, tools, prompt: reactPrompt });
-    console.log("[Agent Init] Ollama ReAct Agent created successfully.");
+    console.log("[Agent Init] Ollama ReAct Agent created successfully with custom configuration.");
   }
+
+  // Use configuration settings for agent executor
+  const maxIterations = backendSettings.agent?.maxIterations || 15;
+  const verbose = backendSettings.agent?.enableVerbose !== undefined ? 
+    backendSettings.agent.enableVerbose : true;
+
+  console.log(`[Agent Init] Using agent settings - MaxIterations: ${maxIterations}, Verbose: ${verbose}`);
 
   agentExecutor = new AgentExecutor({
     agent,
     tools,
-    memory, // Added memory instance
+    memory,
     returnIntermediateSteps: true,
-    maxIterations: 15,
-    verbose: true,
+    maxIterations: maxIterations,
+    verbose: verbose,
     // handleParsingErrors: true,
   });
-  console.log("[Agent Init] AgentExecutor created with memory.");
+  console.log("[Agent Init] AgentExecutor created with custom configuration and memory.");
 }
 
 const BACKEND_CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json');
 let backendSettings = {
   llmProvider: process.env.RR_LLM_PROVIDER || 'ollama',
   apiKey: process.env.RR_API_KEY || '',
-  defaultOllamaModel: process.env.RR_DEFAULT_OLLAMA_MODEL || 'mistral',
+  defaultOllamaModel: process.env.RR_DEFAULT_OLLAMA_MODEL || 'codellama',
   defaultOpenAIModel: process.env.RR_DEFAULT_OPENAI_MODEL || 'gpt-4',
   OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
   componentDir: process.env.RR_COMPONENT_DIR || path.resolve(__dirname, '../../tokomakAI/src/components'),
@@ -296,8 +398,8 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
         return expressHttpRes.status(400).json({ message: payload.error });
     }
 
-    let { task_description, safetyMode } = payload;
-    console.log(`[Agent Handling] Received task. Goal: "${task_description.substring(0, 100)}...", Safety Mode from payload: ${safetyMode}`);
+    let { task_description, safetyMode, model } = payload;
+    console.log(`[Agent Handling] Received task. Goal: "${task_description.substring(0, 100)}...", Safety Mode from payload: ${safetyMode}, Model: ${model || 'default'}`);
 
     expressHttpRes.setHeader('Content-Type', 'text/event-stream');
     expressHttpRes.setHeader('Cache-Control', 'no-cache');
@@ -315,7 +417,7 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
     // Initialize agent executor for each request to ensure fresh memory for the task.
     // This makes memory request-scoped.
     try {
-        await initializeAgentExecutor();
+        await initializeAgentExecutor(model);
     } catch (initError) {
         console.error("[Agent Handling] CRITICAL: AgentExecutor initialization failed:", initError);
         sendSseMessage('error', { content: `AgentExecutor initialization failed: ${initError.message}` });
@@ -337,6 +439,8 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
         overallExecutionLog: overallExecutionLog, // Added for ProposePlanTool
         originalTaskDescription: task_description,
         agentExecutor: agentExecutor,
+        llm: { model: model || backendSettings.defaultOllamaModel }, // Pass the model to tools
+        llmProvider: backendSettings.llmProvider, // Pass the LLM provider to tools
       }
     };
 
@@ -536,8 +640,21 @@ async function generateFromLocal(originalPrompt, modelName, expressRes, options 
     let accumulatedResponse = '';
     let finalPrompt = originalPrompt;
 
-    console.log(`[LLM Generation] Provider: ${provider || 'ollama (default)'}, Model: ${modelName}`);
-    console.log(`[LLM Generation] Final prompt (first 200 chars): "${finalPrompt.substring(0, 200)}..."`);
+    // Get model parameters from configuration
+    const temperature = backendSettings.modelParams?.temperature !== undefined ? 
+      backendSettings.modelParams.temperature : 0.7;
+    const maxTokens = backendSettings.modelParams?.maxTokens || 2048;
+    const topP = backendSettings.modelParams?.topP !== undefined ? 
+      backendSettings.modelParams.topP : 0.9;
+
+    console.log(`\n=== LLM GENERATION START ===`);
+    console.log(`[LLM Generation] Provider: ${provider || 'ollama (default)'}`);
+    console.log(`[LLM Generation] Model: ${modelName}`);
+    console.log(`[LLM Generation] Ollama URL: ${OLLAMA_BASE_URL}`);
+    console.log(`[LLM Generation] Model Parameters - Temperature: ${temperature}, MaxTokens: ${maxTokens}, TopP: ${topP}`);
+    console.log(`[LLM Generation] Prompt length: ${finalPrompt.length} characters`);
+    console.log(`[LLM Generation] Full prompt:\n"${finalPrompt}"`);
+    console.log(`[LLM Generation] Initializing LLM connection...`);
 
     let llm;
     if (provider === 'openai') {
@@ -545,21 +662,46 @@ async function generateFromLocal(originalPrompt, modelName, expressRes, options 
       const openAIModelToUse = modelName || backendSettings.defaultOpenAIModel || 'gpt-3.5-turbo';
       if (!effectiveOpenAIApiKey) {
         const errorMessage = 'OpenAI API key is missing.';
+        console.log(`[LLM Generation] ERROR: ${errorMessage}`);
         if (expressRes && expressRes.writable) expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
         return `// LLM_ERROR: ${errorMessage} //`;
       }
-      llm = new ChatOpenAI({ apiKey: effectiveOpenAIApiKey, modelName: openAIModelToUse, streaming: true });
+      llm = new ChatOpenAI({ 
+        apiKey: effectiveOpenAIApiKey, 
+        modelName: openAIModelToUse, 
+        streaming: true,
+        temperature: temperature,
+        maxTokens: maxTokens,
+        topP: topP
+      });
+      console.log(`[LLM Generation] OpenAI LLM initialized with model: ${openAIModelToUse} and custom parameters`);
     } else {
       const ollamaModelToUse = modelName || backendSettings.defaultOllamaModel || 'codellama';
-      llm = new ChatOllama({ baseUrl: OLLAMA_BASE_URL, model: ollamaModelToUse });
+      console.log(`[LLM Generation] Creating ChatOllama instance...`);
+      console.log(`[LLM Generation] - Base URL: ${OLLAMA_BASE_URL}`);
+      console.log(`[LLM Generation] - Model: ${ollamaModelToUse}`);
+      llm = new ChatOllama({ 
+        baseUrl: OLLAMA_BASE_URL, 
+        model: ollamaModelToUse,
+        temperature: temperature
+        // Note: Ollama doesn't support maxTokens and topP in the same way as OpenAI
+      });
+      console.log(`[LLM Generation] Ollama LLM initialized successfully with custom parameters`);
     }
 
     try {
+      console.log(`[LLM Generation] Starting streaming request to model...`);
       const stream = await llm.stream([new HumanMessage(finalPrompt)]);
+      console.log(`[LLM Generation] Stream established, processing chunks...`);
+      
+      let chunkCount = 0;
       for await (const chunk of stream) {
+        chunkCount++;
         if (chunk && chunk.content) {
           const contentChunk = chunk.content;
           accumulatedResponse += contentChunk;
+          console.log(`[LLM Generation] Chunk ${chunkCount}: "${contentChunk}"`);
+          
           if (expressRes && expressRes.writable) {
             const ssePayload = { type: 'llm_chunk', content: contentChunk };
             if (options.speakerContext) ssePayload.speaker = options.speakerContext;
@@ -567,27 +709,37 @@ async function generateFromLocal(originalPrompt, modelName, expressRes, options 
           }
         }
       }
+      
+      console.log(`[LLM Generation] Stream completed. Total chunks: ${chunkCount}`);
+      console.log(`[LLM Generation] Final response length: ${accumulatedResponse.length} characters`);
+      console.log(`[LLM Generation] Final response:\n"${accumulatedResponse}"`);
+      console.log(`=== LLM GENERATION END ===\n`);
+      
       return accumulatedResponse;
     } catch (error) {
       const errorMessage = `Error with ${provider} via Langchain: ${error.message}`;
+      console.log(`[LLM Generation] ERROR: ${errorMessage}`);
+      console.log(`[LLM Generation] Error stack: ${error.stack}`);
+      console.log(`=== LLM GENERATION FAILED ===\n`);
+      
       if (expressRes && expressRes.writable) expressRes.write(`data: ${JSON.stringify({ type: 'error', content: errorMessage })}\n\n`);
       return `// LLM_ERROR: ${errorMessage} //`;
     }
 }
 
 function parseTaskPayload(req) {
-    let task_description, safetyModeString;
+    let task_description, safetyModeString, model;
     if (req.method === 'POST') {
-      ({ task_description, safetyMode: safetyModeString } = req.body);
+      ({ task_description, safetyMode: safetyModeString, model } = req.body);
     } else if (req.method === 'GET') {
-      ({ task_description, safetyMode: safetyModeString } = req.query);
+      ({ task_description, safetyMode: safetyModeString, model } = req.query);
     } else {
       return { error: 'Unsupported request method.' };
     }
     if (!task_description) return { error: 'Missing task_description in parameters.' };
     // safetyMode defaults to true if not 'false'. If undefined, it's true.
     const safetyMode = safetyModeString !== 'false';
-    return { task_description, safetyMode };
+    return { task_description, safetyMode, model };
 }
 
 const app = express();
@@ -749,7 +901,1545 @@ app.post('/api/confirm-action/:confirmationId', async (req, res) => {
     }
 });
 
+// ===== COMPREHENSIVE API ENDPOINTS FOR ALL MODULES =====
+
+// Basic health and status endpoints
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/status', async (req, res) => {
+  try {
+    // Check Ollama connection and get model count
+    const ollamaResponse = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    const modelCount = ollamaResponse.ok ? (await ollamaResponse.json()).models?.length || 0 : 0;
+    
+    res.json({ 
+      status: 'ok', 
+      ollama: OLLAMA_BASE_URL,
+      models: modelCount,
+      version: '1.0.0',
+      backend: 'connected'
+    });
+  } catch (error) {
+    res.json({ 
+      status: 'ok', 
+      ollama: OLLAMA_BASE_URL,
+      models: 0,
+      version: '1.0.0',
+      backend: 'connected',
+      ollamaError: error.message
+    });
+  }
+});
+
+// ===== BRAINSTORMING MODULE API =====
+app.post('/api/brainstorming/start', async (req, res) => {
+  const { topic, model, agents, maxIdeas } = req.body;
+  
+  console.log(`[API /api/brainstorming/start] Starting brainstorming session: ${topic}`);
+  
+  try {
+    const brainstormingPrompt = `Generate ${maxIdeas || 3} creative and practical ideas for: "${topic}". 
+    
+    For each idea, provide:
+    1. A clear, actionable description
+    2. A feasibility score (1-100)
+    3. A category (e.g., "Technical", "Creative", "Business", "User Experience")
+    
+    Format your response as a JSON array of objects with properties: content, score, category.`;
+    
+    const selectedModel = model || backendSettings.defaultOllamaModel || 'codellama';
+    
+    // Generate ideas using the LLM
+    const ideaResponse = await generateFromLocal(brainstormingPrompt, selectedModel, null, {
+      llmProvider: backendSettings.llmProvider
+    });
+    
+    console.log('[API /api/brainstorming/start] Raw LLM response:', ideaResponse);
+    
+    // Use the raw response directly from your Ollama model
+    const ideas = [{
+      content: ideaResponse.trim(),
+      score: 100,
+      category: "Real AI Response",
+      model: selectedModel,
+      timestamp: new Date().toISOString()
+    }];
+    
+    res.json({
+      success: true,
+      ideas: ideas,
+      topic: topic,
+      model: selectedModel,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('[API /api/brainstorming/start] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      ideas: []
+    });
+  }
+});
+
+// Add the missing agent-response endpoint that BrainstormingService needs
+app.post('/api/brainstorming/agent-response', async (req, res) => {
+  const { prompt, modelId } = req.body;
+  
+  console.log(`[API /api/brainstorming/agent-response] Getting agent response for model: ${modelId}`);
+  
+  try {
+    const selectedModel = modelId || backendSettings.defaultOllamaModel || 'codellama';
+    
+    // Generate response using the LLM
+    const agentResponse = await generateFromLocal(prompt, selectedModel, null, {
+      llmProvider: backendSettings.llmProvider
+    });
+    
+    res.json({
+      content: agentResponse.trim(),
+      tokensUsed: agentResponse.length, // Approximate
+      responseTime: 1000 // Placeholder
+    });
+    
+  } catch (error) {
+    console.error('[API /api/brainstorming/agent-response] Error:', error);
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
+// ===== PLANNING MODULE API =====
+app.post('/api/planning/create', async (req, res) => {
+  const { name, description, steps, model } = req.body;
+  
+  console.log(`[API /api/planning/create] Creating plan: ${name}`);
+  
+  try {
+    const planningPrompt = `Create a detailed execution plan for: "${description}".
+    
+    Break this down into specific, actionable steps. For each step, provide:
+    1. A clear title
+    2. Detailed description of what needs to be done
+    3. Estimated time (in minutes)
+    4. Dependencies (if any)
+    5. Required tools or resources
+    
+    Format as JSON array of step objects with properties: title, description, estimatedTime, dependencies, tools.`;
+    
+    const selectedModel = model || backendSettings.defaultOllamaModel || 'codellama';
+    const planResponse = await generateFromLocal(planningPrompt, selectedModel, null, {
+      llmProvider: backendSettings.llmProvider
+    });
+    
+    // Use raw response directly - NO FALLBACK DATA
+    const planSteps = [{
+      title: "AI Generated Plan",
+      description: planResponse.trim(),
+      estimatedTime: 0,
+      dependencies: [],
+      tools: []
+    }];
+    
+    const plan = {
+      id: Date.now().toString(),
+      name: name,
+      description: description,
+      steps: planSteps,
+      model: selectedModel,
+      created: new Date().toISOString(),
+      status: 'draft'
+    };
+    
+    res.json({
+      success: true,
+      plan: plan
+    });
+    
+  } catch (error) {
+    console.error('[API /api/planning/create] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/planning/execute', async (req, res) => {
+  const { planId, plan } = req.body;
+  
+  console.log(`[API /api/planning/execute] Executing plan: ${planId}`);
+  
+  try {
+    // Simulate plan execution with progress updates
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    
+    const steps = plan.steps || [];
+    let completedSteps = 0;
+    
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      
+      // Send step start event
+      res.write(`data: ${JSON.stringify({
+        type: 'step_start',
+        step: step,
+        progress: Math.round((i / steps.length) * 100)
+      })}\n\n`);
+      
+      // Simulate step execution time
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      completedSteps++;
+      
+      // Send step complete event
+      res.write(`data: ${JSON.stringify({
+        type: 'step_complete',
+        step: step,
+        progress: Math.round((completedSteps / steps.length) * 100)
+      })}\n\n`);
+    }
+    
+    // Send completion event
+    res.write(`data: ${JSON.stringify({
+      type: 'execution_complete',
+      planId: planId,
+      completedSteps: completedSteps,
+      totalSteps: steps.length
+    })}\n\n`);
+    
+    res.end();
+    
+  } catch (error) {
+    console.error('[API /api/planning/execute] Error:', error);
+    res.write(`data: ${JSON.stringify({
+      type: 'error',
+      error: error.message
+    })}\n\n`);
+    res.end();
+  }
+});
+
+// Additional Planning APIs
+const savedPlans = new Map();
+
+app.get('/api/planning/templates', (req, res) => {
+  console.log(`[API /api/planning/templates] Getting step templates`);
+  
+  const templates = [
+    {
+      id: 'generate_code',
+      name: 'Generate Code',
+      description: 'Generate code using AI',
+      parameters: ['prompt', 'language', 'framework'],
+      estimatedTime: 30000
+    },
+    {
+      id: 'write_file',
+      name: 'Write File',
+      description: 'Write content to a file',
+      parameters: ['path', 'content'],
+      estimatedTime: 5000
+    },
+    {
+      id: 'run_command',
+      name: 'Run Command',
+      description: 'Execute a shell command',
+      parameters: ['command', 'workingDir'],
+      estimatedTime: 10000
+    },
+    {
+      id: 'api_call',
+      name: 'API Call',
+      description: 'Make an HTTP API call',
+      parameters: ['url', 'method', 'data'],
+      estimatedTime: 15000
+    }
+  ];
+  
+  res.json({
+    success: true,
+    templates: templates
+  });
+});
+
+app.post('/api/planning/validate', async (req, res) => {
+  const { plan } = req.body;
+  
+  console.log(`[API /api/planning/validate] Validating plan: ${plan.name}`);
+  
+  try {
+    const validation = {
+      isValid: true,
+      errors: [],
+      warnings: [],
+      suggestions: []
+    };
+    
+    // Basic validation
+    if (!plan.name) {
+      validation.errors.push('Plan name is required');
+      validation.isValid = false;
+    }
+    
+    if (!plan.steps || plan.steps.length === 0) {
+      validation.errors.push('Plan must have at least one step');
+      validation.isValid = false;
+    }
+    
+    // Validate steps
+    plan.steps?.forEach((step, index) => {
+      if (!step.title) {
+        validation.errors.push(`Step ${index + 1} is missing a title`);
+        validation.isValid = false;
+      }
+      
+      if (!step.type) {
+        validation.warnings.push(`Step ${index + 1} has no type specified`);
+      }
+      
+      if (step.estimatedTime && step.estimatedTime > 300000) {
+        validation.warnings.push(`Step ${index + 1} has a very long estimated time`);
+      }
+    });
+    
+    // Add suggestions
+    if (plan.steps?.length > 10) {
+      validation.suggestions.push('Consider breaking this plan into smaller sub-plans');
+    }
+    
+    res.json({
+      success: true,
+      validation: validation
+    });
+    
+  } catch (error) {
+    console.error('[API /api/planning/validate] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/planning/save', async (req, res) => {
+  const { plan } = req.body;
+  
+  console.log(`[API /api/planning/save] Saving plan: ${plan.name}`);
+  
+  try {
+    const planId = plan.id || uuidv4();
+    const savedPlan = {
+      ...plan,
+      id: planId,
+      saved: new Date().toISOString(),
+      version: (plan.version || 0) + 1
+    };
+    
+    savedPlans.set(planId, savedPlan);
+    
+    res.json({
+      success: true,
+      plan: savedPlan
+    });
+    
+  } catch (error) {
+    console.error('[API /api/planning/save] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/planning/plans', (req, res) => {
+  console.log(`[API /api/planning/plans] Getting all saved plans`);
+  
+  const plans = Array.from(savedPlans.values());
+  
+  res.json({
+    success: true,
+    plans: plans
+  });
+});
+
+app.delete('/api/planning/plan/:id', (req, res) => {
+  const { id } = req.params;
+  
+  console.log(`[API /api/planning/plan] Deleting plan: ${id}`);
+  
+  const deleted = savedPlans.delete(id);
+  
+  res.json({
+    success: deleted,
+    message: deleted ? 'Plan deleted' : 'Plan not found'
+  });
+});
+
+app.post('/api/planning/export', async (req, res) => {
+  const { planId, format } = req.body;
+  
+  console.log(`[API /api/planning/export] Exporting plan ${planId} as ${format}`);
+  
+  try {
+    const plan = savedPlans.get(planId);
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        error: 'Plan not found'
+      });
+    }
+    
+    let exportData;
+    
+    switch (format) {
+      case 'json':
+        exportData = {
+          format: 'json',
+          content: JSON.stringify(plan, null, 2),
+          filename: `plan-${plan.name.replace(/\s+/g, '-')}.json`
+        };
+        break;
+        
+      case 'markdown':
+        let markdown = `# ${plan.name}\n\n`;
+        markdown += `**Description:** ${plan.description}\n\n`;
+        markdown += `**Created:** ${plan.created}\n\n`;
+        markdown += `## Steps\n\n`;
+        
+        plan.steps.forEach((step, index) => {
+          markdown += `### ${index + 1}. ${step.title}\n`;
+          markdown += `${step.description}\n\n`;
+          if (step.estimatedTime) {
+            markdown += `**Estimated Time:** ${Math.round(step.estimatedTime / 1000)}s\n\n`;
+          }
+        });
+        
+        exportData = {
+          format: 'markdown',
+          content: markdown,
+          filename: `plan-${plan.name.replace(/\s+/g, '-')}.md`
+        };
+        break;
+        
+      default:
+        return res.status(400).json({
+          success: false,
+          error: 'Unsupported export format'
+        });
+    }
+    
+    res.json({
+      success: true,
+      export: exportData
+    });
+    
+  } catch (error) {
+    console.error('[API /api/planning/export] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ===== EXECUTION MODULE API =====
+app.post('/api/execution/generate-code', async (req, res) => {
+  const { prompt, language, model } = req.body;
+  
+  console.log(`[API /api/execution/generate-code] Generating ${language} code for: ${prompt}`);
+  
+  try {
+    const codePrompt = `Generate ${language} code for: "${prompt}".
+    
+    Requirements:
+    1. Write clean, well-commented code
+    2. Follow best practices for ${language}
+    3. Include error handling where appropriate
+    4. Make the code production-ready
+    
+    Return only the code without explanations.`;
+    
+    const selectedModel = model || backendSettings.defaultOllamaModel || 'codellama';
+    const codeResponse = await generateFromLocal(codePrompt, selectedModel, null, {
+      llmProvider: backendSettings.llmProvider
+    });
+    
+    res.json({
+      success: true,
+      code: codeResponse,
+      language: language,
+      model: selectedModel,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('[API /api/execution/generate-code] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      code: `// Error generating code: ${error.message}`
+    });
+  }
+});
+
+app.post('/api/execution/process-file', async (req, res) => {
+  const { filename, content, preInstructions, fileType } = req.body;
+  
+  console.log(`[API /api/execution/process-file] Processing file: ${filename}`);
+  
+  try {
+    const processingPrompt = `${preInstructions || 'Process and analyze the following file:'}\n\nFile: ${filename}\nType: ${fileType}\nContent:\n${content}\n\nProvide your analysis and any improvements or suggestions.`;
+    
+    const selectedModel = backendSettings.defaultOllamaModel || 'codellama';
+    const processedResponse = await generateFromLocal(processingPrompt, selectedModel, null, {
+      llmProvider: backendSettings.llmProvider
+    });
+    
+    res.json({
+      success: true,
+      processedContent: processedResponse,
+      filename: filename,
+      fileType: fileType,
+      tokensUsed: Math.ceil(processedResponse.length / 4), // Rough token estimate
+      model: selectedModel,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('[API /api/execution/process-file] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      processedContent: `Error processing file ${filename}: ${error.message}`
+    });
+  }
+});
+
+app.post('/api/execution/run-code', async (req, res) => {
+  const { code, language } = req.body;
+  
+  console.log(`[API /api/execution/run-code] Running ${language} code`);
+  
+  try {
+    // For security, we'll simulate code execution rather than actually running it
+    const simulatedOutput = `Code execution simulated for ${language}:\n\n${code.substring(0, 200)}...\n\nExecution completed successfully.`;
+    
+    res.json({
+      success: true,
+      output: simulatedOutput,
+      language: language,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('[API /api/execution/run-code] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      output: `Error: ${error.message}`
+    });
+  }
+});
+
+app.post('/api/execution/write-file', async (req, res) => {
+  const { path: filePath, content, encoding } = req.body;
+  
+  console.log(`[API /api/execution/write-file] Writing file: ${filePath}`);
+  
+  try {
+    const fullPath = path.join(WORKSPACE_DIR, filePath);
+    const dir = path.dirname(fullPath);
+    
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    
+    fs.writeFileSync(fullPath, content || '', encoding || 'utf-8');
+    
+    res.json({
+      success: true,
+      path: filePath,
+      fullPath: fullPath,
+      size: Buffer.byteLength(content || '', encoding || 'utf-8'),
+      message: 'File written successfully'
+    });
+    
+  } catch (error) {
+    console.error('[API /api/execution/write-file] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/execution/read-file', async (req, res) => {
+  const { path: filePath, encoding } = req.body;
+  
+  console.log(`[API /api/execution/read-file] Reading file: ${filePath}`);
+  
+  try {
+    const fullPath = path.join(WORKSPACE_DIR, filePath);
+    
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'File not found'
+      });
+    }
+    
+    const content = fs.readFileSync(fullPath, encoding || 'utf-8');
+    const stats = fs.statSync(fullPath);
+    
+    res.json({
+      success: true,
+      path: filePath,
+      content: content,
+      size: stats.size,
+      modified: stats.mtime.toISOString(),
+      message: 'File read successfully'
+    });
+    
+  } catch (error) {
+    console.error('[API /api/execution/read-file] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/execution/run-plan', async (req, res) => {
+  const { plan, options } = req.body;
+  
+  console.log(`[API /api/execution/run-plan] Running plan: ${plan.name}`);
+  
+  try {
+    // Set up SSE for real-time updates
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    
+    const steps = plan.steps || [];
+    let completedSteps = 0;
+    const results = [];
+    
+    // Send start event
+    res.write(`data: ${JSON.stringify({
+      type: 'plan_start',
+      plan: plan,
+      totalSteps: steps.length
+    })}\n\n`);
+    
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      
+      // Send step start event
+      res.write(`data: ${JSON.stringify({
+        type: 'step_start',
+        step: step,
+        stepIndex: i,
+        progress: Math.round((i / steps.length) * 100)
+      })}\n\n`);
+      
+      try {
+        // Execute step based on type
+        let stepResult;
+        switch (step.type) {
+          case 'generate_code':
+            stepResult = await executeCodeGeneration(step);
+            break;
+          case 'write_file':
+            stepResult = await executeFileWrite(step);
+            break;
+          case 'run_command':
+            stepResult = await executeCommand(step);
+            break;
+          default:
+            stepResult = { success: true, message: `Step ${step.title} completed (simulated)` };
+        }
+        
+        results.push(stepResult);
+        completedSteps++;
+        
+        // Send step complete event
+        res.write(`data: ${JSON.stringify({
+          type: 'step_complete',
+          step: step,
+          stepIndex: i,
+          result: stepResult,
+          progress: Math.round((completedSteps / steps.length) * 100)
+        })}\n\n`);
+        
+      } catch (stepError) {
+        const errorResult = { success: false, error: stepError.message };
+        results.push(errorResult);
+        
+        // Send step error event
+        res.write(`data: ${JSON.stringify({
+          type: 'step_error',
+          step: step,
+          stepIndex: i,
+          error: stepError.message,
+          progress: Math.round((completedSteps / steps.length) * 100)
+        })}\n\n`);
+        
+        if (options?.stopOnError) {
+          break;
+        }
+      }
+      
+      // Add delay between steps
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    // Send completion event
+    res.write(`data: ${JSON.stringify({
+      type: 'plan_complete',
+      plan: plan,
+      completedSteps: completedSteps,
+      totalSteps: steps.length,
+      results: results,
+      success: completedSteps === steps.length
+    })}\n\n`);
+    
+    res.end();
+    
+  } catch (error) {
+    console.error('[API /api/execution/run-plan] Error:', error);
+    res.write(`data: ${JSON.stringify({
+      type: 'error',
+      error: error.message
+    })}\n\n`);
+    res.end();
+  }
+});
+
+app.get('/api/execution/status', (req, res) => {
+  console.log(`[API /api/execution/status] Getting execution status`);
+  
+  // Return current execution status
+  res.json({
+    success: true,
+    status: {
+      isRunning: false, // Would track actual execution state
+      currentPlan: null,
+      currentStep: null,
+      progress: 0,
+      startTime: null,
+      estimatedCompletion: null
+    },
+    workspace: WORKSPACE_DIR,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.post('/api/execution/batch-process', async (req, res) => {
+  const { tasks, options } = req.body;
+  
+  console.log(`[API /api/execution/batch-process] Processing ${tasks.length} tasks`);
+  
+  try {
+    // Set up SSE for real-time updates
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    
+    const results = [];
+    let completedTasks = 0;
+    
+    // Send start event
+    res.write(`data: ${JSON.stringify({
+      type: 'batch_start',
+      totalTasks: tasks.length,
+      options: options
+    })}\n\n`);
+    
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i];
+      
+      // Send task start event
+      res.write(`data: ${JSON.stringify({
+        type: 'task_start',
+        task: task,
+        taskIndex: i,
+        progress: Math.round((i / tasks.length) * 100)
+      })}\n\n`);
+      
+      try {
+        // Process task based on type
+        let taskResult;
+        switch (task.type) {
+          case 'generate_code':
+            taskResult = await processBatchCodeGeneration(task);
+            break;
+          case 'write_file':
+            taskResult = await processBatchFileWrite(task);
+            break;
+          case 'analyze':
+            taskResult = await processBatchAnalysis(task);
+            break;
+          default:
+            taskResult = { success: true, message: `Task ${task.name} completed` };
+        }
+        
+        results.push(taskResult);
+        completedTasks++;
+        
+        // Send task complete event
+        res.write(`data: ${JSON.stringify({
+          type: 'task_complete',
+          task: task,
+          taskIndex: i,
+          result: taskResult,
+          progress: Math.round((completedTasks / tasks.length) * 100)
+        })}\n\n`);
+        
+      } catch (taskError) {
+        const errorResult = { success: false, error: taskError.message };
+        results.push(errorResult);
+        
+        // Send task error event
+        res.write(`data: ${JSON.stringify({
+          type: 'task_error',
+          task: task,
+          taskIndex: i,
+          error: taskError.message,
+          progress: Math.round((completedTasks / tasks.length) * 100)
+        })}\n\n`);
+        
+        if (options?.stopOnError) {
+          break;
+        }
+      }
+      
+      // Add delay between tasks if specified
+      if (options?.delay) {
+        await new Promise(resolve => setTimeout(resolve, options.delay));
+      }
+    }
+    
+    // Send completion event
+    res.write(`data: ${JSON.stringify({
+      type: 'batch_complete',
+      completedTasks: completedTasks,
+      totalTasks: tasks.length,
+      results: results,
+      success: completedTasks === tasks.length
+    })}\n\n`);
+    
+    res.end();
+    
+  } catch (error) {
+    console.error('[API /api/execution/batch-process] Error:', error);
+    res.write(`data: ${JSON.stringify({
+      type: 'error',
+      error: error.message
+    })}\n\n`);
+    res.end();
+  }
+});
+
+// Helper functions for execution
+async function executeCodeGeneration(step) {
+  const { prompt, language, model } = step.parameters || {};
+  
+  const codePrompt = `Generate ${language || 'JavaScript'} code for: "${prompt}".
+  
+  Requirements:
+  1. Write clean, well-commented code
+  2. Follow best practices
+  3. Include error handling
+  4. Make the code production-ready
+  
+  Return only the code.`;
+  
+  const selectedModel = model || backendSettings.defaultOllamaModel || 'codellama';
+  const code = await generateFromLocal(codePrompt, selectedModel, null, {
+    llmProvider: backendSettings.llmProvider
+  });
+  
+  return {
+    success: true,
+    code: code,
+    language: language || 'JavaScript',
+    model: selectedModel
+  };
+}
+
+async function executeFileWrite(step) {
+  const { path: filePath, content } = step.parameters || {};
+  
+  if (!filePath) {
+    throw new Error('File path is required for write operation');
+  }
+  
+  const fullPath = path.join(WORKSPACE_DIR, filePath);
+  const dir = path.dirname(fullPath);
+  
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  
+  fs.writeFileSync(fullPath, content || '', 'utf-8');
+  
+  return {
+    success: true,
+    path: filePath,
+    size: Buffer.byteLength(content || '', 'utf-8')
+  };
+}
+
+async function executeCommand(step) {
+  const { command } = step.parameters || {};
+  
+  // For security, we simulate command execution
+  return {
+    success: true,
+    command: command,
+    output: `Simulated execution of: ${command}`,
+    exitCode: 0
+  };
+}
+
+async function processBatchCodeGeneration(task) {
+  return await executeCodeGeneration(task);
+}
+
+async function processBatchFileWrite(task) {
+  return await executeFileWrite(task);
+}
+
+async function processBatchAnalysis(task) {
+  const { content, type } = task.parameters || {};
+  
+  const analysisPrompt = `Analyze the following ${type || 'content'}:
+  
+  ${content}
+  
+  Provide insights, suggestions, and recommendations.`;
+  
+  const selectedModel = backendSettings.defaultOllamaModel || 'codellama';
+  const analysis = await generateFromLocal(analysisPrompt, selectedModel, null, {
+    llmProvider: backendSettings.llmProvider
+  });
+  
+  return {
+    success: true,
+    analysis: analysis,
+    type: type || 'general'
+  };
+}
+
+// ===== MULTIMODAL API =====
+app.post('/api/multimodal/process', async (req, res) => {
+  const { text, images, model } = req.body;
+  
+  console.log(`[API /api/multimodal/process] Processing multimodal input`);
+  
+  try {
+    const multimodalPrompt = `Analyze the following input:
+    Text: "${text}"
+    ${images ? `Images: ${images.length} image(s) provided` : 'No images provided'}
+    
+    Provide a comprehensive analysis and suggestions.`;
+    
+    const selectedModel = model || backendSettings.defaultOllamaModel || 'codellama';
+    const analysisResponse = await generateFromLocal(multimodalPrompt, selectedModel, null, {
+      llmProvider: backendSettings.llmProvider
+    });
+    
+    res.json({
+      success: true,
+      analysis: analysisResponse,
+      model: selectedModel,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('[API /api/multimodal/process] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      analysis: `Error processing multimodal input: ${error.message}`
+    });
+  }
+});
+
+// ===== CONFERENCE TAB APIs =====
+const conferenceSessions = new Map();
+
+app.post('/api/conference/start-session', async (req, res) => {
+  const { topic, agents, model } = req.body;
+  
+  console.log(`[API /api/conference/start-session] Starting conference: ${topic}`);
+  
+  try {
+    const sessionId = uuidv4();
+    const session = {
+      id: sessionId,
+      topic: topic || 'General Discussion',
+      agents: agents || ['creative', 'analytical', 'practical'],
+      model: model || backendSettings.defaultOllamaModel,
+      messages: [],
+      status: 'active',
+      created: new Date().toISOString(),
+      lastActivity: new Date().toISOString()
+    };
+    
+    conferenceSessions.set(sessionId, session);
+    
+    res.json({
+      success: true,
+      session: session
+    });
+    
+  } catch (error) {
+    console.error('[API /api/conference/start-session] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/conference/add-agent', async (req, res) => {
+  const { sessionId, agentType, agentName } = req.body;
+  
+  console.log(`[API /api/conference/add-agent] Adding agent ${agentName} to session ${sessionId}`);
+  
+  try {
+    const session = conferenceSessions.get(sessionId);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    
+    const newAgent = {
+      id: uuidv4(),
+      type: agentType,
+      name: agentName,
+      added: new Date().toISOString()
+    };
+    
+    session.agents.push(newAgent);
+    session.lastActivity = new Date().toISOString();
+    
+    res.json({
+      success: true,
+      agent: newAgent,
+      session: session
+    });
+    
+  } catch (error) {
+    console.error('[API /api/conference/add-agent] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/conference/send-message', async (req, res) => {
+  const { sessionId, agentId, message, generateResponse } = req.body;
+  
+  console.log(`[API /api/conference/send-message] Message in session ${sessionId}`);
+  
+  try {
+    const session = conferenceSessions.get(sessionId);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+    
+    const messageObj = {
+      id: uuidv4(),
+      sessionId,
+      agentId,
+      content: message,
+      timestamp: new Date().toISOString()
+    };
+    
+    session.messages.push(messageObj);
+    session.lastActivity = new Date().toISOString();
+    
+    let aiResponse = null;
+    if (generateResponse) {
+      const prompt = `You are participating in a conference discussion about "${session.topic}". 
+      Previous messages: ${session.messages.slice(-3).map(m => m.content).join('\n')}
+      
+      Respond to: "${message}"
+      
+      Provide a thoughtful response that contributes to the discussion.`;
+      
+      const response = await generateFromLocal(prompt, session.model, null, {
+        llmProvider: backendSettings.llmProvider
+      });
+      
+      aiResponse = {
+        id: uuidv4(),
+        sessionId,
+        agentId: 'ai_agent',
+        content: response.trim(),
+        timestamp: new Date().toISOString()
+      };
+      
+      session.messages.push(aiResponse);
+    }
+    
+    res.json({
+      success: true,
+      message: messageObj,
+      aiResponse: aiResponse,
+      session: session
+    });
+    
+  } catch (error) {
+    console.error('[API /api/conference/send-message] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/conference/session/:id', (req, res) => {
+  const { id } = req.params;
+  
+  console.log(`[API /api/conference/session] Getting session ${id}`);
+  
+  const session = conferenceSessions.get(id);
+  if (!session) {
+    return res.status(404).json({ success: false, error: 'Session not found' });
+  }
+  
+  res.json({
+    success: true,
+    session: session
+  });
+});
+
+app.delete('/api/conference/session/:id', (req, res) => {
+  const { id } = req.params;
+  
+  console.log(`[API /api/conference/session] Deleting session ${id}`);
+  
+  const deleted = conferenceSessions.delete(id);
+  
+  res.json({
+    success: deleted,
+    message: deleted ? 'Session deleted' : 'Session not found'
+  });
+});
+
+// ===== FILE SYSTEM APIs =====
+app.post('/api/files/create', async (req, res) => {
+  const { path: filePath, content, type } = req.body;
+  
+  console.log(`[API /api/files/create] Creating file: ${filePath}`);
+  
+  try {
+    const fullPath = path.join(WORKSPACE_DIR, filePath);
+    const dir = path.dirname(fullPath);
+    
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    
+    fs.writeFileSync(fullPath, content || '', 'utf-8');
+    
+    res.json({
+      success: true,
+      path: filePath,
+      fullPath: fullPath,
+      message: 'File created successfully'
+    });
+    
+  } catch (error) {
+    console.error('[API /api/files/create] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/files/list', (req, res) => {
+  const { directory } = req.query;
+  
+  console.log(`[API /api/files/list] Listing files in: ${directory || 'workspace'}`);
+  
+  try {
+    const targetDir = directory ? path.join(WORKSPACE_DIR, directory) : WORKSPACE_DIR;
+    
+    if (!fs.existsSync(targetDir)) {
+      return res.json({
+        success: true,
+        files: [],
+        directory: directory || ''
+      });
+    }
+    
+    const items = fs.readdirSync(targetDir, { withFileTypes: true });
+    const files = items.map(item => ({
+      name: item.name,
+      type: item.isDirectory() ? 'directory' : 'file',
+      path: directory ? path.join(directory, item.name) : item.name
+    }));
+    
+    res.json({
+      success: true,
+      files: files,
+      directory: directory || ''
+    });
+    
+  } catch (error) {
+    console.error('[API /api/files/list] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      files: []
+    });
+  }
+});
+
+app.put('/api/files/update', async (req, res) => {
+  const { path: filePath, content } = req.body;
+  
+  console.log(`[API /api/files/update] Updating file: ${filePath}`);
+  
+  try {
+    const fullPath = path.join(WORKSPACE_DIR, filePath);
+    
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'File not found'
+      });
+    }
+    
+    fs.writeFileSync(fullPath, content, 'utf-8');
+    
+    res.json({
+      success: true,
+      path: filePath,
+      message: 'File updated successfully'
+    });
+    
+  } catch (error) {
+    console.error('[API /api/files/update] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.delete('/api/files/delete', async (req, res) => {
+  const { path: filePath } = req.body;
+  
+  console.log(`[API /api/files/delete] Deleting file: ${filePath}`);
+  
+  try {
+    const fullPath = path.join(WORKSPACE_DIR, filePath);
+    
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'File not found'
+      });
+    }
+    
+    fs.unlinkSync(fullPath);
+    
+    res.json({
+      success: true,
+      path: filePath,
+      message: 'File deleted successfully'
+    });
+    
+  } catch (error) {
+    console.error('[API /api/files/delete] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post('/api/files/export', async (req, res) => {
+  const { files, format, destination } = req.body;
+  
+  console.log(`[API /api/files/export] Exporting ${files.length} files as ${format}`);
+  
+  try {
+    const exportData = {
+      format: format,
+      timestamp: new Date().toISOString(),
+      files: []
+    };
+    
+    for (const filePath of files) {
+      const fullPath = path.join(WORKSPACE_DIR, filePath);
+      if (fs.existsSync(fullPath)) {
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        exportData.files.push({
+          path: filePath,
+          content: content
+        });
+      }
+    }
+    
+    if (destination) {
+      const exportPath = path.join(WORKSPACE_DIR, destination);
+      fs.writeFileSync(exportPath, JSON.stringify(exportData, null, 2), 'utf-8');
+    }
+    
+    res.json({
+      success: true,
+      exportData: exportData,
+      message: `Exported ${exportData.files.length} files`
+    });
+    
+  } catch (error) {
+    console.error('[API /api/files/export] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ===== MODEL MANAGEMENT API =====
+app.get('/api/models', async (req, res) => {
+  try {
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    if (response.ok) {
+      const data = await response.json();
+      res.json({
+        success: true,
+        models: data.models || [],
+        provider: 'ollama'
+      });
+    } else {
+      res.json({
+        success: false,
+        models: [],
+        error: 'Failed to fetch models from Ollama'
+      });
+    }
+  } catch (error) {
+    res.json({
+      success: false,
+      models: [],
+      error: error.message
+    });
+  }
+});
+
+// ===== CONFIGURATION TAB APIs =====
+app.get('/api/config/settings', (req, res) => {
+  console.log(`[API /api/config/settings] Getting configuration settings`);
+  
+  res.json({
+    success: true,
+    settings: backendSettings,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.post('/api/config/settings', (req, res) => {
+  console.log(`[API /api/config/settings] Updating configuration settings`);
+  
+  const {
+    llmProvider,
+    apiKey,
+    defaultOllamaModel,
+    defaultOpenAIModel,
+    OLLAMA_BASE_URL: newOllamaBaseUrl,
+    componentDir,
+    logDir,
+    workspaceDir
+  } = req.body;
+
+  const newSettings = { ...backendSettings };
+
+  if (llmProvider !== undefined) newSettings.llmProvider = llmProvider;
+  if (apiKey !== undefined) newSettings.apiKey = apiKey;
+  if (defaultOllamaModel !== undefined) newSettings.defaultOllamaModel = defaultOllamaModel;
+  if (defaultOpenAIModel !== undefined) newSettings.defaultOpenAIModel = defaultOpenAIModel;
+  if (newOllamaBaseUrl !== undefined) newSettings.OLLAMA_BASE_URL = newOllamaBaseUrl;
+  if (componentDir !== undefined) newSettings.componentDir = componentDir;
+  if (logDir !== undefined) newSettings.logDir = logDir;
+  if (workspaceDir !== undefined) newSettings.workspaceDir = workspaceDir;
+
+  try {
+    fs.writeFileSync(BACKEND_CONFIG_FILE_PATH, JSON.stringify(newSettings, null, 2), 'utf-8');
+    backendSettings = newSettings;
+
+    if (newOllamaBaseUrl !== undefined && OLLAMA_BASE_URL !== newOllamaBaseUrl) {
+      OLLAMA_BASE_URL = newOllamaBaseUrl;
+      console.log(`[API /api/config/settings] Global OLLAMA_BASE_URL updated to: ${OLLAMA_BASE_URL}`);
+    }
+
+    res.json({ 
+      success: true,
+      message: 'Settings updated successfully.',
+      settings: backendSettings 
+    });
+  } catch (error) {
+    console.error('[API /api/config/settings] Error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to save settings.',
+      details: error.message 
+    });
+  }
+});
+
+app.get('/api/config/models', async (req, res) => {
+  console.log(`[API /api/config/models] Getting available models`);
+  
+  try {
+    const models = {
+      ollama: [],
+      openai: [
+        { id: 'gpt-4', name: 'GPT-4', provider: 'openai' },
+        { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'openai' },
+        { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', provider: 'openai' }
+      ]
+    };
+    
+    // Try to get Ollama models
+    try {
+      const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+      if (response.ok) {
+        const data = await response.json();
+        models.ollama = (data.models || []).map(model => ({
+          id: model.name,
+          name: model.name,
+          provider: 'ollama',
+          size: model.size,
+          modified: model.modified_at
+        }));
+      }
+    } catch (ollamaError) {
+      console.warn('[API /api/config/models] Ollama not available:', ollamaError.message);
+    }
+    
+    res.json({
+      success: true,
+      models: models,
+      currentProvider: backendSettings.llmProvider,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('[API /api/config/models] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      models: { ollama: [], openai: [] }
+    });
+  }
+});
+
+app.post('/api/config/test-connection', async (req, res) => {
+  const { provider, apiKey, ollamaUrl, model } = req.body;
+  
+  console.log(`[API /api/config/test-connection] Testing ${provider} connection`);
+  
+  try {
+    let testResult = {
+      success: false,
+      provider: provider,
+      message: '',
+      details: {},
+      timestamp: new Date().toISOString()
+    };
+    
+    if (provider === 'ollama') {
+      const testUrl = ollamaUrl || OLLAMA_BASE_URL;
+      
+      try {
+        const response = await fetch(`${testUrl}/api/tags`);
+        if (response.ok) {
+          const data = await response.json();
+          testResult.success = true;
+          testResult.message = 'Ollama connection successful';
+          testResult.details = {
+            url: testUrl,
+            modelCount: data.models?.length || 0,
+            models: data.models?.slice(0, 3).map(m => m.name) || []
+          };
+        } else {
+          testResult.message = `Ollama server responded with status ${response.status}`;
+          testResult.details = { url: testUrl, status: response.status };
+        }
+      } catch (fetchError) {
+        testResult.message = 'Failed to connect to Ollama server';
+        testResult.details = { url: testUrl, error: fetchError.message };
+      }
+      
+    } else if (provider === 'openai') {
+      if (!apiKey) {
+        testResult.message = 'OpenAI API key is required';
+        testResult.details = { missingApiKey: true };
+      } else {
+        try {
+          // Test with a simple completion request
+          const testModel = model || 'gpt-3.5-turbo';
+          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: testModel,
+              messages: [{ role: 'user', content: 'Test connection' }],
+              max_tokens: 5
+            })
+          });
+          
+          if (response.ok) {
+            testResult.success = true;
+            testResult.message = 'OpenAI API connection successful';
+            testResult.details = { model: testModel, status: response.status };
+          } else {
+            const errorData = await response.json();
+            testResult.message = `OpenAI API error: ${errorData.error?.message || 'Unknown error'}`;
+            testResult.details = { status: response.status, error: errorData };
+          }
+        } catch (fetchError) {
+          testResult.message = 'Failed to connect to OpenAI API';
+          testResult.details = { error: fetchError.message };
+        }
+      }
+      
+    } else {
+      testResult.message = 'Unsupported provider';
+      testResult.details = { supportedProviders: ['ollama', 'openai'] };
+    }
+    
+    res.json(testResult);
+    
+  } catch (error) {
+    console.error('[API /api/config/test-connection] Error:', error);
+    res.status(500).json({
+      success: false,
+      provider: provider,
+      message: 'Internal server error during connection test',
+      details: { error: error.message },
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.get('/api/settings', (req, res) => res.json(backendSettings));
 app.post('/api/settings', (req, res) => {
     const {
@@ -1377,10 +3067,113 @@ async function checkOllamaStatus() {
 
 // startOllama function is removed as per cleanup plan.
 
+// WebSocket setup for backend log streaming
+let wss;
+const logBuffer = [];
+const MAX_LOG_BUFFER = 100;
+
+function broadcastLog(logEntry) {
+  // Add to buffer
+  logBuffer.push(logEntry);
+  if (logBuffer.length > MAX_LOG_BUFFER) {
+    logBuffer.shift(); // Remove oldest entry
+  }
+  
+  // Broadcast to all connected WebSocket clients
+  if (wss) {
+    wss.clients.forEach(client => {
+      if (client.readyState === 1) { // WebSocket.OPEN
+        try {
+          client.send(JSON.stringify(logEntry));
+        } catch (error) {
+          console.error('[WebSocket] Error sending log to client:', error);
+        }
+      }
+    });
+  }
+}
+
+// Override console.log to capture backend logs
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+
+console.log = (...args) => {
+  originalConsoleLog(...args);
+  const message = args.join(' ');
+  if (message.includes('[API') || message.includes('[Backend') || message.includes('[Server')) {
+    broadcastLog({
+      timestamp: new Date().toISOString(),
+      level: 'INFO',
+      message: message
+    });
+  }
+};
+
+console.error = (...args) => {
+  originalConsoleError(...args);
+  const message = args.join(' ');
+  broadcastLog({
+    timestamp: new Date().toISOString(),
+    level: 'ERROR',
+    message: message
+  });
+};
+
+console.warn = (...args) => {
+  originalConsoleWarn(...args);
+  const message = args.join(' ');
+  broadcastLog({
+    timestamp: new Date().toISOString(),
+    level: 'WARNING',
+    message: message
+  });
+};
+
 function attemptToListen(port) {
     console.log(`[BACKEND SERVER ATTEMPT] Attempting to listen on port: ${port}`);
-    app.listen(port, () => {
+    
+    // Create HTTP server
+    const server = createServer(app);
+    
+    // Setup WebSocket server
+    wss = new WebSocketServer({ 
+      server,
+      path: '/ws/logs'
+    });
+    
+    wss.on('connection', (ws, req) => {
+      console.log(`[WebSocket] Client connected from ${req.socket.remoteAddress}`);
+      
+      // Send existing log buffer to new client
+      logBuffer.forEach(logEntry => {
+        try {
+          ws.send(JSON.stringify(logEntry));
+        } catch (error) {
+          console.error('[WebSocket] Error sending buffered log:', error);
+        }
+      });
+      
+      // Send welcome message
+      ws.send(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'INFO',
+        message: '[WebSocket] Connected to backend log stream'
+      }));
+      
+      ws.on('close', () => {
+        console.log('[WebSocket] Client disconnected');
+      });
+      
+      ws.on('error', (error) => {
+        console.error('[WebSocket] Client error:', error);
+      });
+    });
+    
+    server.listen(port, () => {
         console.log(`[BACKEND SERVER SUCCESS] Successfully listening on port: ${port}. PID: ${process.pid}`);
+        console.log(`[WebSocket] Log streaming available at ws://localhost:${port}/ws/logs`);
+        
         // Send the port to the parent process (Electron main) if running as a child process
         if (process.send) {
             process.send({ type: 'backend-port', port: port });
@@ -1421,7 +3214,7 @@ async function main() {
     // A common way is to check if the script is run directly.
     // For simplicity, we'll assume server.js is always meant to run directly if executed with node.
     // If this script is imported elsewhere, main() would need to be explicitly called by the importer.
-    const initialPort = parseInt(process.env.PORT || '3030', 10);
+    const initialPort = parseInt(process.env.PORT || '3333', 10);
     attemptToListen(initialPort);
 
   } catch (err) {

@@ -1,30 +1,47 @@
 {
+  "llmProvider": "ollama",
+  "apiKey": "",
+  "defaultOllamaModel": "mistral-nemo:latest",
+  "defaultOpenAIModel": "gpt-4",
+  "OLLAMA_BASE_URL": "http://localhost:11434",
   "componentDir": "../tokomakAI/src/components",
   "logDir": "../logs",
   "workspaceDir": "../output",
-  "//": "--- How to use this file ---",
-  "//": "1. Rename this file to 'backend_config.json' in the same directory.",
-  "//": "2. Modify the paths above to point to your desired locations.",
-  "//": "   - Paths can be absolute (e.g., '/var/roadrunner/logs' or 'C:\\Users\\YourUser\\roadrunner_output').",
-  "//": "   - Paths can be relative (e.g., '../my_custom_logs' or './roadmaps/custom_front').",
-  "//": "     Relative paths are resolved from the 'roadrunner/backend' directory.",
-  "//": "",
-  "//": "--- Path Descriptions ---",
-  "//": "'componentDir':       Directory for generated components (e.g., Vue/React components from Tokomak output).",
-  "//": "                      Default: '../tokomakAI/src/components' (relative to roadrunner/backend).",
-  "//": "                      Env Var: RR_COMPONENT_DIR",
-  "//": "",
-  "//": "'logDir':             Directory where Roadrunner backend execution logs are stored.",
-  "//": "                      Default: '../logs' (relative to roadrunner/backend).",
-  "//": "                      Env Var: RR_LOG_DIR",
-  "//": "",
-  "//": "'workspaceDir':       The primary output directory for tasks, generated files, and git operations.",
-  "//": "                      This overrides the electron-store setting and the legacy ROADRUNNER_WORKSPACE_DIR env var if set.",
-  "//": "                      Default: '../output' (relative to roadrunner/backend).",
-  "//": "                      Env Var: RR_WORKSPACE_DIR",
-  "//": "",
-  "//": "--- Configuration Precedence ---",
-  "//": "1. Environment Variables (e.g., RR_COMPONENT_DIR)",
-  "//": "2. This 'backend_config.json' file (if it exists and keys are set)",
+  "langchain": {
+    "chainType": "stuff",
+    "chunkSize": 1000,
+    "chunkOverlap": 200,
+    "enableMemory": true,
+    "memoryWindowSize": 5
+  },
+  "agent": {
+    "type": "zero-shot-react-description",
+    "maxIterations": 15,
+    "earlyStopping": "force",
+    "enableVerbose": true
+  },
+  "modelParams": {
+    "temperature": 0.7,
+    "maxTokens": 2048,
+    "topP": 0.9
+  },
+  "prompts": {
+    "systemPrompt": "You are a helpful AI assistant specialized in code generation and software development. Follow best practices and provide clear, well-documented code.",
+    "prePrompt": "Task: ",
+    "postPrompt": "\n\nPlease provide a complete, working solution with explanations.",
+    "enablePromptTemplates": true
+  },
+  "tools": {
+    "enableFileSystem": true,
+    "enableCodeExecution": true,
+    "enableWebSearch": false,
+    "enableGitTools": true
+  },
+  "safety": {
+    "safetyMode": true,
+    "requestTimeout": 60,
+    "retryAttempts": 3,
+    "enableNotifications": true
+  },
   "//": "3. Default values coded into server.js"
 }

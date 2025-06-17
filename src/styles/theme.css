@@ -1,0 +1,454 @@
+/**
+ * theme.css - Enhanced theme system for Roadrunner Autocoder
+ * 
+ * Following AGENTS.md principles and Neo Art Deco 2332 design system
+ * 
+ * @version 1.0.0
+ * @author Roadrunner Autocoder System
+ */
+
+:root {
+  /* Primary Color Palette - Orange Theme */
+  --primary-orange: #FF6A00;
+  --orange-dark: #c2410c;
+  --orange-light: #ff944d;
+  --orange-lighter: #ffb380;
+  --orange-lightest: #ffe6d9;
+  
+  /* Surface Colors - Dark Theme */
+  --surface-dark: #0b0f14;
+  --surface-card: #111827;
+  --surface-elevated: #1f2937;
+  --surface-hover: #374151;
+  --surface-active: #4b5563;
+  --surface-border: #6b7280;
+  
+  /* Text Colors */
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+  --text-disabled: #6b7280;
+  --text-inverse: #111827;
+  
+  /* Semantic Colors */
+  --color-success: #10b981;
+  --color-success-light: #34d399;
+  --color-success-dark: #059669;
+  
+  --color-warning: #f59e0b;
+  --color-warning-light: #fbbf24;
+  --color-warning-dark: #d97706;
+  
+  --color-error: #ef4444;
+  --color-error-light: #f87171;
+  --color-error-dark: #dc2626;
+  
+  --color-info: #3b82f6;
+  --color-info-light: #60a5fa;
+  --color-info-dark: #2563eb;
+  
+  /* Glow Effects */
+  --glow-primary: 0 0 20px var(--primary-orange);
+  --glow-secondary: 0 0 10px var(--orange-light);
+  --glow-subtle: 0 0 5px rgba(255, 106, 0, 0.3);
+  --glow-intense: 0 0 30px rgba(255, 106, 0, 0.6);
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-glow: var(--glow-primary);
+  --shadow-glow-subtle: var(--glow-subtle);
+  
+  /* Border Radius */
+  --radius-sm: 0.125rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-full: 9999px;
+  
+  /* Spacing Scale */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+  --spacing-3xl: 4rem;
+  
+  /* Typography Scale */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+  --font-size-4xl: 2.25rem;
+  
+  /* Font Weights */
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  
+  /* Line Heights */
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+  
+  /* Transitions */
+  --transition-fast: 150ms ease-in-out;
+  --transition-normal: 250ms ease-in-out;
+  --transition-slow: 350ms ease-in-out;
+  
+  /* Z-Index Scale */
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-popover: 1060;
+  --z-tooltip: 1070;
+  --z-toast: 1080;
+  
+  /* Grid and Layout */
+  --container-max-width: 1200px;
+  --sidebar-width: 280px;
+  --header-height: 64px;
+  --footer-height: 48px;
+  
+  /* Component Specific */
+  --button-height: 40px;
+  --input-height: 40px;
+  --card-padding: var(--spacing-lg);
+  --modal-max-width: 600px;
+  
+  /* Neo Art Deco 2332 Specific */
+  --deco-accent: #ffd700;
+  --deco-accent-dark: #b8860b;
+  --deco-geometric: linear-gradient(45deg, var(--primary-orange) 25%, transparent 25%);
+  --deco-pattern: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 106, 0, 0.1) 2px,
+    rgba(255, 106, 0, 0.1) 4px
+  );
+}
+
+/* Light Theme Override */
+[data-theme="light"] {
+  --surface-dark: #ffffff;
+  --surface-card: #f9fafb;
+  --surface-elevated: #f3f4f6;
+  --surface-hover: #e5e7eb;
+  --surface-active: #d1d5db;
+  --surface-border: #9ca3af;
+  
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --text-disabled: #9ca3af;
+  --text-inverse: #f9fafb;
+  
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* High Contrast Theme */
+[data-theme="high-contrast"] {
+  --primary-orange: #ff8c00;
+  --surface-dark: #000000;
+  --surface-card: #1a1a1a;
+  --text-primary: #ffffff;
+  --text-secondary: #e0e0e0;
+  --color-success: #00ff00;
+  --color-error: #ff0000;
+  --color-warning: #ffff00;
+  --color-info: #00ffff;
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0ms;
+    --transition-normal: 0ms;
+    --transition-slow: 0ms;
+  }
+  
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Color Scheme Utilities */
+.theme-orange {
+  --primary: var(--primary-orange);
+  --primary-dark: var(--orange-dark);
+  --primary-light: var(--orange-light);
+}
+
+.theme-blue {
+  --primary: #3b82f6;
+  --primary-dark: #2563eb;
+  --primary-light: #60a5fa;
+}
+
+.theme-green {
+  --primary: #10b981;
+  --primary-dark: #059669;
+  --primary-light: #34d399;
+}
+
+.theme-purple {
+  --primary: #8b5cf6;
+  --primary-dark: #7c3aed;
+  --primary-light: #a78bfa;
+}
+
+/* Surface Utilities */
+.surface-dark { background-color: var(--surface-dark); }
+.surface-card { background-color: var(--surface-card); }
+.surface-elevated { background-color: var(--surface-elevated); }
+.surface-hover { background-color: var(--surface-hover); }
+.surface-active { background-color: var(--surface-active); }
+
+/* Background Surface Utilities for Tailwind */
+.bg-surface { background-color: var(--surface-dark); }
+.bg-surface-card { background-color: var(--surface-card); }
+.bg-surface-elevated { background-color: var(--surface-elevated); }
+.bg-surface-hover { background-color: var(--surface-hover); }
+.bg-surface-active { background-color: var(--surface-active); }
+
+/* Border Utilities */
+.border-border { border-color: var(--surface-border); }
+
+/* Text Utilities */
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-muted { color: var(--text-muted); }
+.text-disabled { color: var(--text-disabled); }
+.text-inverse { color: var(--text-inverse); }
+
+/* Semantic Color Utilities */
+.text-success { color: var(--color-success); }
+.text-warning { color: var(--color-warning); }
+.text-error { color: var(--color-error); }
+.text-info { color: var(--color-info); }
+
+.bg-success { background-color: var(--color-success); }
+.bg-warning { background-color: var(--color-warning); }
+.bg-error { background-color: var(--color-error); }
+.bg-info { background-color: var(--color-info); }
+
+/* Glow Utilities */
+.glow-primary { box-shadow: var(--glow-primary); }
+.glow-secondary { box-shadow: var(--glow-secondary); }
+.glow-subtle { box-shadow: var(--glow-subtle); }
+.glow-intense { box-shadow: var(--glow-intense); }
+
+/* Neo Art Deco Elements */
+.deco-border {
+  border: 2px solid var(--primary-orange);
+  border-image: linear-gradient(45deg, var(--primary-orange), var(--deco-accent)) 1;
+}
+
+.deco-pattern {
+  background-image: var(--deco-pattern);
+}
+
+.deco-geometric {
+  background-image: var(--deco-geometric);
+  background-size: 20px 20px;
+}
+
+.deco-accent {
+  color: var(--deco-accent);
+}
+
+.deco-gradient {
+  background: linear-gradient(135deg, var(--primary-orange), var(--deco-accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animation Utilities */
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-bounce {
+  animation: bounce 1s infinite;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.animate-fade-in {
+  animation: fadeIn var(--transition-normal) ease-in-out;
+}
+
+.animate-slide-up {
+  animation: slideUp var(--transition-normal) ease-out;
+}
+
+.animate-scale-in {
+  animation: scaleIn var(--transition-normal) ease-out;
+}
+
+/* Keyframes */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(-25%);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+  50% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Focus Styles */
+.focus-ring {
+  outline: 2px solid var(--primary-orange);
+  outline-offset: 2px;
+}
+
+.focus-ring-inset {
+  outline: 2px solid var(--primary-orange);
+  outline-offset: -2px;
+}
+
+/* Scrollbar Styling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--surface-card);
+  border-radius: var(--radius-md);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--surface-border);
+  border-radius: var(--radius-md);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-orange);
+}
+
+/* Print Styles */
+@media print {
+  :root {
+    --surface-dark: #ffffff;
+    --surface-card: #ffffff;
+    --text-primary: #000000;
+    --text-secondary: #333333;
+    --primary-orange: #000000;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-only {
+    display: block !important;
+  }
+}
+
+/* Responsive Typography */
+@media (max-width: 640px) {
+  :root {
+    --font-size-xs: 0.7rem;
+    --font-size-sm: 0.8rem;
+    --font-size-base: 0.9rem;
+    --font-size-lg: 1rem;
+    --font-size-xl: 1.1rem;
+    --font-size-2xl: 1.3rem;
+    --font-size-3xl: 1.6rem;
+    --font-size-4xl: 2rem;
+  }
+}
+
+/* Component State Utilities */
+.is-loading {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.is-disabled {
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+.is-hidden {
+  display: none !important;
+}
+
+.is-visible {
+  display: block !important;
+}
+
+.is-active {
+  background-color: var(--surface-active);
+  color: var(--primary-orange);
+}
+
+.is-selected {
+  background-color: var(--primary-orange);
+  color: var(--text-inverse);
+}
+
+.is-highlighted {
+  box-shadow: var(--glow-subtle);
+  border-color: var(--primary-orange);
+}

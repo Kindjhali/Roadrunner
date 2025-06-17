@@ -1,2 +1,0 @@
-// LLM_ERROR: Error communicating with local LLM: request to http://localhost:11434/api/generate failed, reason: connect ECONNREFUSED 127.0.0.1:11434 //
-Appended content.

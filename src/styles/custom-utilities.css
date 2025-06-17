@@ -1,0 +1,91 @@
+/* Custom Tailwind utilities for Roadrunner theme system */
+
+@layer utilities {
+  /* Text Colors */
+  .text-primary {
+    @apply text-gray-900;
+  }
+  
+  .text-secondary {
+    @apply text-gray-600;
+  }
+  
+  .text-muted {
+    @apply text-gray-500;
+  }
+  
+  /* Background Colors */
+  .bg-surface {
+    @apply bg-white;
+  }
+  
+  .bg-surface-card {
+    @apply bg-gray-50;
+  }
+  
+  .bg-surface-hover {
+    @apply bg-gray-100;
+  }
+  
+  .bg-surface-elevated {
+    @apply bg-gray-200;
+  }
+  
+  /* Border Colors */
+  .border-border {
+    @apply border-gray-300;
+  }
+  
+  /* Focus Ring Colors */
+  .focus\:ring-secondary:focus {
+    @apply ring-orange-500;
+  }
+  
+  .focus\:ring-primary:focus {
+    @apply ring-orange-500;
+  }
+  
+  /* Placeholder Colors */
+  .placeholder-muted::placeholder {
+    @apply text-gray-400;
+  }
+  
+  /* Dark theme variants */
+  @media (prefers-color-scheme: dark) {
+    .text-primary {
+      @apply text-gray-100;
+    }
+    
+    .text-secondary {
+      @apply text-gray-300;
+    }
+    
+    .text-muted {
+      @apply text-gray-400;
+    }
+    
+    .bg-surface {
+      @apply bg-gray-900;
+    }
+    
+    .bg-surface-card {
+      @apply bg-gray-800;
+    }
+    
+    .bg-surface-hover {
+      @apply bg-gray-700;
+    }
+    
+    .bg-surface-elevated {
+      @apply bg-gray-600;
+    }
+    
+    .border-border {
+      @apply border-gray-600;
+    }
+    
+    .placeholder-muted::placeholder {
+      @apply text-gray-500;
+    }
+  }
+}

@@ -1,7 +1,22 @@
-<!-- BrainstormingTab.vue - displays brainstorming session UI. Styles in styles/brainstorming.css -->
+o<!-- BrainstormingTab.vue - displays brainstorming session UI. Styles in styles/brainstorming.css -->
 <template>
   <div class="brainstorming-tab-content p-4 space-y-4 text-white">
     <h2 class="text-xl font-semibold">Brainstorming Session</h2>
+
+    <div class="piciformes-input-row">
+      <div class="piciformes-input-group">
+        <label for="brainstormingModelSelect" class="emberiza-label" title="Select the model for brainstorming.">Brainstorming Model:</label>
+        <select id="brainstormingModelSelect" v-model="selectedModelId" class="turdus-select">
+          <option disabled value="">-- Select Model --</option>
+          <optgroup v-for="(group, category) in categorizedModels" :key="category" :label="category.toUpperCase()">
+            <option v-for="model in group" :key="model.id" :value="model.id">{{ model.name }}</option>
+          </optgroup>
+        </select>
+        <p v-if="!isOllamaConnected && Object.keys(categorizedModels).length === 0" class="text-xs text-red-400">
+          Models unavailable: Ollama connection issue.
+        </p>
+      </div>
+    </div>
 
     <div class="form-group">
       <label for="brainstorming-topic" class="emberiza-label block mb-2">Enter your brainstorming topic or prompt:</label>
@@ -52,21 +67,42 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue';
+import { ref, computed, onUnmounted, watch } from 'vue';
 import { useStore } from 'vuex';
 
 const store = useStore();
 
 const brainstormingTopic = ref('');
+const selectedModelId = ref('');
 const sseRawLog = ref('');
 const finalOutput = ref('');
 const isLoading = ref(false);
 const statusMessage = ref('');
 let eventSourceInstance = null;
 
+// Computed properties to access store data
+const categorizedModels = computed(() => store.getters.getCategorizedModels || {});
+const isOllamaConnected = computed(() => store.getters.getOllamaStatus?.isConnected || false);
+
+// Watch for model changes and set default
+watch(categorizedModels, (newModels) => {
+  if (newModels && Object.keys(newModels).length > 0 && !selectedModelId.value) {
+    const firstCategory = Object.keys(newModels)[0];
+    const firstModel = newModels[firstCategory]?.[0];
+    if (firstModel) {
+      selectedModelId.value = firstModel.id;
+    }
+  }
+}, { immediate: true });
+
 const startBrainstormingSession = async () => {
   if (!brainstormingTopic.value.trim()) {
     statusMessage.value = 'Please enter a topic to brainstorm.';
+    return;
+  }
+
+  if (!selectedModelId.value) {
+    statusMessage.value = 'Please select a model for brainstorming.';
     return;
   }
 
@@ -75,6 +111,7 @@ const startBrainstormingSession = async () => {
   finalOutput.value = '';
   statusMessage.value = 'Initiating brainstorming session...';
   console.log("[BrainstormingTab] Starting session with topic:", brainstormingTopic.value);
+  console.log("[BrainstormingTab] Using model:", selectedModelId.value);
 
   if (eventSourceInstance) {
     eventSourceInstance.close();
@@ -84,10 +121,10 @@ const startBrainstormingSession = async () => {
   const userTopic = brainstormingTopic.value;
   const taskDescription = `Use the multi_model_debate tool to brainstorm ideas on the following topic: "${userTopic}". Use roles like 'Idea_Generator', 'Critical_Evaluator', and 'Synthesizer' for the debate.`;
 
-  const backendPort = store.state.backendPort || 3030;
+  const backendPort = store.state.backendPort || 3333;
   console.log(`[BrainstormingTab] Using backend port: ${backendPort}`);
 
-  const eventSourceUrl = `http://127.0.0.1:${backendPort}/execute-autonomous-task?task_description=${encodeURIComponent(taskDescription)}&safetyMode=false`;
+  const eventSourceUrl = `http://127.0.0.1:${backendPort}/execute-autonomous-task?task_description=${encodeURIComponent(taskDescription)}&safetyMode=false&model=${encodeURIComponent(selectedModelId.value)}`;
   console.log(`[BrainstormingTab] EventSource URL: ${eventSourceUrl}`);
 
   eventSourceInstance = new EventSource(eventSourceUrl);
@@ -147,5 +184,3 @@ onUnmounted(() => {
 });
 
 </script>
-
-

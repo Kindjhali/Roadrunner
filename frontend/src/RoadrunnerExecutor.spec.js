@@ -68,7 +68,7 @@ describe('RoadrunnerExecutor.vue', () => {
 
     // Assert the URL passed to EventSource
     const eventSourceUrl = global.EventSource.mock.calls[0][0];
-    expect(eventSourceUrl).toContain('http://127.0.0.1:3030/execute-autonomous-task');
+    expect(eventSourceUrl).toContain('http://127.0.0.1:3333/execute-autonomous-task');
 
     const params = new URLSearchParams(eventSourceUrl.split('?')[1]);
     expect(params.get('task_description')).toBe('Revert the last Git commit');
