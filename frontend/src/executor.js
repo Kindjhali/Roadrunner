@@ -8,6 +8,12 @@ class Executor {
     this._logIdCounter = 0;
   }
 
+  _getBaseUrl() {
+    const host = this.store?.state?.backendHost || '127.0.0.1';
+    const port = this.store?.state?.backendPort || 3030;
+    return `http://${host}:${port}`;
+  }
+
   _getNextLogId() {
     return this._logIdCounter++;
   }
@@ -43,10 +49,15 @@ class Executor {
       // isAutonomousMode is true by default now on the backend for agent execution
     });
 
+<<<<<<< HEAD
     // Backend defaults to 127.0.0.1:3333 (allowed by Electron CSP)
     // TODO: Make the base URL configurable
     const backendPort = this.store?.state?.backendPort || 3333; // Use store port or fallback
     const fullUrl = `http://127.0.0.1:${backendPort}/execute-autonomous-task?${params.toString()}`;
+=======
+    // Build backend URL from store configuration
+    const fullUrl = `${this._getBaseUrl()}/execute-autonomous-task?${params.toString()}`;
+>>>>>>> 77c7eb4619567bc74fe2ae1f8a7771e02cbda1f5
 
     this._commitLogEntry({
       id: this._getNextLogId(),
@@ -174,9 +185,13 @@ class Executor {
       return { success: false, message: "Missing confirmationId." };
     }
     try {
+<<<<<<< HEAD
       // TODO: Make the base URL configurable
       const backendPort = this.store?.state?.backendPort || 3333; // Use store port or fallback
       const response = await fetch(`http://127.0.0.1:${backendPort}/api/confirm-action/${confirmationId}`, {
+=======
+      const response = await fetch(`${this._getBaseUrl()}/api/confirm-action/${confirmationId}`, {
+>>>>>>> 77c7eb4619567bc74fe2ae1f8a7771e02cbda1f5
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmed }),

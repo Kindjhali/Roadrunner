@@ -9,7 +9,12 @@ const store = createStore({
       defaultOllamaModels: ['codellama'],
       OLLAMA_BASE_URL: 'http://localhost:11434', // Added for completeness from backend_config
     },
+<<<<<<< HEAD
     backendPort: 3333,
+=======
+    backendPort: 3030,
+    backendHost: '127.0.0.1',
+>>>>>>> 77c7eb4619567bc74fe2ae1f8a7771e02cbda1f5
     // Enhanced status objects
     settingsStatus: { status: 'idle', message: 'Waiting to load settings...' }, // idle, loading, retrying, success, error
     modelsStatus: { status: 'idle', message: 'Waiting to load models...' }, // idle, loading, retrying, success, error
@@ -58,6 +63,10 @@ const store = createStore({
     SET_BACKEND_PORT(state, port) {
       state.backendPort = port;
       console.log(`[Mutation] Backend port set to: ${port}`);
+    },
+    SET_BACKEND_HOST(state, host) {
+      state.backendHost = host;
+      console.log(`[Mutation] Backend host set to: ${host}`);
     },
     // New mutations for agent execution
     ADD_STRUCTURED_LOG(state, logEntry) {
@@ -197,6 +206,7 @@ const store = createStore({
     getCategorizedModels: (state) => state.models,
     getSettings: (state) => state.settings,
     getBackendPort: (state) => state.backendPort,
+    getBackendHost: (state) => state.backendHost,
     getOllamaStatus: (state) => state.ollamaStatus, // For general Ollama connection status
     getSettingsStatus: (state) => state.settingsStatus, // For settings loading status
     getModelsStatus: (state) => state.modelsStatus,   // For models loading status
