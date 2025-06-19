@@ -1,11 +1,11 @@
-import { defineConfig } from 'vite';
-import vue from '@vitejs/plugin-vue';
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
-  root: './src',
+  root: './apps/renderer',
   base: './',
   build: {
-    outDir: '../dist',
+    outDir: '../../dist',
     emptyOutDir: true,
     rollupOptions: {
       output: {
@@ -26,4 +26,4 @@ export default defineConfig({
   define: {
     global: 'globalThis'
   }
-});
+})
