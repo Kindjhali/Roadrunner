@@ -6,8 +6,8 @@ import { generateFromLocal } from './server.js'; // Assuming server.js is in the
 
 // ESM equivalent for __dirname
 import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename2 = typeof __filename !== 'undefined' ? __filename : fileURLToPath(eval('import.meta.url'));
+const __dirname2 = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename2);
 
 
 // Helper to convert camelCase or PascalCase to kebab-case
@@ -59,7 +59,7 @@ export async function generateContentFromSpec(specType, specDetails, itemDetails
       const componentNamePascal = componentName.charAt(0).toUpperCase() + componentName.slice(1); // Ensure PascalCase for name property
       sendSseMessage('log_entry', { message: `${logPrefix} Generating Vue component: ${componentNamePascal}` });
 
-      let templatePath = path.join(__dirname, 'templates', 'vue_component_basic.template');
+      let templatePath = path.join(__dirname2, 'templates', 'vue_component_basic.template');
       // Note: React framework path was illustrative; ensure it's handled if actually supported.
       // if (specDetails.framework === 'react') { ... }
 

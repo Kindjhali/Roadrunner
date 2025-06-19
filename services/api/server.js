@@ -1,8 +1,8 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename2 = typeof __filename !== 'undefined' ? __filename : fileURLToPath(eval('import.meta.url'));
+const __dirname2 = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename2);
 
 // --- Global Error Handlers for Backend Stability ---
 process.on('uncaughtException', (error, origin) => {
@@ -48,7 +48,10 @@ import { GitAddTool, GitCommitTool, GitPushTool, GitPullTool, GitRevertTool } fr
 import { CodeGeneratorTool } from './langchain_tools/code_generator_tool.js';
 import { ConferenceTool } from './langchain_tools/conference_tool.js';
 import { ProposePlanTool, RequestUserActionOnFailureTool } from './langchain_tools/planning_tools.js';
+import { reloadDefaultConfig } from './fsAgent.js';
 import { ConfirmationRequiredError } from './langchain_tools/common.js';
+import './registerAgents.js';
+import { getAgent } from './AgentRegistry.js';
 
 // Initialize Tools
 const tools = [
@@ -288,16 +291,16 @@ Thought:{agent_scratchpad}`;
   console.log("[Agent Init] AgentExecutor created with custom configuration and memory.");
 }
 
-const BACKEND_CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json');
+const BACKEND_CONFIG_FILE_PATH = path.join(__dirname2, 'config', 'backend_config.json');
 let backendSettings = {
   llmProvider: process.env.RR_LLM_PROVIDER || 'ollama',
   apiKey: process.env.RR_API_KEY || '',
   defaultOllamaModel: process.env.RR_DEFAULT_OLLAMA_MODEL || 'codellama',
   defaultOpenAIModel: process.env.RR_DEFAULT_OPENAI_MODEL || 'gpt-4',
   OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
-  componentDir: process.env.RR_COMPONENT_DIR || path.resolve(__dirname, '../../tokomakAI/src/components'),
-  logDir: process.env.RR_LOG_DIR || path.resolve(__dirname, '../../logs'),
-  workspaceDir: process.env.RR_WORKSPACE_DIR || path.resolve(__dirname, '../../output')
+  componentDir: process.env.RR_COMPONENT_DIR || path.resolve(__dirname2, '../../tokomakAI/src/components'),
+  logDir: process.env.RR_LOG_DIR || path.resolve(__dirname2, '../../logs'),
+  workspaceDir: process.env.RR_WORKSPACE_DIR || path.resolve(__dirname2, '../../output')
 };
 
 function loadBackendConfig() {
@@ -316,7 +319,7 @@ function loadBackendConfig() {
             backendSettings = initialSettings;
             console.log(`[Config] Loaded backend settings from ${BACKEND_CONFIG_FILE_PATH}`);
         } else {
-            const examplePath = path.join(__dirname, 'config', 'backend_config.example.json');
+        const examplePath = path.join(__dirname2, 'config', 'backend_config.example.json');
             if (fs.existsSync(examplePath)) {
                 console.log(`[Config] Backend config not found. Copying from ${examplePath} and applying defaults/env vars.`);
                 const exampleContent = fs.readFileSync(examplePath, 'utf-8');
@@ -350,8 +353,8 @@ function loadBackendConfig() {
 }
 loadBackendConfig();
 
-const CONFERENCE_INSTRUCTIONS_FILE_PATH = process.env.TEST_CONFERENCE_INSTRUCTIONS_PATH || path.join(__dirname, 'config', 'conference_agent_instructions.json');
-const AGENT_INSTRUCTIONS_FILE_PATH = path.join(__dirname, 'config', 'agent_instructions_template.json');
+const CONFERENCE_INSTRUCTIONS_FILE_PATH = process.env.TEST_CONFERENCE_INSTRUCTIONS_PATH || path.join(__dirname2, 'config', 'conference_agent_instructions.json');
+const AGENT_INSTRUCTIONS_FILE_PATH = path.join(__dirname2, 'config', 'agent_instructions_template.json');
 
 function initializeConferenceInstructionsFile() {
   if (!fs.existsSync(CONFERENCE_INSTRUCTIONS_FILE_PATH)) {
@@ -514,10 +517,10 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
     }
 };
 
-const LOG_DIR_DEFAULT = path.resolve(__dirname, '../../logs');
-const WORKSPACE_DIR_DEFAULT = path.resolve(__dirname, '../../output');
-const LOG_DIR = fs.existsSync(path.join(__dirname, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname, 'config/backend_config.json'), 'utf-8')).logDir || LOG_DIR_DEFAULT) : LOG_DIR_DEFAULT;
-const WORKSPACE_DIR = fs.existsSync(path.join(__dirname, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname, 'config/backend_config.json'), 'utf-8')).workspaceDir || WORKSPACE_DIR_DEFAULT) : WORKSPACE_DIR_DEFAULT;
+const LOG_DIR_DEFAULT = path.resolve(__dirname2, '../../logs');
+const WORKSPACE_DIR_DEFAULT = path.resolve(__dirname2, '../../output');
+const LOG_DIR = fs.existsSync(path.join(__dirname2, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname2, 'config/backend_config.json'), 'utf-8')).logDir || LOG_DIR_DEFAULT) : LOG_DIR_DEFAULT;
+const WORKSPACE_DIR = fs.existsSync(path.join(__dirname2, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname2, 'config/backend_config.json'), 'utf-8')).workspaceDir || WORKSPACE_DIR_DEFAULT) : WORKSPACE_DIR_DEFAULT;
 
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
@@ -2215,29 +2218,26 @@ app.post('/api/files/export', async (req, res) => {
 });
 
 // ===== MODEL MANAGEMENT API =====
-app.get('/api/models', async (req, res) => {
+app.get('/api/models', (req, res) => {
   try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
-    if (response.ok) {
-      const data = await response.json();
-      res.json({
-        success: true,
-        models: data.models || [],
-        provider: 'ollama'
+    const configPath = path.join(__dirname2, 'config', 'model_categories.json');
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const cfg = JSON.parse(raw);
+    const models = [];
+    const categories = cfg.categories || {};
+    Object.keys(categories).forEach(cat => {
+      categories[cat].forEach(id => {
+        models.push({ name: id, identifier: id, backend: 'ollama' });
       });
-    } else {
-      res.json({
-        success: false,
-        models: [],
-        error: 'Failed to fetch models from Ollama'
+    });
+    if (Array.isArray(cfg.static_models)) {
+      cfg.static_models.forEach(m => {
+        models.push({ name: m.name, identifier: m.id, backend: m.type || 'ollama' });
       });
     }
-  } catch (error) {
-    res.json({
-      success: false,
-      models: [],
-      error: error.message
-    });
+    res.json(models);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to load models', details: err.message });
   }
 });
 
@@ -2681,7 +2681,7 @@ app.get('/api/ollama-models/categorized', async (req, res) => {
     const ollamaData = await response.json();
     const localModels = ollamaData.models || [];
 
-    const modelCategoriesConfigPath = path.join(__dirname, 'config', 'model_categories.json');
+    const modelCategoriesConfigPath = path.join(__dirname2, 'config', 'model_categories.json');
     let modelCategoriesConfig;
     try {
       const configFileContent = fs.readFileSync(modelCategoriesConfigPath, 'utf-8');
@@ -2764,7 +2764,7 @@ app.get('/api/ollama-models/categorized', async (req, res) => {
       // If Ollama server is not running, return empty categories, as per frontend expectation for graceful degradation.
       // Also include static models if available and config is readable.
       console.warn(`[API /ollama-models/categorized] Ollama connection refused. Returning static models only (if any).`);
-       const modelCategoriesConfigPath = path.join(__dirname, 'config', 'model_categories.json');
+       const modelCategoriesConfigPath = path.join(__dirname2, 'config', 'model_categories.json');
        const categorized = {};
        try {
            const configFileContent = fs.readFileSync(modelCategoriesConfigPath, 'utf-8');
@@ -3045,6 +3045,158 @@ app.post('/execute-conference-task', async (req, res) => {
     res.status(501).json({ message: "This endpoint is deprecated. Please use the agent with the 'multi_model_debate' tool."});
 });
 
+// ===== New Configuration File APIs =====
+const CONFIG_ALLOWED_FILES = new Set([
+  'agent_instructions_template.json',
+  'conference_agent_instructions.json',
+  'backend_config.json',
+  'model_categories.json',
+  'fsAgent.config.json'
+]);
+
+app.get('/api/config/:filename', (req, res) => {
+  const { filename } = req.params;
+  if (!CONFIG_ALLOWED_FILES.has(filename)) {
+    return res.status(404).json({ message: 'Config file not found.' });
+  }
+  const baseDir = filename === 'fsAgent.config.json' ? __dirname2 : path.join(__dirname2, 'config');
+  const filePath = path.join(baseDir, filename);
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    res.type('application/json').send(content);
+  } catch (err) {
+    res.status(404).json({ message: 'File not found.' });
+  }
+});
+
+app.post('/api/config/:filename', (req, res) => {
+  const { filename } = req.params;
+  if (!CONFIG_ALLOWED_FILES.has(filename)) {
+    return res.status(404).json({ message: 'Config file not found.' });
+  }
+  const baseDir = filename === 'fsAgent.config.json' ? __dirname2 : path.join(__dirname2, 'config');
+  const filePath = path.join(baseDir, filename);
+  try {
+    const data = req.body;
+    const jsonString = JSON.stringify(data, null, 2);
+    fs.writeFileSync(filePath, jsonString, 'utf-8');
+    if (filename === 'fsAgent.config.json') {
+      reloadDefaultConfig();
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to save file.', details: err.message });
+  }
+});
+
+// ===== Template APIs =====
+app.get('/api/templates', (req, res) => {
+  const templatesDir = path.join(__dirname2, 'templates');
+  try {
+    const files = fs.readdirSync(templatesDir).filter(f => f.endsWith('.template'));
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ message: 'Unable to read templates.' });
+  }
+});
+
+app.get('/api/templates/:name', (req, res) => {
+  const { name } = req.params;
+  const templatesDir = path.join(__dirname2, 'templates');
+  const filePath = path.join(templatesDir, name);
+  if (!filePath.startsWith(templatesDir)) {
+    return res.status(400).json({ message: 'Invalid template name.' });
+  }
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    res.type('text/plain').send(content);
+  } catch (err) {
+    res.status(404).json({ message: 'Template not found.' });
+  }
+});
+
+// ===== Simple Execute Endpoint =====
+app.post('/api/execute', async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt || typeof prompt !== 'string') {
+    return res.status(400).json({ message: 'Prompt is required.' });
+  }
+  const actionMatch = prompt.match(/Action:\s*(.*)/);
+  const inputMatch = prompt.match(/Action Input:\s*([\s\S]*?)(?:\n|$)/);
+  if (!actionMatch) return res.status(400).json({ message: 'No Action found in prompt.' });
+  const action = actionMatch[1].trim();
+  const tool = tools.find(t => t.name === action);
+  const agent = tool ? null : getAgent(action);
+  if (!tool && !agent) {
+    return res.status(400).json({ message: 'Unknown tool or agent.' });
+  }
+  let input = inputMatch ? inputMatch[1].trim() : '';
+  try {
+    let output;
+    if (tool) {
+      output = await (tool._call ? tool._call(input) : tool.call(input));
+    } else {
+      let parsed = input;
+      try {
+        parsed = input ? JSON.parse(input) : {};
+      } catch {
+        // keep as raw string if not JSON
+      }
+      output = await agent(parsed);
+    }
+    res.json({ output });
+  } catch (err) {
+    console.error('[API /api/execute] Tool error:', err);
+    res.status(500).json({ message: 'Tool execution failed.', details: err.message });
+  }
+});
+
+// ===== Log Streaming via SSE =====
+app.get('/api/logs', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const watchers = [];
+
+  function tail(file) {
+    let position = 0;
+    try { position = fs.statSync(file).size; } catch {}
+    const watcher = fs.watch(file, () => {
+      try {
+        const stats = fs.statSync(file);
+        if (stats.size > position) {
+          const stream = fs.createReadStream(file, { start: position, end: stats.size });
+          stream.on('data', chunk => {
+            const lines = chunk.toString().split(/\r?\n/).filter(l => l);
+            lines.forEach(line => res.write(`event: log_line\ndata: ${JSON.stringify({ file: path.basename(file), line })}\n\n`));
+          });
+          position = stats.size;
+        }
+      } catch {}
+    });
+    watchers.push(() => watcher.close());
+  }
+
+  const startupFile = path.join(__dirname2, 'startup_logs.txt');
+  if (fs.existsSync(startupFile)) tail(startupFile);
+
+  const workspaceDir = path.join(__dirname2, 'logs', 'roadrunner_workspace');
+  if (fs.existsSync(workspaceDir)) {
+    fs.readdirSync(workspaceDir).forEach(f => tail(path.join(workspaceDir, f)));
+    const dirWatcher = fs.watch(workspaceDir, (event, filename) => {
+      if (event === 'rename' && filename) {
+        const newPath = path.join(workspaceDir, filename);
+        if (fs.existsSync(newPath)) tail(newPath);
+      }
+    });
+    watchers.push(() => dirWatcher.close());
+  }
+
+  req.on('close', () => { watchers.forEach(fn => fn()); });
+});
+
 async function checkOllamaStatus() {
   try {
     const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`); // Simple check, /api/tags is common
@@ -3223,7 +3375,20 @@ async function main() {
   }
 }
 
-main();
+if (process.env.JEST_WORKER_ID === undefined) {
+  main();
+}
+
+function resolveTemplates(input, outputs = {}, sendSseMessage) {
+  if (typeof input !== 'string') return input;
+  return input.replace(/\{\{outputs\.([^}]+)\}\}/g, (_, key) => {
+    const val = outputs[key];
+    if (val === undefined && sendSseMessage) {
+      sendSseMessage('log_entry', { message: `Unresolved template: outputs.${key}` });
+    }
+    return val !== undefined ? val : `{{outputs.${key}}}`;
+  });
+}
 
 // Exporting necessary components for potential testing or external use
 export {
@@ -3234,6 +3399,7 @@ export {
   generateFromLocal,
   requestPlanApproval,
   requestUserActionOnStepFailure,
+  resolveTemplates,
   pendingPlans,
   pendingFailures
 };

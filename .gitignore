@@ -4,6 +4,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 yarn.lock # If it's not committed by policy, often it is though.
+pnpm-lock.yaml
 
 # Build output
 frontend/dist/

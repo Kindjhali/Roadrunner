@@ -6,8 +6,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 // ESM equivalent for __dirname
 import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename2 = typeof __filename !== 'undefined' ? __filename : fileURLToPath(eval('import.meta.url'));
+const __dirname2 = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename2);
 
 // Define CONFERENCES_LOG_DIR and CONFERENCES_LOG_FILE
 let CONFERENCE_LOGS_BASE_DIR;
@@ -15,17 +15,21 @@ try {
     // Attempt to resolve path relative to this file's location
     // Expected structure: project_root/backend/langchain_tools/conference_tool.js
     // So, ../../logs would be project_root/logs
-    CONFERENCE_LOGS_BASE_DIR = path.resolve(__dirname, '../../logs/roadrunner_workspace');
+    CONFERENCE_LOGS_BASE_DIR = path.resolve(__dirname2, '../../logs/roadrunner_workspace');
 
     // Check if the resolved path seems plausible, e.g. by checking if 'backend' is in the path segments
     // This is a heuristic. A more robust way might involve environment variables or a config setting.
-    if (!__dirname.includes(path.join('backend', 'langchain_tools'))) {
-        console.warn(`[ConferenceTool] __dirname (${__dirname}) does not match expected structure. Log path might be incorrect. Forcing CWD-relative path.`);
+    if (!__dirname2.includes(path.join('backend', 'langchain_tools'))) {
+        if (!process.env.JEST_WORKER_ID) {
+            console.warn(`[ConferenceTool] __dirname (${__dirname2}) does not match expected structure. Log path might be incorrect. Forcing CWD-relative path.`);
+        }
         CONFERENCE_LOGS_BASE_DIR = path.resolve(process.cwd(), 'logs/roadrunner_workspace');
     }
 } catch (e) {
     CONFERENCE_LOGS_BASE_DIR = path.resolve(process.cwd(), 'logs/roadrunner_workspace');
-    console.warn(`[ConferenceTool] Error determining logs path using __dirname. Defaulting to CWD-relative: ${CONFERENCE_LOGS_BASE_DIR}. Error: ${e.message}`);
+    if (!process.env.JEST_WORKER_ID) {
+        console.warn(`[ConferenceTool] Error determining logs path using __dirname. Defaulting to CWD-relative: ${CONFERENCE_LOGS_BASE_DIR}. Error: ${e.message}`);
+    }
 }
 
 const CONFERENCES_LOG_FILE = path.join(CONFERENCE_LOGS_BASE_DIR, 'conferences.json');
