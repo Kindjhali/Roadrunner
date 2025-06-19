@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { parseReactPrompt } from './parseReactPrompt.js'
 
 export function useExecution() {
   const isRunning = ref(false)
@@ -10,10 +11,11 @@ export function useExecution() {
     output.value = null
     error.value = null
     try {
+      const parsed = parseReactPrompt(prompt)
       const res = await fetch('/api/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
+        body: JSON.stringify({ prompt, parsed })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || 'Execution failed')
