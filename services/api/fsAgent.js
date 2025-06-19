@@ -103,20 +103,6 @@ export class ModularFsAgent {
       };
     }
     const normalizedPath = path.normalize(relativePath);
-    // Detect attempts to traverse outside the workspace before resolving
-    const pathParts = normalizedPath.split(path.sep);
-    if (pathParts.includes('..')) {
-      const attempted = path.resolve(this.workspaceDir, normalizedPath);
-      return {
-        success: false,
-        error: {
-          code: 'FS_RESOLVE_PATH_TRAVERSAL_ATTEMPT',
-          message: 'Error: Path traversal attempt detected (.. segments).',
-          details: { attemptedPath: attempted }
-        }
-      };
-    }
-
     let fullPath = path.isAbsolute(normalizedPath)
       ? path.resolve(normalizedPath)
       : path.resolve(this.workspaceDir, normalizedPath);
