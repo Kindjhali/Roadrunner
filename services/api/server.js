@@ -3375,7 +3375,20 @@ async function main() {
   }
 }
 
-main();
+if (process.env.JEST_WORKER_ID === undefined) {
+  main();
+}
+
+function resolveTemplates(input, outputs = {}, sendSseMessage) {
+  if (typeof input !== 'string') return input;
+  return input.replace(/\{\{outputs\.([^}]+)\}\}/g, (_, key) => {
+    const val = outputs[key];
+    if (val === undefined && sendSseMessage) {
+      sendSseMessage('log_entry', { message: `Unresolved template: outputs.${key}` });
+    }
+    return val !== undefined ? val : `{{outputs.${key}}}`;
+  });
+}
 
 // Exporting necessary components for potential testing or external use
 export {
@@ -3386,6 +3399,7 @@ export {
   generateFromLocal,
   requestPlanApproval,
   requestUserActionOnStepFailure,
+  resolveTemplates,
   pendingPlans,
   pendingFailures
 };

@@ -1,7 +1,5 @@
 import fsAgent from './fsAgent.js';
 import gitAgent from './gitAgent.js';
-import * as codeGenerator from './codeGenerator.js';
-import * as sniperPlanner from './sniperCodeGenPlanner.js';
 import { registerAgent } from './AgentRegistry.js';
 
 // Wrap default instances so registry returns callable functions
@@ -19,14 +17,27 @@ registerAgent('git', async ({ method, args = [] } = {}) => {
   return gitAgent[method](...args);
 });
 
-registerAgent('codeGenerator', codeGenerator.generateContentFromSpec);
-registerAgent('sniperPlanner', sniperPlanner.default || sniperPlanner);
+// Load heavier agents lazily to avoid circular dependencies during tests
+async function loadOptionalAgents() {
+  try {
+    const { generateContentFromSpec } = await import('./codeGenerator.js');
+    registerAgent('codeGenerator', generateContentFromSpec);
+  } catch (err) {
+    console.error('[AgentRegistry] Failed to load codeGenerator agent:', err);
+  }
+  try {
+    const { generateCodeGenPlan } = await import('./sniperCodeGenPlanner.js');
+    registerAgent('sniperPlanner', generateCodeGenPlan);
+  } catch (err) {
+    console.error('[AgentRegistry] Failed to load sniperPlanner agent:', err);
+  }
+}
+
+loadOptionalAgents();
 
 export const agents = {
   fs: fsAgent,
   git: gitAgent,
-  codeGenerator,
-  sniperPlanner,
 };
 
 export default agents;

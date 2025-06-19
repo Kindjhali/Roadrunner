@@ -103,6 +103,16 @@ export class ModularFsAgent {
       };
     }
     const normalizedPath = path.normalize(relativePath);
+    if (!path.isAbsolute(normalizedPath) && (normalizedPath === '..' || normalizedPath.startsWith('..' + path.sep))) {
+      return {
+        success: false,
+        error: {
+          code: 'FS_RESOLVE_PATH_TRAVERSAL_ATTEMPT',
+          message: 'Error: Path traversal attempt detected (relative path navigates above its root).',
+          details: { inputPath: relativePath }
+        }
+      };
+    }
     let fullPath = path.isAbsolute(normalizedPath)
       ? path.resolve(normalizedPath)
       : path.resolve(this.workspaceDir, normalizedPath);
@@ -203,6 +213,9 @@ export class ModularFsAgent {
     const resolved = this.resolvePathInWorkspace(relativePath);
     if (!resolved.success) {
       this.logger.error(`[ModularFsAgent.createFile] Path resolution failed for '${relativePath}'. Error: ${resolved.error.message}`);
+      if (resolved.error.code === 'FS_RESOLVE_PATH_TRAVERSAL_ATTEMPT') {
+        return { success: false, error: { ...resolved.error, code: 'FS_RESOLVE_PATH_OUTSIDE_ROOTS' }, warnings };
+      }
       return { success: false, error: resolved.error, warnings };
     }
     const { fullPath } = resolved;
@@ -231,6 +244,15 @@ export class ModularFsAgent {
 
     // 3. Check if file exists and handle backup
     if (fs.existsSync(fullPath)) {
+      if (options.requireConfirmation && !options.isConfirmedAction) {
+        return {
+          success: false,
+          confirmationNeeded: true,
+          fullPath,
+          error: { code: 'FS_CONFIRMATION_REQUIRED', message: 'Confirmation required to overwrite existing file.', details: { path: fullPath, operation: 'createFile' } },
+          warnings,
+        };
+      }
       this.logger.log(`[ModularFsAgent.createFile] File at '${fullPath}' already exists. Attempting backup and overwrite.`);
       try {
         fs.copyFileSync(fullPath, fullPath + '.bak');
