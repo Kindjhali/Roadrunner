@@ -1,8 +1,8 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename2 = typeof __filename !== 'undefined' ? __filename : fileURLToPath(eval('import.meta.url'));
+const __dirname2 = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename2);
 
 // --- Global Error Handlers for Backend Stability ---
 process.on('uncaughtException', (error, origin) => {
@@ -291,16 +291,16 @@ Thought:{agent_scratchpad}`;
   console.log("[Agent Init] AgentExecutor created with custom configuration and memory.");
 }
 
-const BACKEND_CONFIG_FILE_PATH = path.join(__dirname, 'config', 'backend_config.json');
+const BACKEND_CONFIG_FILE_PATH = path.join(__dirname2, 'config', 'backend_config.json');
 let backendSettings = {
   llmProvider: process.env.RR_LLM_PROVIDER || 'ollama',
   apiKey: process.env.RR_API_KEY || '',
   defaultOllamaModel: process.env.RR_DEFAULT_OLLAMA_MODEL || 'codellama',
   defaultOpenAIModel: process.env.RR_DEFAULT_OPENAI_MODEL || 'gpt-4',
   OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
-  componentDir: process.env.RR_COMPONENT_DIR || path.resolve(__dirname, '../../tokomakAI/src/components'),
-  logDir: process.env.RR_LOG_DIR || path.resolve(__dirname, '../../logs'),
-  workspaceDir: process.env.RR_WORKSPACE_DIR || path.resolve(__dirname, '../../output')
+  componentDir: process.env.RR_COMPONENT_DIR || path.resolve(__dirname2, '../../tokomakAI/src/components'),
+  logDir: process.env.RR_LOG_DIR || path.resolve(__dirname2, '../../logs'),
+  workspaceDir: process.env.RR_WORKSPACE_DIR || path.resolve(__dirname2, '../../output')
 };
 
 function loadBackendConfig() {
@@ -319,7 +319,7 @@ function loadBackendConfig() {
             backendSettings = initialSettings;
             console.log(`[Config] Loaded backend settings from ${BACKEND_CONFIG_FILE_PATH}`);
         } else {
-            const examplePath = path.join(__dirname, 'config', 'backend_config.example.json');
+        const examplePath = path.join(__dirname2, 'config', 'backend_config.example.json');
             if (fs.existsSync(examplePath)) {
                 console.log(`[Config] Backend config not found. Copying from ${examplePath} and applying defaults/env vars.`);
                 const exampleContent = fs.readFileSync(examplePath, 'utf-8');
@@ -353,8 +353,8 @@ function loadBackendConfig() {
 }
 loadBackendConfig();
 
-const CONFERENCE_INSTRUCTIONS_FILE_PATH = process.env.TEST_CONFERENCE_INSTRUCTIONS_PATH || path.join(__dirname, 'config', 'conference_agent_instructions.json');
-const AGENT_INSTRUCTIONS_FILE_PATH = path.join(__dirname, 'config', 'agent_instructions_template.json');
+const CONFERENCE_INSTRUCTIONS_FILE_PATH = process.env.TEST_CONFERENCE_INSTRUCTIONS_PATH || path.join(__dirname2, 'config', 'conference_agent_instructions.json');
+const AGENT_INSTRUCTIONS_FILE_PATH = path.join(__dirname2, 'config', 'agent_instructions_template.json');
 
 function initializeConferenceInstructionsFile() {
   if (!fs.existsSync(CONFERENCE_INSTRUCTIONS_FILE_PATH)) {
@@ -517,10 +517,10 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
     }
 };
 
-const LOG_DIR_DEFAULT = path.resolve(__dirname, '../../logs');
-const WORKSPACE_DIR_DEFAULT = path.resolve(__dirname, '../../output');
-const LOG_DIR = fs.existsSync(path.join(__dirname, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname, 'config/backend_config.json'), 'utf-8')).logDir || LOG_DIR_DEFAULT) : LOG_DIR_DEFAULT;
-const WORKSPACE_DIR = fs.existsSync(path.join(__dirname, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname, 'config/backend_config.json'), 'utf-8')).workspaceDir || WORKSPACE_DIR_DEFAULT) : WORKSPACE_DIR_DEFAULT;
+const LOG_DIR_DEFAULT = path.resolve(__dirname2, '../../logs');
+const WORKSPACE_DIR_DEFAULT = path.resolve(__dirname2, '../../output');
+const LOG_DIR = fs.existsSync(path.join(__dirname2, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname2, 'config/backend_config.json'), 'utf-8')).logDir || LOG_DIR_DEFAULT) : LOG_DIR_DEFAULT;
+const WORKSPACE_DIR = fs.existsSync(path.join(__dirname2, 'config/backend_config.json')) ? (JSON.parse(fs.readFileSync(path.join(__dirname2, 'config/backend_config.json'), 'utf-8')).workspaceDir || WORKSPACE_DIR_DEFAULT) : WORKSPACE_DIR_DEFAULT;
 
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
@@ -2220,7 +2220,7 @@ app.post('/api/files/export', async (req, res) => {
 // ===== MODEL MANAGEMENT API =====
 app.get('/api/models', (req, res) => {
   try {
-    const configPath = path.join(__dirname, 'config', 'model_categories.json');
+    const configPath = path.join(__dirname2, 'config', 'model_categories.json');
     const raw = fs.readFileSync(configPath, 'utf-8');
     const cfg = JSON.parse(raw);
     const models = [];
@@ -2681,7 +2681,7 @@ app.get('/api/ollama-models/categorized', async (req, res) => {
     const ollamaData = await response.json();
     const localModels = ollamaData.models || [];
 
-    const modelCategoriesConfigPath = path.join(__dirname, 'config', 'model_categories.json');
+    const modelCategoriesConfigPath = path.join(__dirname2, 'config', 'model_categories.json');
     let modelCategoriesConfig;
     try {
       const configFileContent = fs.readFileSync(modelCategoriesConfigPath, 'utf-8');
@@ -2764,7 +2764,7 @@ app.get('/api/ollama-models/categorized', async (req, res) => {
       // If Ollama server is not running, return empty categories, as per frontend expectation for graceful degradation.
       // Also include static models if available and config is readable.
       console.warn(`[API /ollama-models/categorized] Ollama connection refused. Returning static models only (if any).`);
-       const modelCategoriesConfigPath = path.join(__dirname, 'config', 'model_categories.json');
+       const modelCategoriesConfigPath = path.join(__dirname2, 'config', 'model_categories.json');
        const categorized = {};
        try {
            const configFileContent = fs.readFileSync(modelCategoriesConfigPath, 'utf-8');
@@ -3059,7 +3059,7 @@ app.get('/api/config/:filename', (req, res) => {
   if (!CONFIG_ALLOWED_FILES.has(filename)) {
     return res.status(404).json({ message: 'Config file not found.' });
   }
-  const baseDir = filename === 'fsAgent.config.json' ? __dirname : path.join(__dirname, 'config');
+  const baseDir = filename === 'fsAgent.config.json' ? __dirname2 : path.join(__dirname2, 'config');
   const filePath = path.join(baseDir, filename);
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
@@ -3074,7 +3074,7 @@ app.post('/api/config/:filename', (req, res) => {
   if (!CONFIG_ALLOWED_FILES.has(filename)) {
     return res.status(404).json({ message: 'Config file not found.' });
   }
-  const baseDir = filename === 'fsAgent.config.json' ? __dirname : path.join(__dirname, 'config');
+  const baseDir = filename === 'fsAgent.config.json' ? __dirname2 : path.join(__dirname2, 'config');
   const filePath = path.join(baseDir, filename);
   try {
     const data = req.body;
@@ -3091,7 +3091,7 @@ app.post('/api/config/:filename', (req, res) => {
 
 // ===== Template APIs =====
 app.get('/api/templates', (req, res) => {
-  const templatesDir = path.join(__dirname, 'templates');
+  const templatesDir = path.join(__dirname2, 'templates');
   try {
     const files = fs.readdirSync(templatesDir).filter(f => f.endsWith('.template'));
     res.json(files);
@@ -3102,7 +3102,7 @@ app.get('/api/templates', (req, res) => {
 
 app.get('/api/templates/:name', (req, res) => {
   const { name } = req.params;
-  const templatesDir = path.join(__dirname, 'templates');
+  const templatesDir = path.join(__dirname2, 'templates');
   const filePath = path.join(templatesDir, name);
   if (!filePath.startsWith(templatesDir)) {
     return res.status(400).json({ message: 'Invalid template name.' });
@@ -3179,10 +3179,10 @@ app.get('/api/logs', (req, res) => {
     watchers.push(() => watcher.close());
   }
 
-  const startupFile = path.join(__dirname, 'startup_logs.txt');
+  const startupFile = path.join(__dirname2, 'startup_logs.txt');
   if (fs.existsSync(startupFile)) tail(startupFile);
 
-  const workspaceDir = path.join(__dirname, 'logs', 'roadrunner_workspace');
+  const workspaceDir = path.join(__dirname2, 'logs', 'roadrunner_workspace');
   if (fs.existsSync(workspaceDir)) {
     fs.readdirSync(workspaceDir).forEach(f => tail(path.join(workspaceDir, f)));
     const dirWatcher = fs.watch(workspaceDir, (event, filename) => {

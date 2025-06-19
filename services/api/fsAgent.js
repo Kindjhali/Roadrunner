@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename2 = typeof __filename !== 'undefined' ? __filename : fileURLToPath(eval('import.meta.url'));
+const __dirname2 = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename2);
 
 export class ModularFsAgent {
   constructor(options) {
@@ -800,7 +800,7 @@ export class ModularFsAgent {
 
 // For backward compatibility:
 // Load configuration for allowed external paths for the default instance
-const CONFIG_PATH = path.resolve(__dirname, 'fsAgent.config.json');
+const CONFIG_PATH = path.resolve(__dirname2, 'fsAgent.config.json');
 let defaultAllowedExternalPaths = [];
 try {
   const cfgRaw = fs.readFileSync(CONFIG_PATH, 'utf8');
@@ -819,7 +819,7 @@ try {
   );
 }
 
-const DEFAULT_WORKSPACE_DIR_CONST = path.resolve(__dirname, '../output'); // Renamed to avoid conflict
+const DEFAULT_WORKSPACE_DIR_CONST = path.resolve(__dirname2, '../output'); // Renamed to avoid conflict
 
 function isWindowsLegacy() {
   return process.platform === 'win32';
