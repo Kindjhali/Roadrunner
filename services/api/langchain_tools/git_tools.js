@@ -33,7 +33,7 @@ export class GitAddTool extends Tool {
 
       const result = await gitAgent.gitAdd(filePath, { isConfirmedAction: true });
       if (result.success) {
-        return result.message || `Successfully staged '${filePath}'.`;
+        return `Successfully staged '${filePath}'.`;
       } else {
         return `Error staging '${filePath}': ${result.message}${result.error ? ` Details: ${JSON.stringify(result.error)}` : ''}`;
       }
@@ -71,7 +71,7 @@ export class GitCommitTool extends Tool {
 
       const result = await gitAgent.gitCommit(message, { isConfirmedAction: true });
       if (result.success) {
-        return result.message || `Successfully committed with message "${message}". Commit SHA: ${result.data?.commit || 'N/A'}`;
+        return `Successfully committed with message "${message}". Commit SHA: ${result.data?.commit || 'N/A'}`;
       } else {
         return `Error committing: ${result.message}${result.error ? ` Details: ${JSON.stringify(result.error)}` : ''}`;
       }

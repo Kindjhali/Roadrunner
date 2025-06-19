@@ -24,42 +24,21 @@
 
     <!-- Single Task Mode -->
     <div v-if="mode === 'single'" class="single-mode">
-      <div class="model-selection">
-        <h3>Model Selection</h3>
-        <SimpleModelDropdown
-          v-model="selectedModel"
-          placeholder="Select AI model for execution"
-        />
-      </div>
-      
-      <h3>Task Description</h3>
-      <textarea
-        v-model="taskDescription"
-        placeholder="Describe what you want to build. Examples:
+      <ConfigPanel
+        :model="selectedModel"
+        :safety="safetyMode"
+        :disabled="!taskDescription.trim() || isExecuting"
+        run-label="Start Autocoder"
+        @update:model="updateModel"
+        @update:safety="updateSafety"
+        @run="executeTask"
+      />
 
-• Create a simple calculator web app with HTML, CSS, and JavaScript
-• Build a REST API for a todo list with Node.js and Express  
-• Generate a Python script that processes CSV files
-• Create a Vue.js component for user authentication
-• Build a React dashboard with charts and data visualization"
-        rows="8"
+      <h3>Task Description</h3>
+      <PromptEditor
+        v-model="taskDescription"
         :disabled="isExecuting"
-      ></textarea>
-      
-      <div class="controls">
-        <label>
-          <input v-model="safetyMode" type="checkbox" />
-          Safety Mode (requires confirmation for file operations)
-        </label>
-        
-        <button 
-          :disabled="!taskDescription.trim() || isExecuting"
-          @click="executeTask"
-          class="execute-btn"
-        >
-          {{ isExecuting ? 'Executing...' : 'Start Autocoder' }}
-        </button>
-      </div>
+      />
     </div>
 
     <!-- Batch Folder Mode -->
@@ -80,7 +59,7 @@
           type="file"
           webkitdirectory
           multiple
-          style="display: none"
+          class="hidden"
           @change="handleFolderSelect"
         />
         
@@ -137,12 +116,7 @@
         <p>{{ batchProgress.completed }} / {{ batchProgress.total }} files processed</p>
       </div>
       
-      <div class="logs">
-        <div v-for="(log, index) in logs" :key="index" class="log-entry">
-          <span class="timestamp">{{ formatTime(log.timestamp) }}</span>
-          <span class="message">{{ log.message }}</span>
-        </div>
-      </div>
+      <OutputViewer :logs="logs" />
     </div>
 
     <!-- Confirmation Modal -->
@@ -163,11 +137,17 @@
 <script>
 import { ref, computed } from 'vue'
 import SimpleModelDropdown from '../shared/SimpleModelDropdown.vue'
+import PromptEditor from './PromptEditor.vue'
+import OutputViewer from './OutputViewer.vue'
+import ConfigPanel from './ConfigPanel.vue'
 
 export default {
   name: 'ExecutionTab',
   components: {
-    SimpleModelDropdown
+    SimpleModelDropdown,
+    PromptEditor,
+    OutputViewer,
+    ConfigPanel
   },
   setup() {
     // State
@@ -182,6 +162,14 @@ export default {
     const batchProgress = ref({ completed: 0, total: 0 })
     const pendingConfirmation = ref(null)
     const eventSource = ref(null)
+
+    const updateModel = (val) => {
+      selectedModel.value = val
+    }
+
+    const updateSafety = (val) => {
+      safetyMode.value = val
+    }
 
     // Computed
     const wordCount = computed(() => {
@@ -431,7 +419,9 @@ export default {
       handleFolderSelect,
       clearFolder,
       formatFileSize,
-      formatTime
+      formatTime,
+      updateModel,
+      updateSafety
     }
   }
 }

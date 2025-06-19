@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename2 = typeof __filename !== 'undefined' ? __filename : fileURLToPath(eval('import.meta.url'));
+const __dirname2 = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename2);
 
 export class ModularFsAgent {
   constructor(options) {
@@ -103,6 +103,16 @@ export class ModularFsAgent {
       };
     }
     const normalizedPath = path.normalize(relativePath);
+    if (!path.isAbsolute(normalizedPath) && (normalizedPath === '..' || normalizedPath.startsWith('..' + path.sep))) {
+      return {
+        success: false,
+        error: {
+          code: 'FS_RESOLVE_PATH_TRAVERSAL_ATTEMPT',
+          message: 'Error: Path traversal attempt detected (relative path navigates above its root).',
+          details: { inputPath: relativePath }
+        }
+      };
+    }
     let fullPath = path.isAbsolute(normalizedPath)
       ? path.resolve(normalizedPath)
       : path.resolve(this.workspaceDir, normalizedPath);
@@ -203,6 +213,9 @@ export class ModularFsAgent {
     const resolved = this.resolvePathInWorkspace(relativePath);
     if (!resolved.success) {
       this.logger.error(`[ModularFsAgent.createFile] Path resolution failed for '${relativePath}'. Error: ${resolved.error.message}`);
+      if (resolved.error.code === 'FS_RESOLVE_PATH_TRAVERSAL_ATTEMPT') {
+        return { success: false, error: { ...resolved.error, code: 'FS_RESOLVE_PATH_OUTSIDE_ROOTS' }, warnings };
+      }
       return { success: false, error: resolved.error, warnings };
     }
     const { fullPath } = resolved;
@@ -231,6 +244,15 @@ export class ModularFsAgent {
 
     // 3. Check if file exists and handle backup
     if (fs.existsSync(fullPath)) {
+      if (options.requireConfirmation && !options.isConfirmedAction) {
+        return {
+          success: false,
+          confirmationNeeded: true,
+          fullPath,
+          error: { code: 'FS_CONFIRMATION_REQUIRED', message: 'Confirmation required to overwrite existing file.', details: { path: fullPath, operation: 'createFile' } },
+          warnings,
+        };
+      }
       this.logger.log(`[ModularFsAgent.createFile] File at '${fullPath}' already exists. Attempting backup and overwrite.`);
       try {
         fs.copyFileSync(fullPath, fullPath + '.bak');
@@ -322,9 +344,16 @@ export class ModularFsAgent {
   updateFile(
     relativePath,
     newContent,
-    // Ensure options has default values if not provided, especially for dryRun
-    options = { append: false, requireConfirmation: false, isConfirmedAction: false, dryRun: false, ...options }
+    options = {}
   ) {
+    // Apply defaults after parameter initialization to avoid ReferenceError
+    options = {
+      append: false,
+      requireConfirmation: false,
+      isConfirmedAction: false,
+      dryRun: false,
+      ...options,
+    };
     const resolved = this.resolvePathInWorkspace(relativePath);
     if (!resolved.success) {
       return { success: false, error: resolved.error, warnings: [] };
@@ -800,7 +829,7 @@ export class ModularFsAgent {
 
 // For backward compatibility:
 // Load configuration for allowed external paths for the default instance
-const CONFIG_PATH = path.resolve(__dirname, 'fsAgent.config.json');
+const CONFIG_PATH = path.resolve(__dirname2, 'fsAgent.config.json');
 let defaultAllowedExternalPaths = [];
 try {
   const cfgRaw = fs.readFileSync(CONFIG_PATH, 'utf8');
@@ -819,7 +848,7 @@ try {
   );
 }
 
-const DEFAULT_WORKSPACE_DIR_CONST = path.resolve(__dirname, '../output'); // Renamed to avoid conflict
+const DEFAULT_WORKSPACE_DIR_CONST = path.resolve(__dirname2, '../output'); // Renamed to avoid conflict
 
 function isWindowsLegacy() {
   return process.platform === 'win32';
@@ -860,6 +889,29 @@ const defaultFsAgentInstance = new ModularFsAgent({
   logger: console, // Default logger for the standalone instance
 });
 
+function reloadDefaultConfig() {
+  try {
+    const cfgRaw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    const cfg = JSON.parse(cfgRaw);
+    if (Array.isArray(cfg.allowedExternalPaths)) {
+      defaultAllowedExternalPaths = cfg.allowedExternalPaths.map((p) =>
+        path.resolve(p)
+      );
+    } else {
+      defaultAllowedExternalPaths = [];
+    }
+    defaultFsAgentInstance.allowedExternalPaths = defaultAllowedExternalPaths;
+    console.log(
+      `[fsAgent-default] Reloaded config from ${CONFIG_PATH}. Allowed external paths: ${defaultAllowedExternalPaths.join(', ')}`
+    );
+  } catch (e) {
+    console.error(
+      `[fsAgent-default] Failed to reload config from ${CONFIG_PATH}.`,
+      e
+    );
+  }
+}
+
 // Export bound methods from the default instance for backward compatibility
 const checkFileExists = defaultFsAgentInstance.checkFileExists.bind(defaultFsAgentInstance);
 const createFile = defaultFsAgentInstance.createFile.bind(defaultFsAgentInstance);
@@ -882,5 +934,8 @@ export {
   deleteDirectory,
   generateDirectoryTree,
   resolvePathInWorkspace,
-  // defaultFsAgentInstance as default // Alternative: export the instance
+  reloadDefaultConfig,
+  // Retain backward compatibility with a default instance
 };
+
+export default defaultFsAgentInstance;

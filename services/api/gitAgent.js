@@ -2,11 +2,11 @@ import simpleGit from 'simple-git';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename2 = typeof __filename !== 'undefined' ? __filename : fileURLToPath(eval('import.meta.url'));
+const __dirname2 = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename2);
 
 // Default working directory for Git operations, assuming script is in roadrunner/backend/
-const DEFAULT_GIT_WORK_DIR = path.resolve(__dirname, '../../');
+const DEFAULT_GIT_WORK_DIR = path.resolve(__dirname2, '../../');
 
 export class ModularGitAgent {
   constructor(options = {}) {
@@ -266,5 +266,7 @@ export {
   gitPush,
   gitPull,
   gitRevertLastCommit,
-  // defaultGitAgentInstance as default // Alternative
+  // Default instance for simple usage
 };
+
+export default defaultGitAgentInstance;
