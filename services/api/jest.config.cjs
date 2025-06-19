@@ -7,4 +7,7 @@ module.exports = {
   transformIgnorePatterns: ['node_modules/(?!.*node-fetch)'],
   moduleFileExtensions: ['js', 'json'],
   setupFiles: [path.resolve(__dirname, '../../jest.setup.js')],
+  moduleNameMapper: {
+    '^@langchain/community/chat_models/ollama$': path.resolve(__dirname, 'tests/mocks/ollama.js'),
+  },
 };
