@@ -48,7 +48,10 @@ import { GitAddTool, GitCommitTool, GitPushTool, GitPullTool, GitRevertTool } fr
 import { CodeGeneratorTool } from './langchain_tools/code_generator_tool.js';
 import { ConferenceTool } from './langchain_tools/conference_tool.js';
 import { ProposePlanTool, RequestUserActionOnFailureTool } from './langchain_tools/planning_tools.js';
+import { reloadDefaultConfig } from './fsAgent.js';
 import { ConfirmationRequiredError } from './langchain_tools/common.js';
+import './registerAgents.js';
+import { getAgent } from './AgentRegistry.js';
 
 // Initialize Tools
 const tools = [
@@ -2215,29 +2218,26 @@ app.post('/api/files/export', async (req, res) => {
 });
 
 // ===== MODEL MANAGEMENT API =====
-app.get('/api/models', async (req, res) => {
+app.get('/api/models', (req, res) => {
   try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
-    if (response.ok) {
-      const data = await response.json();
-      res.json({
-        success: true,
-        models: data.models || [],
-        provider: 'ollama'
+    const configPath = path.join(__dirname, 'config', 'model_categories.json');
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const cfg = JSON.parse(raw);
+    const models = [];
+    const categories = cfg.categories || {};
+    Object.keys(categories).forEach(cat => {
+      categories[cat].forEach(id => {
+        models.push({ name: id, identifier: id, backend: 'ollama' });
       });
-    } else {
-      res.json({
-        success: false,
-        models: [],
-        error: 'Failed to fetch models from Ollama'
+    });
+    if (Array.isArray(cfg.static_models)) {
+      cfg.static_models.forEach(m => {
+        models.push({ name: m.name, identifier: m.id, backend: m.type || 'ollama' });
       });
     }
-  } catch (error) {
-    res.json({
-      success: false,
-      models: [],
-      error: error.message
-    });
+    res.json(models);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to load models', details: err.message });
   }
 });
 
@@ -3043,6 +3043,158 @@ app.post('/api/instructions/conference_agent/:agentRole', (req, res) => {
 app.post('/execute-conference-task', async (req, res) => {
     console.warn("[Deprecated Endpoint] /execute-conference-task was called. Use agent with 'multi_model_debate' tool instead.");
     res.status(501).json({ message: "This endpoint is deprecated. Please use the agent with the 'multi_model_debate' tool."});
+});
+
+// ===== New Configuration File APIs =====
+const CONFIG_ALLOWED_FILES = new Set([
+  'agent_instructions_template.json',
+  'conference_agent_instructions.json',
+  'backend_config.json',
+  'model_categories.json',
+  'fsAgent.config.json'
+]);
+
+app.get('/api/config/:filename', (req, res) => {
+  const { filename } = req.params;
+  if (!CONFIG_ALLOWED_FILES.has(filename)) {
+    return res.status(404).json({ message: 'Config file not found.' });
+  }
+  const baseDir = filename === 'fsAgent.config.json' ? __dirname : path.join(__dirname, 'config');
+  const filePath = path.join(baseDir, filename);
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    res.type('application/json').send(content);
+  } catch (err) {
+    res.status(404).json({ message: 'File not found.' });
+  }
+});
+
+app.post('/api/config/:filename', (req, res) => {
+  const { filename } = req.params;
+  if (!CONFIG_ALLOWED_FILES.has(filename)) {
+    return res.status(404).json({ message: 'Config file not found.' });
+  }
+  const baseDir = filename === 'fsAgent.config.json' ? __dirname : path.join(__dirname, 'config');
+  const filePath = path.join(baseDir, filename);
+  try {
+    const data = req.body;
+    const jsonString = JSON.stringify(data, null, 2);
+    fs.writeFileSync(filePath, jsonString, 'utf-8');
+    if (filename === 'fsAgent.config.json') {
+      reloadDefaultConfig();
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to save file.', details: err.message });
+  }
+});
+
+// ===== Template APIs =====
+app.get('/api/templates', (req, res) => {
+  const templatesDir = path.join(__dirname, 'templates');
+  try {
+    const files = fs.readdirSync(templatesDir).filter(f => f.endsWith('.template'));
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ message: 'Unable to read templates.' });
+  }
+});
+
+app.get('/api/templates/:name', (req, res) => {
+  const { name } = req.params;
+  const templatesDir = path.join(__dirname, 'templates');
+  const filePath = path.join(templatesDir, name);
+  if (!filePath.startsWith(templatesDir)) {
+    return res.status(400).json({ message: 'Invalid template name.' });
+  }
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    res.type('text/plain').send(content);
+  } catch (err) {
+    res.status(404).json({ message: 'Template not found.' });
+  }
+});
+
+// ===== Simple Execute Endpoint =====
+app.post('/api/execute', async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt || typeof prompt !== 'string') {
+    return res.status(400).json({ message: 'Prompt is required.' });
+  }
+  const actionMatch = prompt.match(/Action:\s*(.*)/);
+  const inputMatch = prompt.match(/Action Input:\s*([\s\S]*?)(?:\n|$)/);
+  if (!actionMatch) return res.status(400).json({ message: 'No Action found in prompt.' });
+  const action = actionMatch[1].trim();
+  const tool = tools.find(t => t.name === action);
+  const agent = tool ? null : getAgent(action);
+  if (!tool && !agent) {
+    return res.status(400).json({ message: 'Unknown tool or agent.' });
+  }
+  let input = inputMatch ? inputMatch[1].trim() : '';
+  try {
+    let output;
+    if (tool) {
+      output = await (tool._call ? tool._call(input) : tool.call(input));
+    } else {
+      let parsed = input;
+      try {
+        parsed = input ? JSON.parse(input) : {};
+      } catch {
+        // keep as raw string if not JSON
+      }
+      output = await agent(parsed);
+    }
+    res.json({ output });
+  } catch (err) {
+    console.error('[API /api/execute] Tool error:', err);
+    res.status(500).json({ message: 'Tool execution failed.', details: err.message });
+  }
+});
+
+// ===== Log Streaming via SSE =====
+app.get('/api/logs', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const watchers = [];
+
+  function tail(file) {
+    let position = 0;
+    try { position = fs.statSync(file).size; } catch {}
+    const watcher = fs.watch(file, () => {
+      try {
+        const stats = fs.statSync(file);
+        if (stats.size > position) {
+          const stream = fs.createReadStream(file, { start: position, end: stats.size });
+          stream.on('data', chunk => {
+            const lines = chunk.toString().split(/\r?\n/).filter(l => l);
+            lines.forEach(line => res.write(`event: log_line\ndata: ${JSON.stringify({ file: path.basename(file), line })}\n\n`));
+          });
+          position = stats.size;
+        }
+      } catch {}
+    });
+    watchers.push(() => watcher.close());
+  }
+
+  const startupFile = path.join(__dirname, 'startup_logs.txt');
+  if (fs.existsSync(startupFile)) tail(startupFile);
+
+  const workspaceDir = path.join(__dirname, 'logs', 'roadrunner_workspace');
+  if (fs.existsSync(workspaceDir)) {
+    fs.readdirSync(workspaceDir).forEach(f => tail(path.join(workspaceDir, f)));
+    const dirWatcher = fs.watch(workspaceDir, (event, filename) => {
+      if (event === 'rename' && filename) {
+        const newPath = path.join(workspaceDir, filename);
+        if (fs.existsSync(newPath)) tail(newPath);
+      }
+    });
+    watchers.push(() => dirWatcher.close());
+  }
+
+  req.on('close', () => { watchers.forEach(fn => fn()); });
 });
 
 async function checkOllamaStatus() {

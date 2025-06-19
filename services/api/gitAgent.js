@@ -266,5 +266,7 @@ export {
   gitPush,
   gitPull,
   gitRevertLastCommit,
-  // defaultGitAgentInstance as default // Alternative
+  // Default instance for simple usage
 };
+
+export default defaultGitAgentInstance;

@@ -860,6 +860,29 @@ const defaultFsAgentInstance = new ModularFsAgent({
   logger: console, // Default logger for the standalone instance
 });
 
+function reloadDefaultConfig() {
+  try {
+    const cfgRaw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    const cfg = JSON.parse(cfgRaw);
+    if (Array.isArray(cfg.allowedExternalPaths)) {
+      defaultAllowedExternalPaths = cfg.allowedExternalPaths.map((p) =>
+        path.resolve(p)
+      );
+    } else {
+      defaultAllowedExternalPaths = [];
+    }
+    defaultFsAgentInstance.allowedExternalPaths = defaultAllowedExternalPaths;
+    console.log(
+      `[fsAgent-default] Reloaded config from ${CONFIG_PATH}. Allowed external paths: ${defaultAllowedExternalPaths.join(', ')}`
+    );
+  } catch (e) {
+    console.error(
+      `[fsAgent-default] Failed to reload config from ${CONFIG_PATH}.`,
+      e
+    );
+  }
+}
+
 // Export bound methods from the default instance for backward compatibility
 const checkFileExists = defaultFsAgentInstance.checkFileExists.bind(defaultFsAgentInstance);
 const createFile = defaultFsAgentInstance.createFile.bind(defaultFsAgentInstance);
@@ -882,5 +905,8 @@ export {
   deleteDirectory,
   generateDirectoryTree,
   resolvePathInWorkspace,
-  // defaultFsAgentInstance as default // Alternative: export the instance
+  reloadDefaultConfig,
+  // Retain backward compatibility with a default instance
 };
+
+export default defaultFsAgentInstance;
