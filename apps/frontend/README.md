@@ -33,3 +33,16 @@ User Input → PromptConsole → POST /api/execute → Backend
                           ↘ streamed results ↗
 ```
 
+
+## Purpose & Role
+This frontend surfaces key backend capabilities and demonstrates minimal integration with logging and configuration APIs.
+
+## Visual Map
+```
+App.vue
+├─ PromptConsole
+├─ CodeExecutionPanel
+├─ AgentConfigPanel
+├─ ConfigEditorPanel
+└─ BackendLogViewer
+```
