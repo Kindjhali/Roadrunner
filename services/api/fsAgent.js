@@ -103,6 +103,20 @@ export class ModularFsAgent {
       };
     }
     const normalizedPath = path.normalize(relativePath);
+    // Detect attempts to traverse outside the workspace before resolving
+    const pathParts = normalizedPath.split(path.sep);
+    if (pathParts.includes('..')) {
+      const attempted = path.resolve(this.workspaceDir, normalizedPath);
+      return {
+        success: false,
+        error: {
+          code: 'FS_RESOLVE_PATH_TRAVERSAL_ATTEMPT',
+          message: 'Error: Path traversal attempt detected (.. segments).',
+          details: { attemptedPath: attempted }
+        }
+      };
+    }
+
     let fullPath = path.isAbsolute(normalizedPath)
       ? path.resolve(normalizedPath)
       : path.resolve(this.workspaceDir, normalizedPath);
@@ -322,9 +336,16 @@ export class ModularFsAgent {
   updateFile(
     relativePath,
     newContent,
-    // Ensure options has default values if not provided, especially for dryRun
-    options = { append: false, requireConfirmation: false, isConfirmedAction: false, dryRun: false, ...options }
+    options = {}
   ) {
+    // Apply defaults after parameter initialization to avoid ReferenceError
+    options = {
+      append: false,
+      requireConfirmation: false,
+      isConfirmedAction: false,
+      dryRun: false,
+      ...options,
+    };
     const resolved = this.resolvePathInWorkspace(relativePath);
     if (!resolved.success) {
       return { success: false, error: resolved.error, warnings: [] };
