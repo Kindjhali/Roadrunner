@@ -3,6 +3,7 @@ import { ref, Ref } from 'vue'
 export function useEditableConfig(file: Ref<string>) {
   const content = ref('')
   const valid = ref(true)
+  const error = ref('')
 
   async function load() {
     const res = await fetch(`/api/config/${file.value}`)
@@ -14,8 +15,10 @@ export function useEditableConfig(file: Ref<string>) {
     try {
       JSON.parse(content.value)
       valid.value = true
-    } catch {
+      error.value = ''
+    } catch (e: any) {
       valid.value = false
+      error.value = e.message
     }
   }
 
@@ -28,5 +31,5 @@ export function useEditableConfig(file: Ref<string>) {
     })
   }
 
-  return { content, valid, load, save, validate }
+  return { content, valid, error, load, save, validate }
 }

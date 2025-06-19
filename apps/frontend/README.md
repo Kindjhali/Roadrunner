@@ -46,3 +46,7 @@ App.vue
 ├─ ConfigEditorPanel
 └─ BackendLogViewer
 ```
+
+The **CodeExecutionPanel** supports parameter injection using Handlebars
+placeholders (`{{name}}`). Detected parameter names are displayed as input
+fields and merged into the template before execution.

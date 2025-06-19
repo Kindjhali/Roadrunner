@@ -4,6 +4,12 @@
       <option disabled value="">Select Template</option>
       <option v-for="t in templates" :key="t" :value="t">{{ t }}</option>
     </select>
+    <div v-if="paramNames.length" class="mb-2 space-y-1">
+      <div v-for="p in paramNames" :key="p">
+        <label class="block text-sm mb-1">{{ p }}</label>
+        <input v-model="params[p]" class="w-full p-1 bg-surface-card text-primary" />
+      </div>
+    </div>
     <div ref="editor" class="border border-border h-48"></div>
     <button @click="run" class="mt-2 px-3 py-1 bg-primary text-white">Run</button>
   </div>
@@ -14,6 +20,7 @@ import { ref, onMounted } from 'vue'
 import { EditorView, basicSetup } from '@codemirror/basic-setup'
 import { EditorState } from '@codemirror/state'
 import { javascript } from '@codemirror/lang-javascript'
+import Handlebars from 'handlebars'
 import { renderTemplate } from '../composables/useTemplateInjection'
 import { usePromptExecutor } from '../hooks/usePromptExecutor'
 
@@ -22,6 +29,8 @@ const selectedTemplate = ref('')
 const editor = ref<HTMLDivElement | null>(null)
 let view: EditorView | null = null
 const { executePrompt } = usePromptExecutor()
+const params = ref<Record<string, string>>({})
+const paramNames = ref<string[]>([])
 
 onMounted(async () => {
   const res = await fetch('/api/templates')
@@ -31,6 +40,7 @@ onMounted(async () => {
 async function loadTemplate() {
   if (!selectedTemplate.value) return
   const content = await renderTemplate(selectedTemplate.value, {})
+  extractParams(content)
   initEditor(content)
 }
 
@@ -45,6 +55,14 @@ function initEditor(content: string) {
 
 function run() {
   const content = view?.state.doc.toString() || ''
-  executePrompt(content)
+  const merged = Handlebars.compile(content)(params.value)
+  executePrompt(merged)
+}
+
+function extractParams(text: string) {
+  const matches = text.match(/{{\s*([\w.]+)\s*}}/g) || []
+  const names = matches.map(m => m.replace(/{{|}}/g, '').trim())
+  paramNames.value = Array.from(new Set(names))
+  params.value = Object.fromEntries(paramNames.value.map(p => [p, '']))
 }
 </script>

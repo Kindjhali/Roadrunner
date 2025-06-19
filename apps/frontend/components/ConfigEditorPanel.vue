@@ -5,6 +5,7 @@
       <option v-for="f in files" :key="f" :value="f">{{ f }}</option>
     </select>
     <div ref="editor" class="border border-border h-48"></div>
+    <div v-if="error" class="text-error text-sm mt-1">{{ error }}</div>
     <button :disabled="!valid" @click="save" class="mt-2 px-3 py-1 bg-primary text-white">Save</button>
   </div>
 </template>
@@ -27,7 +28,7 @@ const files = [
 const file = ref('')
 const editor = ref<HTMLDivElement | null>(null)
 let view: EditorView | null = null
-const { content, valid, load: loadFile, save: saveFile, validate } = useEditableConfig(file)
+const { content, valid, error, load: loadFile, save: saveFile, validate } = useEditableConfig(file)
 
 async function load() {
   if (!file.value) return

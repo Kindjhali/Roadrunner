@@ -7,7 +7,7 @@
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:api\" --names \"renderer,api\" --prefix-colors \"cyan,yellow\"",
     "dev:renderer": "cd apps/renderer && npx vite",
     "dev:api": "cd services/api   && npm start",
-    "dev:frontend-only": "npx vite",
+    "dev:frontend-only": "cd apps/frontend && npx vite",
     "build": "npx vite build",
     "start": "npm run build && .\\node_modules\\.bin\\electron.cmd electron.cjs",
     "preview": "npx vite preview",
