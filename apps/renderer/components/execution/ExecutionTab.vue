@@ -59,7 +59,7 @@
           type="file"
           webkitdirectory
           multiple
-          style="display: none"
+          class="hidden"
           @change="handleFolderSelect"
         />
         
