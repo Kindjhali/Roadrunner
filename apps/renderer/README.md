@@ -29,3 +29,10 @@ apps/renderer/
 ## Purpose
 
 The renderer exposes advanced functionality including configuration panels, code generation, and real-time log viewing. It connects to the backend services defined under `services/`.
+
+## ReACT vs. React
+
+Roadrunner uses the **ReACT** prompting pattern (Reasoning, Execution, Action,
+Choice, Traceable output) for AI interactions. This is **not** related to the
+React JavaScript framework. All code here is written with Vue 3 and should not
+be confused with React-based tooling.

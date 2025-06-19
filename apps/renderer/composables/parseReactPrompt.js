@@ -1,3 +1,6 @@
+// Parse prompts that follow the ReACT pattern used in Roadrunner.
+// Note: "ReACT" here stands for Reasoning, Execution, Action, Choice, Toolchain
+// and is unrelated to the React UI framework.
 export function parseReactPrompt(text) {
   const parts = {
     thought: '',

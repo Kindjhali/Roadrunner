@@ -1,6 +1,6 @@
 # parseReactPrompt
 
-This utility parses prompts that follow the ReACT format used throughout Roadrunner. A prompt typically includes the following sections:
+This utility parses prompts that follow the **ReACT** format used throughout Roadrunner. ReACT stands for *Reasoning, Execution, Action, Choice, Toolchain* and is unrelated to the React JavaScript framework. A prompt typically includes the following sections:
 
 ```
 Thought: reasoning text
