@@ -20,6 +20,7 @@
 
 <script>
 import { ref, onMounted } from 'vue'
+import { useProviders } from '../../composables/useProviders.js'
 export default {
   name: 'ProviderDropdown',
   props: {
@@ -27,31 +28,16 @@ export default {
   },
   emits: ['update:modelValue', 'provider-changed'],
   setup(props, { emit }) {
-    const providers = ref([])
+    const { providers, error, loadProviders } = useProviders()
     const isLoading = ref(false)
-    const error = ref(null)
 
-    async function loadProviders() {
-      try {
-        isLoading.value = true
-        error.value = null
-        const res = await fetch('http://localhost:3333/api/providers')
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
-        const data = await res.json()
-        if (Array.isArray(data)) {
-          providers.value = data
-          if (!props.modelValue && providers.value.length > 0) {
-            emit('update:modelValue', providers.value[0])
-            emit('provider-changed', providers.value[0])
-          }
-        } else {
-          throw new Error('Invalid API response')
-        }
-      } catch (err) {
-        console.error('Failed to load providers:', err)
-        error.value = err
-      } finally {
-        isLoading.value = false
+    async function init() {
+      isLoading.value = true
+      await loadProviders()
+      isLoading.value = false
+      if (!props.modelValue && providers.value.length > 0) {
+        emit('update:modelValue', providers.value[0])
+        emit('provider-changed', providers.value[0])
       }
     }
 
@@ -65,8 +51,8 @@ export default {
       return name.charAt(0).toUpperCase() + name.slice(1)
     }
 
-    onMounted(loadProviders)
-    return { providers, isLoading, error, loadProviders, handleChange, formatProviderName }
+    onMounted(init)
+    return { providers, isLoading, error, loadProviders: init, handleChange, formatProviderName }
   }
 }
 </script>
