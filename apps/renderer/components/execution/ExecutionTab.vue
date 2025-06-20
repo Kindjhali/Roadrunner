@@ -14,11 +14,17 @@
       >
         Single Task
       </button>
-      <button 
-        :class="{ active: mode === 'batch' }" 
+      <button
+        :class="{ active: mode === 'batch' }"
         @click="mode = 'batch'"
       >
         Batch Folder
+      </button>
+      <button
+        :class="{ active: mode === 'prompt' }"
+        @click="mode = 'prompt'"
+      >
+        Direct Prompt
       </button>
     </div>
 
@@ -98,6 +104,25 @@
       </div>
     </div>
 
+    <!-- Direct Prompt Mode -->
+    <div v-if="mode === 'prompt'" class="single-mode">
+      <PromptEditor
+        v-model="promptInput"
+        :disabled="promptRunning"
+      />
+      <div class="controls">
+        <button
+          class="execute-btn"
+          :disabled="promptRunning || !promptInput.trim()"
+          @click="runPrompt"
+        >
+          {{ promptRunning ? 'Running...' : 'Execute Prompt' }}
+        </button>
+      </div>
+
+      <OutputViewer :logs="promptLogs" />
+    </div>
+
     <!-- Execution Progress -->
     <div v-if="isExecuting || logs.length > 0" class="progress">
       <h3>
@@ -140,6 +165,7 @@ import SimpleModelDropdown from '../shared/SimpleModelDropdown.vue'
 import PromptEditor from './PromptEditor.vue'
 import OutputViewer from './OutputViewer.vue'
 import ConfigPanel from './ConfigPanel.vue'
+import { useExecution } from '../../composables/useExecution.js'
 
 export default {
   name: 'ExecutionTab',
@@ -162,6 +188,11 @@ export default {
     const batchProgress = ref({ completed: 0, total: 0 })
     const pendingConfirmation = ref(null)
     const eventSource = ref(null)
+
+    // Direct prompt execution state
+    const { isRunning: promptRunning, output: promptOutput, error: promptError, execute } = useExecution()
+    const promptInput = ref('')
+    const promptLogs = ref([])
 
     const updateModel = (val) => {
       selectedModel.value = val
@@ -380,6 +411,16 @@ export default {
       batchProgress.value = { completed: 0, total: 0 }
     }
 
+    const runPrompt = async () => {
+      promptLogs.value = []
+      await execute(promptInput.value)
+      if (promptError.value) {
+        promptLogs.value.push({ timestamp: Date.now(), message: `Error: ${promptError.value.message}` })
+      } else if (promptOutput.value) {
+        promptLogs.value.push({ timestamp: Date.now(), message: promptOutput.value })
+      }
+    }
+
     const readFileContent = (file) => {
       return new Promise((resolve, reject) => {
         const reader = new FileReader()
@@ -421,7 +462,11 @@ export default {
       formatFileSize,
       formatTime,
       updateModel,
-      updateSafety
+      updateSafety,
+      promptInput,
+      promptLogs,
+      promptRunning,
+      runPrompt
     }
   }
 }
