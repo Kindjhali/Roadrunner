@@ -1,6 +1,8 @@
 # Execute API
 
-This document describes the `/api/execute` endpoint added to `server.js`.
+This document describes the `/api/execute` endpoint implemented in
+`services/api/server.js`. The root `server.js` file does not provide this
+route; it is part of the main API server under the `services/api` directory.
 
 ## Inputs
 - `prompt` – full text prompt in ReACT format.
