@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import { parseReactPrompt } from './parseReactPrompt.js'
+// Reuse shared ReACT parser from backend utils
+import { parseReactPrompt } from '../../services/api/utils/parseReactPrompt.js'
 
 export function useExecution() {
   const isRunning = ref(false)

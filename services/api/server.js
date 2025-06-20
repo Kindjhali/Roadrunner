@@ -27,7 +27,8 @@ import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import { parseLogFile } from '../../viewlog.js';
 // Reuse the existing ReACT parser from the frontend to avoid duplicate logic
-import { parseReactPrompt } from '../../apps/renderer/composables/parseReactPrompt.js';
+// Shared ReACT parser
+import { parseReactPrompt } from './utils/parseReactPrompt.js';
 
 let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'; // Changed to let
 
