@@ -4,9 +4,12 @@ const path = require('path');
 const fs = require('fs'); // fs.promises will be used via fs.promises
 const fsPromises = fs.promises;
 const EventSource = require('eventsource');
+const Store = require('electron-store');
+const { autoUpdater } = require('electron-updater');
 
 let currentBackendPort = 3333; // Default port
 let backendProcess = null;
+const settingsStore = new Store({ defaults: { userSettings: {} } });
 
 function startBackendServer() {
   return new Promise((resolve, reject) => {
@@ -186,6 +189,9 @@ app.whenReady().then(async () => {
     // Enhanced logging as per subtask
     console.log(`[ELECTRON MAIN POST-START] Backend server started. currentBackendPort is now: ${currentBackendPort}. Proceeding to create window.`);
     createWindow();
+    if (app.isPackaged) {
+      autoUpdater.checkForUpdatesAndNotify();
+    }
   } catch (error) {
     // Enhanced logging as per subtask
     console.error(`[ELECTRON MAIN POST-START] Backend server failed to start. Error: ${error}. Quitting app.`);
@@ -231,6 +237,12 @@ app.whenReady().then(async () => {
   });
   ipcMain.on('console-error', (event, ...args) => {
     rendererLogStream.write(`[ERROR] ${new Date().toISOString()}: ${args.map(String).join(' ')}\n`);
+  });
+
+  ipcMain.handle('settings:get', (event, key) => settingsStore.get(key));
+  ipcMain.handle('settings:set', (event, key, value) => {
+    settingsStore.set(key, value);
+    return true;
   });
 
   ipcMain.on('remove-backend-log-event-listener', (event) => {

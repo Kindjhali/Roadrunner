@@ -1,22 +1,32 @@
-const fs = require('fs');
+import fs from 'fs';
 
-const logFilePath = process.argv[2];
 
-// 1. Validate Input
-if (!logFilePath) {
-  console.error('Usage: node viewlog.js <path_to_log_file.json>');
-  process.exit(1);
+/**
+ * Parse a Roadrunner JSON log file and return the structured data.
+ * @param {string} filePath - Absolute path to the log file.
+ * @returns {object} Parsed log contents.
+ */
+export function parseLogFile(filePath) {
+  const content = fs.readFileSync(filePath, 'utf-8');
+  return JSON.parse(content);
 }
 
-// 2. Read and Parse Log File
-let logData;
-try {
-  const logFileContent = fs.readFileSync(logFilePath, 'utf-8');
-  logData = JSON.parse(logFileContent);
-} catch (error) {
-  console.error('Error reading or parsing log file:', error.message);
-  process.exit(1);
-}
+// ---- CLI Execution ----
+const isCLI = process.argv[1] && process.argv[1].includes('viewlog.js');
+if (isCLI) {
+  const logFilePath = process.argv[2];
+  if (!logFilePath) {
+    console.error('Usage: node viewlog.js <path_to_log_file.json>');
+    process.exit(1);
+  }
+
+  let logData;
+  try {
+    logData = parseLogFile(logFilePath);
+  } catch (error) {
+    console.error('Error reading or parsing log file:', error.message);
+    process.exit(1);
+  }
 
 // 3. Format and Print Output
 const { input, responses, selected, justification, error: logError } = logData;
@@ -60,3 +70,4 @@ if (logError) {
 
 console.log("\n==========================================");
 console.log("--- End of Log ---");
+}

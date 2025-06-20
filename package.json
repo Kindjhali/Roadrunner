@@ -35,12 +35,17 @@
     "esbuild": "^0.25.5",
     "eventsource": "^2.0.2",
     "express": "^5.1.0",
+    "cors": "^2.8.5",
+    "@langchain/community": "^0.3.47",
     "langchain": "^0.3.27",
     "marked": "^12.0.2",
     "monaco-editor": "^0.52.2",
     "pinia": "^3.0.3",
+    "floating-vue": "^2.0.0",
     "vue": "^3.5.17",
-    "vuex": "^4.1.0"
+    "vuex": "^4.1.0",
+    "electron-updater": "^5.3.0",
+    "electron-store": "^8.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.27.4",
@@ -63,7 +68,8 @@
     "simple-git": "^3.27.0",
     "tailwindcss": "^3.4.1",
     "vite": "^6.3.5",
-    "vitest": "^3.2.3"
+    "vitest": "^3.2.3",
+    "supertest": "^7.1.1"
   },
   "jest": {
     "testEnvironment": "jsdom",
