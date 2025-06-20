@@ -1,7 +1,7 @@
 # AGENTS.md (v1.1.1)
 
 This document combines the **Agent Development Guidelines** with a formal behavioral and operational specification for all AI agents, developers, or system components that interact with this project. This includes agentic software, human contributors, and hybrid systems. It governs **code behavior**, **personality expression**, **interaction rules**, and **implementation standards**.
-
+DO NOT CREATE or DELETE SVG's EVER! all icons are npm i @flaticon/flaticon-uicons
 ---
 
 ## 🧠 Agent Philosophy
