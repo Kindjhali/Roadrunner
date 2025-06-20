@@ -1,6 +1,5 @@
 import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+
 
 /**
  * Parse a Roadrunner JSON log file and return the structured data.
@@ -13,7 +12,7 @@ export function parseLogFile(filePath) {
 }
 
 // ---- CLI Execution ----
-const isCLI = fileURLToPath(import.meta.url) === path.resolve(process.argv[1] || '');
+const isCLI = process.argv[1] && process.argv[1].includes('viewlog.js');
 if (isCLI) {
   const logFilePath = process.argv[2];
   if (!logFilePath) {
