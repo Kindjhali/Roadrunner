@@ -13,6 +13,8 @@ for *Reasoning, Execution, Action, Choice, Toolchain* and is unrelated to the
 React UI framework. The backend relies on a simple regex-based parser, while the
 frontend and backend share a helper located at
 `services/api/utils/parseReactPrompt.js`.
+`apps/renderer/composables/parseReactPrompt.js`.
+
 
 ## Prompt Format
 The API expects prompts with the following labeled sections:
@@ -29,6 +31,7 @@ Final Answer: optional final output
 - `prompt` – full text prompt in ReACT format.
 - `toolId` – optional explicit tool identifier.
 - `provider` – optional model provider such as `ollama` or `openai`.
+
 
 ## Outputs
 - `success` – boolean result flag.

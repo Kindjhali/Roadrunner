@@ -30,6 +30,9 @@ import { parseLogFile } from '../../viewlog.js';
 // Shared ReACT parser
 import { parseReactPrompt } from './utils/parseReactPrompt.js';
 
+import { parseReactPrompt } from '../../apps/renderer/composables/parseReactPrompt.js';
+
+
 let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'; // Changed to let
 
 // Langchain imports
@@ -3149,9 +3152,15 @@ app.post('/api/execute', async (req, res) => {
     return res.status(400).json({ message: 'Unknown tool or agent.' });
   }
 
+
   let input = parsed.actionInput ? parsed.actionInput.trim() : '';
 
   async function runExecution() {
+
+  let input = parsed.actionInput ? parsed.actionInput.trim() : '';
+  try {
+    let output;
+
     if (tool) {
       return await (tool._call ? tool._call(input) : tool.call(input));
     }

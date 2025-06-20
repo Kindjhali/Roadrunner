@@ -483,6 +483,7 @@ export default {
       updateSafety,
       streamOutput,
       selectedProvider,
+      updateSafety,
       promptInput,
       promptLogs,
       promptRunning,
