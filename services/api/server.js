@@ -25,6 +25,7 @@ import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch'; // Standard ESM import
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
+import { parseLogFile } from '../../viewlog.js';
 
 let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'; // Changed to let
 
@@ -3148,6 +3149,23 @@ app.post('/api/execute', async (req, res) => {
   } catch (err) {
     console.error('[API /api/execute] Tool error:', err);
     res.status(500).json({ message: 'Tool execution failed.', details: err.message });
+  }
+});
+
+// ===== Retrieve Parsed Log =====
+app.get('/api/logs/:id', (req, res) => {
+  const logId = req.params.id;
+  const baseDir = backendSettings.logDir || path.resolve(__dirname2, '../../logs');
+  const candidates = ['', '.json', '.md', '.log', '.log.md'].map(ext => path.join(baseDir, logId + ext));
+  const filePath = candidates.find(p => fs.existsSync(p));
+  if (!filePath) {
+    return res.status(404).json({ message: 'Log not found' });
+  }
+  try {
+    const data = parseLogFile(filePath);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to read log', details: err.message });
   }
 });
 
