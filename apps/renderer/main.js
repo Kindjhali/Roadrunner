@@ -12,6 +12,8 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+import FloatingVue from 'floating-vue'
+import 'floating-vue/dist/style.css'
 
 // Global styles
 import './styles/global.css'
@@ -25,6 +27,8 @@ const app = createApp(App)
 // Create and use Pinia store
 const pinia = createPinia()
 app.use(pinia)
+// Tooltip plugin for unified hover info
+app.use(FloatingVue)
 
 // Global error handler
 app.config.errorHandler = (err, vm, info) => {
