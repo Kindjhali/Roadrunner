@@ -90,6 +90,91 @@ app.get('/evaluate/:inputID', (req, res) => {
   }
 });
 
+// --- Execution API ---------------------------------------------------------
+// Basic ReACT prompt parser shared with frontend implementation
+function parseReactPrompt(text) {
+  const sections = { thought: '', action: '', actionInput: '', observation: '' };
+  if (!text) return sections;
+  let current = null;
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (/^Thought:/i.test(trimmed)) {
+      current = 'thought';
+      sections.thought += trimmed.replace(/^Thought:\s*/i, '') + '\n';
+    } else if (/^Action:/i.test(trimmed)) {
+      current = 'action';
+      sections.action += trimmed.replace(/^Action:\s*/i, '') + '\n';
+    } else if (/^Action Input:/i.test(trimmed)) {
+      current = 'actionInput';
+      sections.actionInput += trimmed.replace(/^Action Input:\s*/i, '') + '\n';
+    } else if (/^Observation:/i.test(trimmed)) {
+      current = 'observation';
+      sections.observation += trimmed.replace(/^Observation:\s*/i, '') + '\n';
+    } else if (current) {
+      sections[current] += line + '\n';
+    }
+  }
+  for (const key of Object.keys(sections)) {
+    sections[key] = sections[key].trim();
+  }
+  return sections;
+}
+
+// Example tool implementations used for simple routing
+const tools = {
+  echo: (input) => `Echo: ${input}`,
+  reverse: (input) => input.split('').reverse().join('')
+};
+
+// POST /api/execute - run a tool based on prompt or explicit toolId
+app.post('/api/execute', (req, res) => {
+  try {
+    const { prompt, toolId } = req.body || {};
+    if (!prompt && !toolId) {
+      return res.status(400).json({ success: false, message: 'Missing prompt or toolId' });
+    }
+
+    const parsed = parseReactPrompt(prompt || '');
+    const selectedTool = toolId || parsed.action;
+    const input = parsed.actionInput || '';
+
+    if (!selectedTool || !tools[selectedTool]) {
+      return res.status(400).json({ success: false, message: `Unknown tool ${selectedTool}` });
+    }
+
+    const output = tools[selectedTool](input);
+    res.json({ success: true, output });
+  } catch (err) {
+    console.error('Error in /api/execute:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/models - return available tool metadata
+app.get('/api/models', (_req, res) => {
+  res.json([
+    { id: 'echo', label: 'Echo Tool' },
+    { id: 'reverse', label: 'Reverse Tool' }
+  ]);
+});
+
+// GET /api/logs/:name - serve stored log files from ./logs
+const fs = require('fs');
+const path = require('path');
+app.get('/api/logs/:name', (req, res) => {
+  try {
+    const filePath = path.join(__dirname, 'logs', req.params.name);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ success: false, message: 'Log not found' });
+    }
+    const data = fs.readFileSync(filePath, 'utf-8');
+    res.type('text/plain').send(data);
+  } catch (err) {
+    console.error('Error in /api/logs:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Roadrunner server listening on port ${PORT}`);
 });
