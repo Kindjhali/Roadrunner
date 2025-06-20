@@ -22,6 +22,7 @@ Thought: your reasoning
 Action: toolName
 Action Input: tool parameters
 Observation: result text
+Final Answer: optional final output
 ```
 
 ## Inputs
