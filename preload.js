@@ -26,6 +26,11 @@ contextBridge.exposeInMainWorld('electron', {
   }
 });
 
+contextBridge.exposeInMainWorld('settings', {
+  get: (key) => ipcRenderer.invoke('settings:get', key),
+  set: (key, value) => ipcRenderer.invoke('settings:set', key, value)
+});
+
 // Alias API for legacy code expecting `window.electronAPI`
 contextBridge.exposeInMainWorld('electronAPI', {
   sendBrainstormingChat: (payload) => ipcRenderer.send('send-brainstorming-chat', payload),

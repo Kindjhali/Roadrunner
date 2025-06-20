@@ -32,7 +32,10 @@ export const useSettingsStore = defineStore('settings', () => {
       enableAnalytics: false,
       enableTelemetry: false,
       maxHistorySize: 1000,
-      debugMode: false
+      debugMode: false,
+      aiProvider: 'ollama',
+      openaiApiKey: '',
+      ollamaUrl: 'http://localhost:11434'
     },
     
     // UI settings
@@ -151,11 +154,16 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       isLoading.value = true
       
-      // Just use defaults - no backend calls
-      const savedSettings = localStorage.getItem('roadrunner-settings')
-      if (savedSettings) {
-        const parsed = JSON.parse(savedSettings)
-        Object.assign(settings, parsed)
+      // Prefer electron-store when available
+      if (window.settings?.get) {
+        const stored = await window.settings.get('userSettings')
+        if (stored) Object.assign(settings, stored)
+      } else {
+        const savedSettings = localStorage.getItem('roadrunner-settings')
+        if (savedSettings) {
+          const parsed = JSON.parse(savedSettings)
+          Object.assign(settings, parsed)
+        }
       }
       
     } catch (error) {
@@ -172,34 +180,34 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       isLoading.value = true
       
-      // Try to save to backend first
-      const { apiService } = await import('../services/ApiService.js')
-      
-      const response = await apiService.saveSettings(settings)
-      
-      if (response.success) {
-        console.log('Settings saved to backend successfully')
+      if (window.settings?.set) {
+        await window.settings.set('userSettings', JSON.parse(JSON.stringify(settings)))
       } else {
-        console.warn('Failed to save to backend, saving to localStorage only')
+        const { apiService } = await import('../services/ApiService.js')
+        const response = await apiService.saveSettings(settings)
+        if (!response.success) {
+          console.warn('Failed to save to backend, saving to localStorage only')
+        }
+        localStorage.setItem('roadrunner-settings', JSON.stringify(settings))
       }
-      
-      // Always save to localStorage as backup
-      localStorage.setItem('roadrunner-settings', JSON.stringify(settings))
       
       lastSaved.value = new Date().toISOString()
       isDirty.value = false
       
     } catch (error) {
       lastError.value = error
-      console.error('Failed to save settings to backend, using localStorage:', error)
-      
-      // Fallback to localStorage
+      console.error('Failed to save settings:', error)
+
       try {
-        localStorage.setItem('roadrunner-settings', JSON.stringify(settings))
+        if (window.settings?.set) {
+          await window.settings.set('userSettings', JSON.parse(JSON.stringify(settings)))
+        } else {
+          localStorage.setItem('roadrunner-settings', JSON.stringify(settings))
+        }
         lastSaved.value = new Date().toISOString()
         isDirty.value = false
       } catch (localError) {
-        console.error('Failed to save settings to localStorage:', localError)
+        console.error('Settings persistence failed:', localError)
         throw localError
       }
     } finally {
