@@ -8,7 +8,8 @@ export function useModels() {
     try {
       const res = await fetch('/api/models')
       if (!res.ok) throw new Error('Failed to load models')
-      models.value = await res.json()
+      const data = await res.json()
+      models.value = Array.isArray(data) ? data : data.models
     } catch (err) {
       error.value = err
     }

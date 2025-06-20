@@ -1,5 +1,6 @@
 <template>
   <div class="config-panel">
+    <ProviderDropdown v-model="localProvider" />
     <select v-model="localModel" class="model-select">
       <option disabled value="">Select model</option>
       <option v-for="m in models" :key="m.identifier" :value="m.identifier">
@@ -21,6 +22,8 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue'
 import { useModels } from '../../composables/useModels.js'
+import { useProviders } from '../../composables/useProviders.js'
+import ProviderDropdown from '../shared/ProviderDropdown.vue'
 
 const props = defineProps({
   model: { type: String, default: '' },
@@ -29,19 +32,26 @@ const props = defineProps({
   runLabel: { type: String, default: 'Run' }
 })
 
-const emit = defineEmits(['update:model', 'update:safety', 'run'])
+const emit = defineEmits(['update:model', 'update:provider', 'update:safety', 'run'])
 
 const { models, loadModels } = useModels()
+const { providers, loadProviders } = useProviders()
 
-onMounted(loadModels)
+onMounted(() => {
+  loadModels()
+  loadProviders()
+})
 
 const localModel = ref(props.model)
+const localProvider = ref(props.provider || '')
 const localSafety = ref(props.safety)
 
 watch(() => props.model, val => (localModel.value = val))
+watch(() => props.provider, val => (localProvider.value = val))
 watch(() => props.safety, val => (localSafety.value = val))
 
 watch(localModel, val => emit('update:model', val))
+watch(localProvider, val => emit('update:provider', val))
 watch(localSafety, val => emit('update:safety', val))
 </script>
 
@@ -50,6 +60,9 @@ watch(localSafety, val => emit('update:safety', val))
   @apply flex items-center gap-4 mb-4;
 }
 .model-select {
+  @apply px-2 py-1 bg-surface-elevated border border-border rounded text-primary;
+}
+.provider-select {
   @apply px-2 py-1 bg-surface-elevated border border-border rounded text-primary;
 }
 .run-btn {

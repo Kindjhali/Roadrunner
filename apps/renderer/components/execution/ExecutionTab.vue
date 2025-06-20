@@ -14,11 +14,17 @@
       >
         Single Task
       </button>
-      <button 
-        :class="{ active: mode === 'batch' }" 
+      <button
+        :class="{ active: mode === 'batch' }"
         @click="mode = 'batch'"
       >
         Batch Folder
+      </button>
+      <button
+        :class="{ active: mode === 'prompt' }"
+        @click="mode = 'prompt'"
+      >
+        Direct Prompt
       </button>
     </div>
 
@@ -26,10 +32,12 @@
     <div v-if="mode === 'single'" class="single-mode">
       <ConfigPanel
         :model="selectedModel"
+        :provider="selectedProvider"
         :safety="safetyMode"
         :disabled="!taskDescription.trim() || isExecuting"
         run-label="Start Autocoder"
         @update:model="updateModel"
+        @update:provider="updateProvider"
         @update:safety="updateSafety"
         @run="executeTask"
       />
@@ -45,6 +53,7 @@
     <div v-if="mode === 'batch'" class="batch-mode">
       <div class="model-selection">
         <h3>Model Selection</h3>
+        <ProviderDropdown v-model="selectedProvider" />
         <SimpleModelDropdown
           v-model="selectedModel"
           placeholder="Select AI model for batch processing"
@@ -98,6 +107,25 @@
       </div>
     </div>
 
+    <!-- Direct Prompt Mode -->
+    <div v-if="mode === 'prompt'" class="single-mode">
+      <PromptEditor
+        v-model="promptInput"
+        :disabled="promptRunning"
+      />
+      <div class="controls">
+        <button
+          class="execute-btn"
+          :disabled="promptRunning || !promptInput.trim()"
+          @click="runPrompt"
+        >
+          {{ promptRunning ? 'Running...' : 'Execute Prompt' }}
+        </button>
+      </div>
+
+      <OutputViewer :logs="promptLogs" />
+    </div>
+
     <!-- Execution Progress -->
     <div v-if="isExecuting || logs.length > 0" class="progress">
       <h3>
@@ -137,14 +165,17 @@
 <script>
 import { ref, computed } from 'vue'
 import SimpleModelDropdown from '../shared/SimpleModelDropdown.vue'
+import ProviderDropdown from '../shared/ProviderDropdown.vue'
 import PromptEditor from './PromptEditor.vue'
 import OutputViewer from './OutputViewer.vue'
 import ConfigPanel from './ConfigPanel.vue'
+import { useExecution } from '../../composables/useExecution.js'
 
 export default {
   name: 'ExecutionTab',
   components: {
     SimpleModelDropdown,
+    ProviderDropdown,
     PromptEditor,
     OutputViewer,
     ConfigPanel
@@ -153,6 +184,7 @@ export default {
     // State
     const mode = ref('single')
     const selectedModel = ref('')
+    const selectedProvider = ref('')
     const taskDescription = ref('')
     const safetyMode = ref(true)
     const isExecuting = ref(false)
@@ -163,8 +195,17 @@ export default {
     const pendingConfirmation = ref(null)
     const eventSource = ref(null)
 
+    // Direct prompt execution state
+    const { isRunning: promptRunning, output: promptOutput, error: promptError, execute } = useExecution()
+    const promptInput = ref('')
+    const promptLogs = ref([])
+
     const updateModel = (val) => {
       selectedModel.value = val
+    }
+
+    const updateProvider = (val) => {
+      selectedProvider.value = val
     }
 
     const updateSafety = (val) => {
@@ -197,6 +238,8 @@ export default {
         const url = new URL('http://localhost:3333/execute-autonomous-task')
         url.searchParams.append('task_description', taskDescription.value)
         url.searchParams.append('safetyMode', safetyMode.value.toString())
+        if (selectedModel.value) url.searchParams.append('model', selectedModel.value)
+        if (selectedProvider.value) url.searchParams.append('provider', selectedProvider.value)
         
         eventSource.value = new EventSource(url)
         
@@ -262,6 +305,8 @@ export default {
           const url = new URL('http://localhost:3333/execute-autonomous-task')
           url.searchParams.append('task_description', content)
           url.searchParams.append('safetyMode', safetyMode.value.toString())
+          if (selectedModel.value) url.searchParams.append('model', selectedModel.value)
+          if (selectedProvider.value) url.searchParams.append('provider', selectedProvider.value)
           
           const fileEventSource = new EventSource(url)
           
@@ -380,6 +425,16 @@ export default {
       batchProgress.value = { completed: 0, total: 0 }
     }
 
+    const runPrompt = async () => {
+      promptLogs.value = []
+      await execute(promptInput.value, selectedProvider.value)
+      if (promptError.value) {
+        promptLogs.value.push({ timestamp: Date.now(), message: `Error: ${promptError.value.message}` })
+      } else if (promptOutput.value) {
+        promptLogs.value.push({ timestamp: Date.now(), message: promptOutput.value })
+      }
+    }
+
     const readFileContent = (file) => {
       return new Promise((resolve, reject) => {
         const reader = new FileReader()
@@ -421,7 +476,13 @@ export default {
       formatFileSize,
       formatTime,
       updateModel,
-      updateSafety
+      updateProvider,
+      updateSafety,
+      selectedProvider,
+      promptInput,
+      promptLogs,
+      promptRunning,
+      runPrompt
     }
   }
 }
