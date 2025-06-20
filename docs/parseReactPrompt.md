@@ -8,6 +8,7 @@ Action: toolName
 Action Input: JSON or plain text
 Observation: outcome text
 Final Answer: final result (optional)
+FinalAnswer: same as above (space is optional)
 ```
 
 ## Inputs

@@ -29,9 +29,9 @@ export function parseReactPrompt(text) {
     } else if (/^Observation:/i.test(trimmed)) {
       current = 'observation'
       parts.observation += trimmed.replace(/^Observation:\s*/i, '') + '\n'
-    } else if (/^Final Answer:/i.test(trimmed)) {
+    } else if (/^Final\s*Answer:/i.test(trimmed)) {
       current = 'finalAnswer'
-      parts.finalAnswer += trimmed.replace(/^Final Answer:\s*/i, '') + '\n'
+      parts.finalAnswer += trimmed.replace(/^Final\s*Answer:\s*/i, '') + '\n'
     } else if (current) {
       parts[current] += line + '\n'
     }
