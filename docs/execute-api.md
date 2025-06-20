@@ -3,11 +3,15 @@
 This document describes the `/api/execute` endpoint implemented in
 `services/api/server.js`. The root `server.js` file does not provide this
 route; it is part of the main API server under the `services/api` directory.
-For details on how ReACT prompts are parsed, see
-[`parseReactPrompt.md`](./parseReactPrompt.md). **ReACT** stands for
-*Reasoning, Execution, Action, Choice, Toolchain* and is unrelated to the
-React UI framework. The backend relies on a simple regex-based parser,
-while the frontend provides a more robust helper in
+
+## Overview
+
+The endpoint accepts a ReACT-formatted prompt and dispatches it to a matching
+tool or agent defined in `example_agents.js`. For details on how ReACT prompts
+are parsed, see [`parseReactPrompt.md`](./parseReactPrompt.md). **ReACT** stands
+for *Reasoning, Execution, Action, Choice, Toolchain* and is unrelated to the
+React UI framework. The backend relies on a simple regex-based parser, while the
+frontend provides a more robust helper in
 `apps/renderer/composables/parseReactPrompt.js`.
 
 ## Prompt Format
