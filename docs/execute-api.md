@@ -4,7 +4,9 @@ This document describes the `/api/execute` endpoint implemented in
 `services/api/server.js`. The root `server.js` file does not provide this
 route; it is part of the main API server under the `services/api` directory.
 For details on how ReACT prompts are parsed, see
-[`parseReactPrompt.md`](./parseReactPrompt.md).
+[`parseReactPrompt.md`](./parseReactPrompt.md). **ReACT** here means
+*Reasoning, Execution, Action, Choice, Toolchain* and is not related to the
+React UI framework.
 
 ## Inputs
 - `prompt` – full text prompt in ReACT format.
