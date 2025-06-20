@@ -3132,34 +3132,64 @@ app.get('/api/templates/:name', (req, res) => {
 
 // ===== Simple Execute Endpoint =====
 app.post('/api/execute', async (req, res) => {
-  const { prompt, provider } = req.body;
+  const { prompt, provider, stream } = req.body || {};
   if (!prompt || typeof prompt !== 'string') {
     return res.status(400).json({ message: 'Prompt is required.' });
   }
+
   const parsed = parseReactPrompt(prompt);
   if (!parsed.action) {
     return res.status(400).json({ message: 'No Action found in prompt.' });
   }
+
   const action = parsed.action.trim();
   const tool = tools.find(t => t.name === action);
   const agent = tool ? null : getAgent(action);
   if (!tool && !agent) {
     return res.status(400).json({ message: 'Unknown tool or agent.' });
   }
+
   let input = parsed.actionInput ? parsed.actionInput.trim() : '';
-  try {
-    let output;
+
+  async function runExecution() {
     if (tool) {
-      output = await (tool._call ? tool._call(input) : tool.call(input));
-    } else {
-      let parsed = input;
-      try {
-        parsed = input ? JSON.parse(input) : {};
-      } catch {
-        // keep as raw string if not JSON
-      }
-      output = await agent(parsed);
+      return await (tool._call ? tool._call(input) : tool.call(input));
     }
+    let parsedInput = input;
+    try {
+      parsedInput = input ? JSON.parse(input) : {};
+    } catch {
+      // keep raw string
+    }
+    return await agent(parsedInput);
+  }
+
+  if (stream) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const send = (event, data) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    send('start', { provider: provider || backendSettings.llmProvider });
+    try {
+      const output = await runExecution();
+      send('output', { output });
+      send('done', { success: true });
+    } catch (err) {
+      console.error('[API /api/execute] Tool error:', err);
+      send('error', { message: err.message });
+    }
+    res.end();
+    return;
+  }
+
+  try {
+    const output = await runExecution();
     res.json({ output, providerUsed: provider || backendSettings.llmProvider });
   } catch (err) {
     console.error('[API /api/execute] Tool error:', err);

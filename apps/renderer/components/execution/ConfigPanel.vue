@@ -12,6 +12,10 @@
       <input type="checkbox" v-model="localSafety" />
       Safety Mode
     </label>
+    <label class="flex items-center gap-2">
+      <input type="checkbox" v-model="localStream" />
+      Stream Output
+    </label>
 
     <button class="run-btn" :disabled="disabled" @click="$emit('run')">
       {{ runLabel }}
@@ -28,11 +32,12 @@ const props = defineProps({
   model: { type: String, default: '' },
   provider: { type: String, default: '' },
   safety: { type: Boolean, default: true },
+  stream: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   runLabel: { type: String, default: 'Run' }
 })
 
-const emit = defineEmits(['update:model', 'update:provider', 'update:safety', 'run'])
+const emit = defineEmits(['update:model', 'update:provider', 'update:safety', 'update:stream', 'run'])
 
 const { models, loadModels } = useModels()
 
@@ -43,14 +48,17 @@ onMounted(() => {
 const localModel = ref(props.model)
 const localProvider = ref(props.provider || '')
 const localSafety = ref(props.safety)
+const localStream = ref(props.stream)
 
 watch(() => props.model, val => (localModel.value = val))
 watch(() => props.provider, val => (localProvider.value = val))
 watch(() => props.safety, val => (localSafety.value = val))
+watch(() => props.stream, val => (localStream.value = val))
 
 watch(localModel, val => emit('update:model', val))
 watch(localProvider, val => emit('update:provider', val))
 watch(localSafety, val => emit('update:safety', val))
+watch(localStream, val => emit('update:stream', val))
 </script>
 
 <style scoped>

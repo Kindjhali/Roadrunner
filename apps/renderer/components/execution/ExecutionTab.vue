@@ -34,11 +34,13 @@
         :model="selectedModel"
         :provider="selectedProvider"
         :safety="safetyMode"
+        :stream="streamOutput"
         :disabled="!taskDescription.trim() || isExecuting"
         run-label="Start Autocoder"
         @update:model="updateModel"
         @update:provider="updateProvider"
         @update:safety="updateSafety"
+        @update:stream="val => (streamOutput = val)"
         @run="executeTask"
       />
 
@@ -187,6 +189,7 @@ export default {
     const selectedProvider = ref('')
     const taskDescription = ref('')
     const safetyMode = ref(true)
+    const streamOutput = ref(false)
     const isExecuting = ref(false)
     const logs = ref([])
     const selectedFolder = ref(null)
@@ -427,7 +430,7 @@ export default {
 
     const runPrompt = async () => {
       promptLogs.value = []
-      await execute(promptInput.value, selectedProvider.value)
+      await execute(promptInput.value, selectedProvider.value, streamOutput.value)
       if (promptError.value) {
         promptLogs.value.push({ timestamp: Date.now(), message: `Error: ${promptError.value.message}` })
       } else if (promptOutput.value) {
@@ -478,6 +481,7 @@ export default {
       updateModel,
       updateProvider,
       updateSafety,
+      streamOutput,
       selectedProvider,
       promptInput,
       promptLogs,
