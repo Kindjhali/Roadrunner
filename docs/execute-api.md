@@ -8,6 +8,16 @@ For details on how ReACT prompts are parsed, see
 *Reasoning, Execution, Action, Choice, Toolchain* and is not related to the
 React UI framework.
 
+## Prompt Format
+The API expects prompts with the following labeled sections:
+
+```
+Thought: your reasoning
+Action: toolName
+Action Input: tool parameters
+Observation: result text
+```
+
 ## Inputs
 - `prompt` – full text prompt in ReACT format.
 - `toolId` – optional explicit tool identifier.
