@@ -52,6 +52,13 @@ export const STEP_TEMPLATES = {
         placeholder: 'e.g., Vue 3, React, Express',
         required: false
       }
+    },
+    reactTemplate: {
+      thought: 'I need to convert the user\u2019s request into working code.',
+      action: 'GenerateCode',
+      actionInput: 'Build a function to filter items in a list based on user input.',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -89,6 +96,13 @@ export const STEP_TEMPLATES = {
         placeholder: 'Describe what this component should do...',
         required: true
       }
+    },
+    reactTemplate: {
+      thought: 'A reusable UI element is needed for the interface.',
+      action: 'CreateComponent',
+      actionInput: 'Component: Button\nProps: label, onClick',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -126,6 +140,13 @@ export const STEP_TEMPLATES = {
         placeholder: 'Describe expected response structure...',
         required: true
       }
+    },
+    reactTemplate: {
+      thought: 'We need a REST endpoint to expose this data to the frontend.',
+      action: 'GenerateAPIEndpoint',
+      actionInput: 'POST /submit with body validation',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -158,6 +179,13 @@ export const STEP_TEMPLATES = {
         placeholder: 'Content to write to file...',
         required: false
       }
+    },
+    reactTemplate: {
+      thought: 'We need to manipulate files for correct runtime behavior.',
+      action: 'PerformFileOperation',
+      actionInput: 'Move all .log files to archive/',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -183,6 +211,13 @@ export const STEP_TEMPLATES = {
         default: './',
         required: true
       }
+    },
+    reactTemplate: {
+      thought: 'This project needs a standard folder layout.',
+      action: 'CreateFolderStructure',
+      actionInput: 'src/, dist/, tests/, assets/',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -214,6 +249,13 @@ export const STEP_TEMPLATES = {
         placeholder: 'Specific rules or standards to check...',
         required: false
       }
+    },
+    reactTemplate: {
+      thought: 'We should ensure the generated code is error-free.',
+      action: 'ValidateCode',
+      actionInput: 'Run linting and syntax validation',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -246,6 +288,13 @@ export const STEP_TEMPLATES = {
         default: 'comprehensive',
         required: true
       }
+    },
+    reactTemplate: {
+      thought: 'Unit tests will confirm this code behaves as expected.',
+      action: 'GenerateTests',
+      actionInput: 'Target: utils/dateHelpers.js',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -279,6 +328,13 @@ export const STEP_TEMPLATES = {
         default: 'developers',
         required: true
       }
+    },
+    reactTemplate: {
+      thought: 'We need documentation for this module to support developers.',
+      action: 'GenerateDocumentation',
+      actionInput: 'Module: UserService',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -309,6 +365,13 @@ export const STEP_TEMPLATES = {
         placeholder: 'List the main features...',
         required: true
       }
+    },
+    reactTemplate: {
+      thought: 'Every project should include a clear README file.',
+      action: 'GenerateREADME',
+      actionInput: 'Project: Roadrunner Autocoder',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -340,6 +403,13 @@ export const STEP_TEMPLATES = {
         placeholder: 'List any specific packages needed...',
         required: false
       }
+    },
+    reactTemplate: {
+      thought: 'This app requires initialization with configuration files.',
+      action: 'SetupProject',
+      actionInput: 'Project: Prompt Planner UI\nTemplate: Vite + Vue',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -370,6 +440,13 @@ export const STEP_TEMPLATES = {
         placeholder: 'List variables that need secure handling...',
         required: false
       }
+    },
+    reactTemplate: {
+      thought: 'Environment variables must be defined for dev/prod.',
+      action: 'ConfigureEnvironment',
+      actionInput: '.env with API_KEY and DB_URL',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -401,6 +478,13 @@ export const STEP_TEMPLATES = {
         placeholder: 'Unique constraints, indexes, etc...',
         required: false
       }
+    },
+    reactTemplate: {
+      thought: 'A database schema defines our data relationships.',
+      action: 'CreateDatabaseSchema',
+      actionInput: 'Tables: users, sessions, logs',
+      observation: '',
+      finalAnswer: ''
     }
   },
 
@@ -433,6 +517,13 @@ export const STEP_TEMPLATES = {
         placeholder: 'example.com',
         required: false
       }
+    },
+    reactTemplate: {
+      thought: 'This system must be deployable with minimal manual steps.',
+      action: 'SetupDeployment',
+      actionInput: 'Pipeline: GitHub Actions \u2192 Vercel',
+      observation: '',
+      finalAnswer: ''
     }
   }
 }
