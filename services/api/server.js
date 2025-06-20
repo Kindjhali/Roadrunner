@@ -3131,7 +3131,7 @@ app.get('/api/templates/:name', (req, res) => {
 
 // ===== Simple Execute Endpoint =====
 app.post('/api/execute', async (req, res) => {
-  const { prompt } = req.body;
+  const { prompt, provider } = req.body;
   if (!prompt || typeof prompt !== 'string') {
     return res.status(400).json({ message: 'Prompt is required.' });
   }
@@ -3159,7 +3159,7 @@ app.post('/api/execute', async (req, res) => {
       }
       output = await agent(parsed);
     }
-    res.json({ output });
+    res.json({ output, providerUsed: provider || backendSettings.llmProvider });
   } catch (err) {
     console.error('[API /api/execute] Tool error:', err);
     res.status(500).json({ message: 'Tool execution failed.', details: err.message });
