@@ -6,10 +6,9 @@ route; it is part of the main API server under the `services/api` directory.
 For details on how ReACT prompts are parsed, see
 [`parseReactPrompt.md`](./parseReactPrompt.md). **ReACT** stands for
 *Reasoning, Execution, Action, Choice, Toolchain* and is unrelated to the
-React UI framework.
-The parsing utility lives in
-`apps/renderer/composables/parseReactPrompt.js` and is shared by both the
-frontend and backend so new parsing logic isn't duplicated.
+React UI framework. The backend relies on a simple regex-based parser,
+while the frontend provides a more robust helper in
+`apps/renderer/composables/parseReactPrompt.js`.
 
 ## Prompt Format
 The API expects prompts with the following labeled sections:
