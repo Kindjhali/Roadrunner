@@ -26,6 +26,8 @@ import fetch from 'node-fetch'; // Standard ESM import
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import { parseLogFile } from '../../viewlog.js';
+// Reuse the existing ReACT parser from the frontend to avoid duplicate logic
+import { parseReactPrompt } from '../../apps/renderer/composables/parseReactPrompt.js';
 
 let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'; // Changed to let
 
@@ -3122,16 +3124,17 @@ app.post('/api/execute', async (req, res) => {
   if (!prompt || typeof prompt !== 'string') {
     return res.status(400).json({ message: 'Prompt is required.' });
   }
-  const actionMatch = prompt.match(/Action:\s*(.*)/);
-  const inputMatch = prompt.match(/Action Input:\s*([\s\S]*?)(?:\n|$)/);
-  if (!actionMatch) return res.status(400).json({ message: 'No Action found in prompt.' });
-  const action = actionMatch[1].trim();
+  const parsed = parseReactPrompt(prompt);
+  if (!parsed.action) {
+    return res.status(400).json({ message: 'No Action found in prompt.' });
+  }
+  const action = parsed.action.trim();
   const tool = tools.find(t => t.name === action);
   const agent = tool ? null : getAgent(action);
   if (!tool && !agent) {
     return res.status(400).json({ message: 'Unknown tool or agent.' });
   }
-  let input = inputMatch ? inputMatch[1].trim() : '';
+  let input = parsed.actionInput ? parsed.actionInput.trim() : '';
   try {
     let output;
     if (tool) {
