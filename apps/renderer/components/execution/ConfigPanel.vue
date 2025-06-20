@@ -22,11 +22,11 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue'
 import { useModels } from '../../composables/useModels.js'
-import { useProviders } from '../../composables/useProviders.js'
 import ProviderDropdown from '../shared/ProviderDropdown.vue'
 
 const props = defineProps({
   model: { type: String, default: '' },
+  provider: { type: String, default: '' },
   safety: { type: Boolean, default: true },
   disabled: { type: Boolean, default: false },
   runLabel: { type: String, default: 'Run' }
@@ -35,11 +35,9 @@ const props = defineProps({
 const emit = defineEmits(['update:model', 'update:provider', 'update:safety', 'run'])
 
 const { models, loadModels } = useModels()
-const { providers, loadProviders } = useProviders()
 
 onMounted(() => {
   loadModels()
-  loadProviders()
 })
 
 const localModel = ref(props.model)
