@@ -54,7 +54,7 @@ export const STEP_TEMPLATES = {
       }
     },
     reactTemplate: {
-      thought: 'I need to convert the user\u2019s request into working code.',
+      thought: 'I need to convert the user\'s request into working code.',
       action: 'GenerateCode',
       actionInput: 'Build a function to filter items in a list based on user input.',
       observation: '',
@@ -521,7 +521,7 @@ export const STEP_TEMPLATES = {
     reactTemplate: {
       thought: 'This system must be deployable with minimal manual steps.',
       action: 'SetupDeployment',
-      actionInput: 'Pipeline: GitHub Actions \u2192 Vercel',
+      actionInput: 'Pipeline: GitHub Actions → Vercel',
       observation: '',
       finalAnswer: ''
     }
