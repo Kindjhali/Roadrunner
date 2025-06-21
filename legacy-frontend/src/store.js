@@ -9,12 +9,8 @@ const store = createStore({
       defaultOllamaModels: ['codellama'],
       OLLAMA_BASE_URL: 'http://localhost:11434', // Added for completeness from backend_config
     },
-<<<<<<< HEAD
     backendPort: 3333,
-=======
-    backendPort: 3030,
     backendHost: '127.0.0.1',
->>>>>>> 77c7eb4619567bc74fe2ae1f8a7771e02cbda1f5
     // Enhanced status objects
     settingsStatus: { status: 'idle', message: 'Waiting to load settings...' }, // idle, loading, retrying, success, error
     modelsStatus: { status: 'idle', message: 'Waiting to load models...' }, // idle, loading, retrying, success, error
