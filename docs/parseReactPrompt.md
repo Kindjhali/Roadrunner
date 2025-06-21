@@ -7,20 +7,18 @@ Thought: reasoning text
 Action: toolName
 Action Input: JSON or plain text
 Observation: outcome text
-Final Answer: optional final response
+Final Answer: final result (optional)
+FinalAnswer: same as above (space is optional)
 ```
 
 ## Inputs
 - **text**: `string` - raw prompt text containing ReACT markers
-
-## Outputs
 - **object** with `thought`, `action`, `actionInput`, `observation`, and `finalAnswer` fields
 
-## Example
 ```js
 import { parseReactPrompt } from '@/composables/parseReactPrompt'
 
-const result = parseReactPrompt(`Thought: search docs\nAction: webBrowser\nAction Input: https://example.com\nObservation: page loaded`)
+const result = parseReactPrompt(`Thought: search docs\nAction: webBrowser\nAction Input: https://example.com\nObservation: page loaded\nFinal Answer: done`)
 ```
 
 Result:
@@ -29,6 +27,7 @@ Result:
   thought: 'search docs',
   action: 'webBrowser',
   actionInput: 'https://example.com',
-  observation: 'page loaded'
+  observation: 'page loaded',
+  finalAnswer: 'done'
 }
 ```
