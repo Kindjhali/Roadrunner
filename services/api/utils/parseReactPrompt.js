@@ -1,4 +1,3 @@
-
 // Parse prompts that follow the ReACT pattern used in Roadrunner.
 // Note: "ReACT" here stands for Reasoning, Execution, Action, Choice, Toolchain
 // and is unrelated to the React UI framework.
@@ -30,9 +29,9 @@ export function parseReactPrompt(text) {
     } else if (/^Observation:/i.test(trimmed)) {
       current = 'observation'
       parts.observation += trimmed.replace(/^Observation:\s*/i, '') + '\n'
-    } else if (/^Final\s*Answer:/i.test(trimmed)) {
+    } else if (/^Final Answer:/i.test(trimmed)) {
       current = 'finalAnswer'
-      parts.finalAnswer += trimmed.replace(/^Final\s*Answer:\s*/i, '') + '\n'
+      parts.finalAnswer += trimmed.replace(/^Final Answer:\s*/i, '') + '\n'
     } else if (current) {
       parts[current] += line + '\n'
     }
@@ -43,7 +42,3 @@ export function parseReactPrompt(text) {
   }
   return parts
 }
-
-export { parseReactPrompt } from '../../services/api/utils/parseReactPrompt.js';
-
-

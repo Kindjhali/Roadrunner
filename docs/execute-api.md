@@ -11,8 +11,10 @@ tool or agent defined in `example_agents.js`. For details on how ReACT prompts
 are parsed, see [`parseReactPrompt.md`](./parseReactPrompt.md). **ReACT** stands
 for *Reasoning, Execution, Action, Choice, Toolchain* and is unrelated to the
 React UI framework. The backend relies on a simple regex-based parser, while the
-frontend provides a more robust helper in
+frontend and backend share a helper located at
+`services/api/utils/parseReactPrompt.js`.
 `apps/renderer/composables/parseReactPrompt.js`.
+
 
 ## Prompt Format
 The API expects prompts with the following labeled sections:
@@ -22,11 +24,14 @@ Thought: your reasoning
 Action: toolName
 Action Input: tool parameters
 Observation: result text
+Final Answer: optional final output
 ```
 
 ## Inputs
 - `prompt` – full text prompt in ReACT format.
 - `toolId` – optional explicit tool identifier.
+- `provider` – optional model provider such as `ollama` or `openai`.
+
 
 ## Outputs
 - `success` – boolean result flag.

@@ -27,7 +27,11 @@ import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import { parseLogFile } from '../../viewlog.js';
 // Reuse the existing ReACT parser from the frontend to avoid duplicate logic
+// Shared ReACT parser
+import { parseReactPrompt } from './utils/parseReactPrompt.js';
+
 import { parseReactPrompt } from '../../apps/renderer/composables/parseReactPrompt.js';
+
 
 let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'; // Changed to let
 
@@ -130,9 +134,9 @@ Question: {input}
 Thought:{agent_scratchpad}`;
 
 
-async function initializeAgentExecutor(customModel = null) {
+async function initializeAgentExecutor(customModel = null, providerOverride = null) {
   console.log("[Agent Init] Initializing AgentExecutor...");
-  const llmProvider = backendSettings.llmProvider;
+  const llmProvider = providerOverride || backendSettings.llmProvider;
   let llm;
 
   // Use configuration settings for memory
@@ -423,7 +427,7 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
     // Initialize agent executor for each request to ensure fresh memory for the task.
     // This makes memory request-scoped.
     try {
-        await initializeAgentExecutor(model);
+        await initializeAgentExecutor(model, provider);
     } catch (initError) {
         console.error("[Agent Handling] CRITICAL: AgentExecutor initialization failed:", initError);
         sendSseMessage('error', { content: `AgentExecutor initialization failed: ${initError.message}` });
@@ -446,7 +450,7 @@ const handleExecuteAutonomousTask = async (req, expressHttpRes) => {
         originalTaskDescription: task_description,
         agentExecutor: agentExecutor,
         llm: { model: model || backendSettings.defaultOllamaModel }, // Pass the model to tools
-        llmProvider: backendSettings.llmProvider, // Pass the LLM provider to tools
+        llmProvider: provider || backendSettings.llmProvider, // Provider from request or default
       }
     };
 
@@ -734,18 +738,18 @@ async function generateFromLocal(originalPrompt, modelName, expressRes, options 
 }
 
 function parseTaskPayload(req) {
-    let task_description, safetyModeString, model;
+    let task_description, safetyModeString, model, provider;
     if (req.method === 'POST') {
-      ({ task_description, safetyMode: safetyModeString, model } = req.body);
+      ({ task_description, safetyMode: safetyModeString, model, provider } = req.body);
     } else if (req.method === 'GET') {
-      ({ task_description, safetyMode: safetyModeString, model } = req.query);
+      ({ task_description, safetyMode: safetyModeString, model, provider } = req.query);
     } else {
       return { error: 'Unsupported request method.' };
     }
     if (!task_description) return { error: 'Missing task_description in parameters.' };
     // safetyMode defaults to true if not 'false'. If undefined, it's true.
     const safetyMode = safetyModeString !== 'false';
-    return { task_description, safetyMode, model };
+    return { task_description, safetyMode, model, provider };
 }
 
 const app = express();
@@ -2238,10 +2242,21 @@ app.get('/api/models', (req, res) => {
         models.push({ name: m.name, identifier: m.id, backend: m.type || 'ollama' });
       });
     }
-    res.json(models);
+    const formatted = models.map(m => ({
+      name: m.name,
+      identifier: m.identifier,
+      provider: m.backend && m.backend.startsWith('remote_openai') ? 'openai' : 'ollama'
+    }));
+    res.json({ success: true, models: formatted });
   } catch (err) {
     res.status(500).json({ message: 'Failed to load models', details: err.message });
   }
+});
+
+// ===== MODEL PROVIDERS API =====
+app.get('/api/providers', (req, res) => {
+  // Currently static providers; could be extended to read from config
+  res.json(['ollama', 'openai']);
 });
 
 // ===== CONFIGURATION TAB APIs =====
@@ -3120,35 +3135,71 @@ app.get('/api/templates/:name', (req, res) => {
 
 // ===== Simple Execute Endpoint =====
 app.post('/api/execute', async (req, res) => {
-  const { prompt } = req.body;
+  const { prompt, provider, stream } = req.body || {};
   if (!prompt || typeof prompt !== 'string') {
     return res.status(400).json({ message: 'Prompt is required.' });
   }
+
   const parsed = parseReactPrompt(prompt);
   if (!parsed.action) {
     return res.status(400).json({ message: 'No Action found in prompt.' });
   }
+
   const action = parsed.action.trim();
   const tool = tools.find(t => t.name === action);
   const agent = tool ? null : getAgent(action);
   if (!tool && !agent) {
     return res.status(400).json({ message: 'Unknown tool or agent.' });
   }
+
+
+  let input = parsed.actionInput ? parsed.actionInput.trim() : '';
+
+  async function runExecution() {
+
   let input = parsed.actionInput ? parsed.actionInput.trim() : '';
   try {
     let output;
+
     if (tool) {
-      output = await (tool._call ? tool._call(input) : tool.call(input));
-    } else {
-      let parsed = input;
-      try {
-        parsed = input ? JSON.parse(input) : {};
-      } catch {
-        // keep as raw string if not JSON
-      }
-      output = await agent(parsed);
+      return await (tool._call ? tool._call(input) : tool.call(input));
     }
-    res.json({ output });
+    let parsedInput = input;
+    try {
+      parsedInput = input ? JSON.parse(input) : {};
+    } catch {
+      // keep raw string
+    }
+    return await agent(parsedInput);
+  }
+
+  if (stream) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const send = (event, data) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    send('start', { provider: provider || backendSettings.llmProvider });
+    try {
+      const output = await runExecution();
+      send('output', { output });
+      send('done', { success: true });
+    } catch (err) {
+      console.error('[API /api/execute] Tool error:', err);
+      send('error', { message: err.message });
+    }
+    res.end();
+    return;
+  }
+
+  try {
+    const output = await runExecution();
+    res.json({ output, providerUsed: provider || backendSettings.llmProvider });
   } catch (err) {
     console.error('[API /api/execute] Tool error:', err);
     res.status(500).json({ message: 'Tool execution failed.', details: err.message });

@@ -13,12 +13,8 @@ FinalAnswer: same as above (space is optional)
 
 ## Inputs
 - **text**: `string` - raw prompt text containing ReACT markers
+- **object** with `thought`, `action`, `actionInput`, `observation`, and `finalAnswer` fields
 
-## Outputs
-- **object** with `thought`, `action`, `actionInput`, `observation`, and
-  `finalAnswer` fields
-
-## Example
 ```js
 import { parseReactPrompt } from '@/composables/parseReactPrompt'
 
