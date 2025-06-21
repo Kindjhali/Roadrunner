@@ -3152,24 +3152,22 @@ app.post('/api/execute', async (req, res) => {
   }
 
 
-  let input = parsed.actionInput ? parsed.actionInput.trim() : '';
-
   async function runExecution() {
-
-  let input = parsed.actionInput ? parsed.actionInput.trim() : '';
-  try {
-    let output;
-
-    if (tool) {
-      return await (tool._call ? tool._call(input) : tool.call(input));
-    }
-    let parsedInput = input;
+    const input = parsed.actionInput ? parsed.actionInput.trim() : '';
     try {
-      parsedInput = input ? JSON.parse(input) : {};
-    } catch {
-      // keep raw string
+      if (tool) {
+        return await (tool._call ? tool._call(input) : tool.call(input));
+      }
+      let parsedInput = input;
+      try {
+        parsedInput = input ? JSON.parse(input) : {};
+      } catch {
+        // keep raw string
+      }
+      return await agent(parsedInput);
+    } catch (err) {
+      throw err;
     }
-    return await agent(parsedInput);
   }
 
   if (stream) {
