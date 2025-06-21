@@ -30,7 +30,6 @@ import { parseLogFile } from '../../viewlog.js';
 // Shared ReACT parser
 import { parseReactPrompt } from './utils/parseReactPrompt.js';
 
-import { parseReactPrompt } from '../../apps/renderer/composables/parseReactPrompt.js';
 
 
 let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'; // Changed to let
