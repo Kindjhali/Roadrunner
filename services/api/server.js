@@ -2944,8 +2944,28 @@ app.get('/api/ollama/ping', async (req, res) => {
 
 
 // --- Agent Instructions API ---
-// GET /api/instructions/:agentType or /api/instructions
-app.get('/api/instructions/:agentType?', (req, res) => {
+// GET /api/instructions
+app.get('/api/instructions', (req, res) => {
+  const agentType = null;
+  try {
+    if (!fs.existsSync(AGENT_INSTRUCTIONS_FILE_PATH)) {
+      fs.writeFileSync(AGENT_INSTRUCTIONS_FILE_PATH, JSON.stringify({}, null, 2), 'utf-8');
+      console.log(`[API GET /instructions] Created empty agent instructions file at ${AGENT_INSTRUCTIONS_FILE_PATH}`);
+      return res.json({});
+    }
+
+    const fileContent = fs.readFileSync(AGENT_INSTRUCTIONS_FILE_PATH, 'utf-8');
+    const instructions = JSON.parse(fileContent);
+
+    res.json(instructions);
+  } catch (error) {
+    console.error(`[API GET /instructions] Error:`, error);
+    res.status(500).json({ message: 'Error loading agent instructions.', details: error.message });
+  }
+});
+
+// GET /api/instructions/:agentType
+app.get('/api/instructions/:agentType', (req, res) => {
   const { agentType } = req.params;
   try {
     if (!fs.existsSync(AGENT_INSTRUCTIONS_FILE_PATH)) {
@@ -2958,15 +2978,10 @@ app.get('/api/instructions/:agentType?', (req, res) => {
     const fileContent = fs.readFileSync(AGENT_INSTRUCTIONS_FILE_PATH, 'utf-8');
     const instructions = JSON.parse(fileContent);
 
-    if (agentType && agentType.toLowerCase() !== 'all') {
-      if (instructions.hasOwnProperty(agentType)) {
-        res.json({ [agentType]: instructions[agentType] });
-      } else {
-        res.status(404).json({ message: `Instructions for agent type '${agentType}' not found.` });
-      }
+    if (instructions.hasOwnProperty(agentType)) {
+      res.json({ [agentType]: instructions[agentType] });
     } else {
-      // Return all instructions if agentType is 'all' or not provided
-      res.json(instructions);
+      res.status(404).json({ message: `Instructions for agent type '${agentType}' not found.` });
     }
   } catch (error) {
     console.error(`[API GET /instructions] Error:`, error);
