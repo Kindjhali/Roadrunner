@@ -32,11 +32,15 @@
     <div v-if="mode === 'single'" class="single-mode">
       <ConfigPanel
         :model="selectedModel"
+        :provider="selectedProvider"
         :safety="safetyMode"
+        :stream="streamOutput"
         :disabled="!taskDescription.trim() || isExecuting"
         run-label="Start Autocoder"
         @update:model="updateModel"
+        @update:provider="updateProvider"
         @update:safety="updateSafety"
+        @update:stream="val => (streamOutput = val)"
         @run="executeTask"
       />
 
@@ -51,6 +55,7 @@
     <div v-if="mode === 'batch'" class="batch-mode">
       <div class="model-selection">
         <h3>Model Selection</h3>
+        <ProviderDropdown v-model="selectedProvider" />
         <SimpleModelDropdown
           v-model="selectedModel"
           placeholder="Select AI model for batch processing"
@@ -162,6 +167,7 @@
 <script>
 import { ref, computed } from 'vue'
 import SimpleModelDropdown from '../shared/SimpleModelDropdown.vue'
+import ProviderDropdown from '../shared/ProviderDropdown.vue'
 import PromptEditor from './PromptEditor.vue'
 import OutputViewer from './OutputViewer.vue'
 import ConfigPanel from './ConfigPanel.vue'
@@ -171,6 +177,7 @@ export default {
   name: 'ExecutionTab',
   components: {
     SimpleModelDropdown,
+    ProviderDropdown,
     PromptEditor,
     OutputViewer,
     ConfigPanel
@@ -179,8 +186,10 @@ export default {
     // State
     const mode = ref('single')
     const selectedModel = ref('')
+    const selectedProvider = ref('')
     const taskDescription = ref('')
     const safetyMode = ref(true)
+    const streamOutput = ref(false)
     const isExecuting = ref(false)
     const logs = ref([])
     const selectedFolder = ref(null)
@@ -196,6 +205,10 @@ export default {
 
     const updateModel = (val) => {
       selectedModel.value = val
+    }
+
+    const updateProvider = (val) => {
+      selectedProvider.value = val
     }
 
     const updateSafety = (val) => {
@@ -228,6 +241,8 @@ export default {
         const url = new URL('http://localhost:3333/execute-autonomous-task')
         url.searchParams.append('task_description', taskDescription.value)
         url.searchParams.append('safetyMode', safetyMode.value.toString())
+        if (selectedModel.value) url.searchParams.append('model', selectedModel.value)
+        if (selectedProvider.value) url.searchParams.append('provider', selectedProvider.value)
         
         eventSource.value = new EventSource(url)
         
@@ -293,6 +308,8 @@ export default {
           const url = new URL('http://localhost:3333/execute-autonomous-task')
           url.searchParams.append('task_description', content)
           url.searchParams.append('safetyMode', safetyMode.value.toString())
+          if (selectedModel.value) url.searchParams.append('model', selectedModel.value)
+          if (selectedProvider.value) url.searchParams.append('provider', selectedProvider.value)
           
           const fileEventSource = new EventSource(url)
           
@@ -413,7 +430,7 @@ export default {
 
     const runPrompt = async () => {
       promptLogs.value = []
-      await execute(promptInput.value)
+      await execute(promptInput.value, selectedProvider.value, streamOutput.value)
       if (promptError.value) {
         promptLogs.value.push({ timestamp: Date.now(), message: `Error: ${promptError.value.message}` })
       } else if (promptOutput.value) {
@@ -462,6 +479,10 @@ export default {
       formatFileSize,
       formatTime,
       updateModel,
+      updateProvider,
+      updateSafety,
+      streamOutput,
+      selectedProvider,
       updateSafety,
       promptInput,
       promptLogs,

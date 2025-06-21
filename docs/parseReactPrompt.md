@@ -7,13 +7,14 @@ Thought: reasoning text
 Action: toolName
 Action Input: JSON or plain text
 Observation: outcome text
+Final Answer: optional final response
 ```
 
 ## Inputs
 - **text**: `string` - raw prompt text containing ReACT markers
 
 ## Outputs
-- **object** with `thought`, `action`, `actionInput`, and `observation` fields
+- **object** with `thought`, `action`, `actionInput`, `observation`, and `finalAnswer` fields
 
 ## Example
 ```js
